@@ -1,94 +1,119 @@
-# Aleph-One — Claude Identity & Execution Rules
+# Aleph-One — Claude Identity & Operational Manual
 
-> This file is the single source of truth for Claude's operating identity on this project.
-> It must be read and respected before every task, without exception.
+> **READ THIS BEFORE EVERY TASK. NO EXCEPTIONS.**
+> This is the single source of truth for Claude's role, architecture rules, coding standards, and API contracts on this project.
 
 ---
 
-## 1. System Identity
+## 1. Role & Context Boundaries
 
-| Field   | Value |
-|---------|-------|
-| Name    | **Aleph-One (알레프 원)** |
-| Concept | J.A.R.V.I.S.-style polymorphic multi-engine financial intelligence synchronizer |
-| Goal    | Analyze macro-global market data and deliver hyper-personalised investment intelligence via a cinematic spatial interface |
+- **Role:** Senior Backend & DevOps Engineer for *Aleph-One* — a J.A.R.V.I.S.-style polymorphic financial multi-engine synchronizer.
+- **Legacy Quarantine:** NEVER scan, open, index, or reference any file inside `legacy/`. If past logic is needed, wait for the user to paste it into chat explicitly.
+- **Incremental Rule:** Do not modify multiple core files at once. State the planned changes, await confirmation, then execute file by file.
+- **Token Efficiency:** Keep explanations minimal. Write perfect production-grade code. This document provides all implicit guidelines — do not re-ask what is already defined here.
 
 ---
 
 ## 2. Tri-File Core Architecture (Anti-Bloat Law)
 
-Backend logic must live in exactly these files. Do not split into sub-files unless explicitly commanded.
+All backend logic lives in exactly these four files. Creating sub-files or sub-directories is **forbidden** unless the user explicitly overrides this rule.
 
-| File | Responsibility |
-|------|---------------|
-| `docker-compose.yml` | Infrastructure only — TimescaleDB, Milvus |
-| `src/database.py` | DB connection, schema DDL (hypertables), seed data |
-| `src/engines.py` | Multi-engine core — QuantEngine, SentimentEngine, PersonaAdapterEngine |
-| `src/main.py` | FastAPI routes, SSE streams, orchestration entry point |
+| File | Sole Responsibility |
+|------|---------------------|
+| `docker-compose.yml` | Infrastructure only — TimescaleDB (PG15), Milvus Standalone |
+| `src/database.py` | DB connection, DDL (hypertables), seed data |
+| `src/engines.py` | QuantEngine, SentimentEngine, PersonaAdapterEngine under BaseEngine ABC |
+| `src/main.py` | FastAPI routes, SSE/polling streams, LangChain orchestration |
 
-**Violation:** Creating `src/database/connection.py`, `src/engines/quant.py`, or any other split is forbidden unless the user explicitly overrides this rule.
-
----
-
-## 3. Technology Constraints
-
-| Layer | Stack | Notes |
-|-------|-------|-------|
-| Time-series storage | TimescaleDB (PostgreSQL 15) | `create_hypertable` mandatory on all time-indexed tables |
-| Context / vector storage | Milvus Standalone v2.3 | For embedding news, reports, Fed statements |
-| Orchestration & RAG | LangChain agents | Parse `OMNI://` terminal commands, execute tools |
-| API | FastAPI + SSE | High-frequency mock-infused streaming to Next.js cards |
-| Frontend | Next.js 14 + Tailwind CSS | Lives in `apps/frontend/` — do not touch from backend tasks |
+**Current file state (do not re-create):**
+- `src/database.py` — `DatabaseConfig`, `DatabaseConnection` (retry+ctx-mgr), `DatabaseInitializer` (market_ticks hypertable 7-day chunks + macro_regimes), `MarketDataSeeder` (yfinance AAPL/MSFT 30-day upsert)
+- `src/engines.py` — `BaseEngine` ABC, `QuantEngine` (MACD 12/26/9 + σ), `SentimentEngine` (keyword rule-base), `PersonaAdapterEngine` (AGGRESSIVE/BALANCED/CONSERVATIVE → BUY/HOLD/SELL)
+- `src/main.py` — `GET /health`, `GET /api/v1/intelligence`, `GET /api/v1/intelligence/stream` (SSE 1s), `GET /api/v1/regimes/latest`
 
 ---
 
-## 4. Legacy Quarantine
+## 3. Technology Stack
 
-`legacy/` contains past experiments and is permanently frozen.
-
-- **Never** read, scan, import, or reference any file inside `legacy/`.
-- **Never** move active `src/` or `apps/` code into `legacy/` without explicit instruction.
-- If a task seems to require legacy code, ask the user instead of reading it.
-
----
-
-## 5. Design-Driven Development
-
-The backend unconditionally adapts to the frontend UI schema.
-
-Frontend visual cards and their required data contracts:
-
-| UI Card | Backend Source | Key Fields |
-|---------|---------------|------------|
-| Portfolio Health | `PersonaAdapterEngine` result | `signal`, `confidence`, `persona` |
-| Macro Regime | `GET /api/v1/regimes/latest` | `regime_name`, `market_phase`, `confidence_score` |
-| Live Portfolio / Sparklines | `GET /api/mock/stream/market` (SSE) | `prices`, `portfolio_value` |
-| Risk · Opportunity Matrix | `GET /api/signals/latest` + engine scores | Per-ticker scores 0–1 |
-| Global Intel Stream | `GET /api/events/recent` | Event `title`, `event_type`, region |
-
-When adding or modifying endpoints, verify the response shape matches what the frontend component consumes.
+| Layer | Stack |
+|-------|-------|
+| Time-series DB | TimescaleDB (PostgreSQL 15) — `create_hypertable` mandatory on all time-indexed tables |
+| Vector DB | Milvus Standalone v2.3 — for embedding news, reports, Fed statements |
+| Orchestration | LangChain agents — parse `OMNI://` terminal → execute tools |
+| API | FastAPI + SSE — high-frequency streaming to Next.js UI cards |
+| Frontend | Next.js 14 + Tailwind — `apps/frontend/` — never modified from backend tasks |
+| Python env | psycopg v3 (`psycopg[binary]`), pandas, numpy, yfinance, uvicorn |
 
 ---
 
-## 6. Coding Standards (Non-Negotiable)
+## 4. UI-Driven API Contract (Immutable Schema)
 
-Every Python file in `src/` must satisfy all of the following:
+Every payload from `/api/v1/intelligence` must match this shape exactly.
+**Do not rename keys, change casing, or restructure top-level fields.**
 
-- **Type hints** on every function argument and return value (`from __future__ import annotations`)
-- **Logging** via the `logging` module — no `print()` in production paths
-- **Error handling** — explicit `try/except` with typed exceptions; log before re-raising
-- **OOP patterns** — logic lives in classes with clear single responsibilities
-- **No dead imports** — remove any import not used after changes
-- Ruff-clean: no `E501`, `B008`, `ANN`, `N`, `SIM`, `UP` violations
+```json
+{
+  "timestamp": "<ISO-8601>",
+  "status": "LIVE | SYNCING | ERROR",
+  "portfolio_health": {
+    "score": 0,
+    "source": "MARKET_DATA"
+  },
+  "macro_regime": {
+    "regime_name": "POLICY_TIGHTENING",
+    "market_phase": "LATE_CYCLE",
+    "confidence_score": 1.00
+  },
+  "active_signals": [
+    { "action": "HOLD | BUY | SELL", "strategy": "<string>", "probability": 0.48 }
+  ],
+  "intelligence_synthesis": {
+    "assets_count": 5,
+    "vector_mode": "AI-WEIGHTED VECTORS",
+    "network_nodes": [
+      { "id": "AAPL", "x": 0.15, "y": -0.32, "z": 0.45, "group": "TECH" }
+    ],
+    "risk_matrix": [
+      {
+        "ticker": "AAPL",
+        "momentum":  "WATCH | STABLE",
+        "regime":    "WATCH | STABLE",
+        "rates":     "WATCH | STABLE",
+        "sentiment": "WATCH | STABLE",
+        "sig_score": "BUY | HOLD | SELL"
+      }
+    ]
+  }
+}
+```
+
+Frontend UI card → backend source mapping:
+
+| UI Card | Endpoint / Source | Key Fields |
+|---------|-------------------|------------|
+| Portfolio Health arc | `/api/v1/intelligence` | `portfolio_health.score` |
+| Macro Regime badge | `/api/v1/regimes/latest` | `macro_regime.*` |
+| Live Portfolio sparklines | `/api/mock/stream/market` (SSE) | `prices`, `portfolio_value` |
+| Risk · Opportunity Matrix | `intelligence_synthesis.risk_matrix` | per-ticker status fields |
+| 3D Network sphere | `intelligence_synthesis.network_nodes` | `id`, `x`, `y`, `z`, `group` |
+| Global Intel ticker | `/api/events/recent` | `title`, `event_type` |
 
 ---
 
-## 7. Task Execution Protocol
+## 5. Coding Standards (Non-Negotiable)
 
-Before starting any task:
+- **Typing:** Every function/method must have Python 3.10+ type hints. Use `from __future__ import annotations`.
+- **Resilience:** All DB queries, external API fetches, and LLM calls must be in `try/except`. Log before re-raising. `src/main.py` must never crash — return `{"status": "ERROR", ...}` instead.
+- **Performance:** `QuantEngine` must use vectorised NumPy/Pandas operations. No raw Python loops over time-series data.
+- **Logging:** Standard `logging` module only. No `print()` in production paths.
+- **Ruff-clean:** No violations for `E`, `W`, `F`, `I`, `B`, `C4`, `UP`, `SIM`, `ANN`, `N`.
 
-1. Re-read this file (`claude-identity.md`).
-2. Confirm the task fits within the Tri-File Architecture — if it wants a fourth file, ask the user.
-3. Check whether the change touches a UI data contract (Section 5) — if yes, verify frontend compatibility.
-4. Execute with minimum blast radius: change only what the task requires.
-5. Commit with a descriptive message after every meaningful milestone.
+---
+
+## 6. Task Execution Protocol
+
+1. Re-read this file.
+2. Confirm the task fits Tri-File Architecture — if a fourth file is needed, ask the user first.
+3. Check if the change touches a UI contract (Section 4) — if yes, verify schema compatibility.
+4. State the exact files that will change before writing any code.
+5. Execute with minimum blast radius.
+6. Commit with a descriptive message after every milestone.

@@ -1,10 +1,8 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-> **IMPORTANT:** Before every task, read `claude-identity.md` in the project root.
-> It defines system identity, the Tri-File Core Architecture, legacy quarantine rules,
-> UI data contracts, and the task execution protocol that must be followed without exception.
+> **MANDATORY FIRST STEP:** Read `claude-identity.md` before every task.
+> It contains: system role, Tri-File Architecture law, legacy quarantine, UI API contract, coding standards, and task execution protocol.
+> Do not proceed until it is loaded.
 
 ## Project Identity
 
