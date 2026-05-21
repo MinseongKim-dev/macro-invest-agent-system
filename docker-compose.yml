@@ -1,23 +1,39 @@
 services:
 
   # ---------------------------------------------------------------------------
-  # PostgreSQL — persistent storage for features, signals, and pipeline runs
+  # TimescaleDB — time-series storage for market ticks and macro regimes
   # ---------------------------------------------------------------------------
-  postgres:
-    image: postgres:16-alpine
+  timescaledb:
+    image: timescale/timescaledb:latest-pg15
+    container_name: aleph_one_timescale
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-macro_user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-macro_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-macro_db}
+      POSTGRES_USER: ${DB_USER:-aleph_admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-aleph_secure_pass}
+      POSTGRES_DB: ${DB_NAME:-aleph_core}
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - timescale_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-macro_user} -d ${POSTGRES_DB:-macro_db}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-aleph_admin} -d ${DB_NAME:-aleph_core}"]
       interval: 5s
       timeout: 5s
       retries: 10
+
+  # ---------------------------------------------------------------------------
+  # Milvus — vector database for Phase 4 RAG / embedding search
+  # ---------------------------------------------------------------------------
+  milvus-standalone:
+    image: milvusdb/milvus:v2.3.0
+    container_name: aleph_one_milvus
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_USE_EMBED: "true"
+      MINIO_USE_EMBED: "true"
+    ports:
+      - "19530:19530"
+    volumes:
+      - milvus_data:/var/lib/milvus/data
 
   # ---------------------------------------------------------------------------
   # MinIO — S3-compatible object store for raw data artefacts
@@ -49,9 +65,18 @@ services:
     env_file:
       - path: .env
         required: false
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-aleph_admin}:${DB_PASSWORD:-aleph_secure_pass}@timescaledb:5432/${DB_NAME:-aleph_core}
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-aleph_core}
+      DB_USER: ${DB_USER:-aleph_admin}
+      DB_PASSWORD: ${DB_PASSWORD:-aleph_secure_pass}
     ports:
       - "8000:8000"
-    # API uses in-memory stores only — no postgres dependency needed
+    depends_on:
+      timescaledb:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
@@ -131,7 +156,8 @@ services:
       retries: 5
 
 volumes:
-  postgres_data:
+  timescale_data:
+  milvus_data:
   minio_data:
   prometheus_data:
   grafana_data:
