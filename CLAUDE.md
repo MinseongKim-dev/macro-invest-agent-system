@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+> **IMPORTANT:** Before every task, read `claude-identity.md` in the project root.
+> It defines system identity, the Tri-File Core Architecture, legacy quarantine rules,
+> UI data contracts, and the task execution protocol that must be followed without exception.
+
 ## Project Identity
 
 This project is a multi-engine economic and market analysis system for investment support.
