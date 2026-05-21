@@ -1,48 +1,49 @@
-"""Aleph-One database layer — single-file integration.
+"""Aleph-One database layer — connection pool, schema init, mock data seeding.
 
-Covers: connection management (with exponential-backoff retry), schema
-initialisation (TimescaleDB hypertable + macro_regimes), and market-data
-seeding from Yahoo Finance.
+Tri-File Architecture — this file owns:
+  - DatabaseConfig        : env-var backed config dataclass
+  - _PoolManager          : thread-safe connection pool singleton
+  - get_pool()            : pool accessor
+  - get_connection()      : context manager (lease → auto-return)
+  - init_db()             : DDL — market_ticks hypertable + macro_regimes
+  - seed_mock_data()      : pandas GBM OHLCV + dummy regimes via COPY (bulk)
 
-Quick-start::
+Run standalone::
 
-    python -m src.database        # init schema + seed AAPL/MSFT
-
-Environment variables (all optional — defaults match docker-compose):
-    DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
+    python -m src.database
 """
 
 from __future__ import annotations
 
 import logging
 import os
-import time
-from collections.abc import Generator, Iterator
+import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Any
 
+import numpy as np
+import pandas as pd
 import psycopg
+import psycopg_pool
 from psycopg.rows import TupleRow
 
 logger = logging.getLogger(__name__)
 
-# ── Configuration ─────────────────────────────────────────────────────────────
-
-_MAX_RETRIES: int = 5
-_RETRY_BASE_DELAY: float = 1.0  # doubles on each attempt
+# ── Config ────────────────────────────────────────────────────────────────────
 
 
 @dataclass(frozen=True)
 class DatabaseConfig:
-    host: str = field(default_factory=lambda: os.environ.get("DB_HOST", "localhost"))
-    port: int = field(default_factory=lambda: int(os.environ.get("DB_PORT", "5432")))
-    name: str = field(default_factory=lambda: os.environ.get("DB_NAME", "aleph_core"))
-    user: str = field(default_factory=lambda: os.environ.get("DB_USER", "aleph_admin"))
+    host: str     = field(default_factory=lambda: os.environ.get("DB_HOST", "localhost"))
+    port: int     = field(default_factory=lambda: int(os.environ.get("DB_PORT", "5432")))
+    name: str     = field(default_factory=lambda: os.environ.get("DB_NAME", "aleph_core"))
+    user: str     = field(default_factory=lambda: os.environ.get("DB_USER", "aleph_admin"))
     password: str = field(default_factory=lambda: os.environ.get("DB_PASSWORD", "aleph_secure_pass"))
-    max_retries: int = _MAX_RETRIES
-    retry_base_delay: float = _RETRY_BASE_DELAY
+    pool_min: int = 2
+    pool_max: int = 10
 
     @property
     def conninfo(self) -> str:
@@ -52,54 +53,60 @@ class DatabaseConfig:
         )
 
 
-# ── Connection ────────────────────────────────────────────────────────────────
+# ── Connection Pool Singleton ─────────────────────────────────────────────────
 
 
-class DatabaseConnection:
-    """psycopg v3 connection wrapper with exponential-backoff retry.
+class _PoolManager:
+    """Thread-safe connection pool singleton (double-checked locking).
 
-    Usage::
-
-        db = DatabaseConnection()
-        with db.connect() as conn:
-            conn.execute("SELECT 1")
+    One pool is created per process lifetime. Call `close()` only on shutdown.
     """
 
-    def __init__(self, config: DatabaseConfig | None = None) -> None:
-        self._config = config or DatabaseConfig()
+    _instance: psycopg_pool.ConnectionPool | None = None  # type: ignore[type-arg]
+    _lock: threading.Lock = threading.Lock()
 
-    def open(self) -> psycopg.Connection[TupleRow]:
-        """Return an open connection, retrying up to `max_retries` times."""
-        cfg = self._config
-        delay = cfg.retry_base_delay
+    @classmethod
+    def get(cls, config: DatabaseConfig | None = None) -> psycopg_pool.ConnectionPool:  # type: ignore[type-arg]
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    cfg = config or DatabaseConfig()
+                    try:
+                        cls._instance = psycopg_pool.ConnectionPool(
+                            conninfo=cfg.conninfo,
+                            min_size=cfg.pool_min,
+                            max_size=cfg.pool_max,
+                            open=True,
+                        )
+                        logger.info(
+                            "db_pool_created",
+                            extra={"host": cfg.host, "min": cfg.pool_min, "max": cfg.pool_max},
+                        )
+                    except Exception as exc:
+                        logger.error("db_pool_creation_failed", extra={"error": str(exc)})
+                        raise
+        return cls._instance  # type: ignore[return-value]
 
-        for attempt in range(1, cfg.max_retries + 1):
-            try:
-                conn: psycopg.Connection[TupleRow] = psycopg.connect(cfg.conninfo)
-                logger.info("db_connected", extra={"host": cfg.host, "attempt": attempt})
-                return conn
-            except psycopg.OperationalError as exc:
-                if attempt == cfg.max_retries:
-                    logger.error("db_connection_failed", extra={"host": cfg.host, "error": str(exc)})
-                    raise
-                logger.warning(
-                    "db_connection_retry",
-                    extra={"attempt": attempt, "retry_in": delay, "error": str(exc)},
-                )
-                time.sleep(delay)
-                delay *= 2
+    @classmethod
+    def close(cls) -> None:
+        with cls._lock:
+            if cls._instance is not None:
+                cls._instance.close()
+                cls._instance = None
+                logger.info("db_pool_closed")
 
-        raise RuntimeError("unreachable")  # pragma: no cover
 
-    @contextmanager
-    def connect(self) -> Iterator[psycopg.Connection[TupleRow]]:
-        """Context manager: open a connection and close it on exit."""
-        conn = self.open()
-        try:
-            yield conn
-        finally:
-            conn.close()
-            logger.debug("db_connection_closed", extra={"host": self._config.host})
+def get_pool(config: DatabaseConfig | None = None) -> psycopg_pool.ConnectionPool:  # type: ignore[type-arg]
+    """Return the process-wide connection pool, creating it on first call."""
+    return _PoolManager.get(config)
+
+
+@contextmanager
+def get_connection(config: DatabaseConfig | None = None) -> Iterator[psycopg.Connection[TupleRow]]:
+    """Lease a connection from the pool; return it automatically on exit."""
+    pool = get_pool(config)
+    with pool.connection() as conn:
+        yield conn  # type: ignore[misc]
 
 
 # ── DDL ───────────────────────────────────────────────────────────────────────
@@ -127,26 +134,23 @@ SELECT create_hypertable(
 
 _DDL_MACRO_REGIMES = """
 CREATE TABLE IF NOT EXISTS macro_regimes (
-    id               SERIAL PRIMARY KEY,
-    updated_at       TIMESTAMPTZ   DEFAULT NOW(),
-    regime_name      VARCHAR(50)   NOT NULL,
-    market_phase     VARCHAR(30)   NOT NULL,
-    confidence_score NUMERIC(3,2)  NOT NULL
+    id               SERIAL       PRIMARY KEY,
+    updated_at       TIMESTAMPTZ  DEFAULT NOW(),
+    regime_name      VARCHAR(50)  NOT NULL,
+    market_phase     VARCHAR(30)  NOT NULL,
+    confidence_score NUMERIC(3,2) NOT NULL
 );
 """
 
-# ── Initialiser ───────────────────────────────────────────────────────────────
 
+def init_db(config: DatabaseConfig | None = None) -> None:
+    """Create market_ticks (hypertable, 7-day chunks) and macro_regimes.
 
-class DatabaseInitializer:
-    """Idempotent schema setup: market_ticks hypertable + macro_regimes."""
-
-    def __init__(self, config: DatabaseConfig | None = None) -> None:
-        self._db = DatabaseConnection(config)
-
-    def run(self) -> None:
-        logger.info("db_init_start")
-        with self._db.connect() as conn:
+    Idempotent — safe to call on every startup.
+    """
+    logger.info("db_init_start")
+    try:
+        with get_connection(config) as conn:
             conn.execute(_DDL_MARKET_TICKS)
             logger.debug("db_table_ensured", extra={"table": "market_ticks"})
             conn.execute(_DDL_HYPERTABLE)
@@ -155,108 +159,131 @@ class DatabaseInitializer:
             logger.debug("db_table_ensured", extra={"table": "macro_regimes"})
             conn.commit()
         logger.info("db_init_complete")
+    except Exception as exc:
+        logger.error("db_init_failed", extra={"error": str(exc)})
+        raise
+
+
+# ── Mock Data Generators ──────────────────────────────────────────────────────
+
+_OHLCV_PARAMS: dict[str, dict[str, float]] = {
+    "AAPL": {"start": 195.0, "mu": 0.10, "sigma": 0.22},
+    "MSFT": {"start": 415.0, "mu": 0.12, "sigma": 0.20},
+}
+
+_MOCK_REGIMES: list[dict[str, Any]] = [
+    {"regime_name": "POLICY_TIGHTENING", "market_phase": "LATE_CYCLE",  "confidence_score": 0.85},
+    {"regime_name": "RISK_OFF",          "market_phase": "CONTRACTION", "confidence_score": 0.72},
+    {"regime_name": "EXPANSION",         "market_phase": "MID_CYCLE",   "confidence_score": 0.91},
+    {"regime_name": "REFLATION",         "market_phase": "EARLY_CYCLE", "confidence_score": 0.78},
+    {"regime_name": "STAGFLATION",       "market_phase": "LATE_CYCLE",  "confidence_score": 0.65},
+]
+
+
+def _generate_ohlcv(n_days: int = 30) -> pd.DataFrame:
+    """Generate synthetic OHLCV for every ticker via Geometric Brownian Motion.
+
+    Deterministic per ticker (seeded RNG) so repeated calls produce the same
+    price path — useful for reproducible integration tests.
+    """
+    frames: list[pd.DataFrame] = []
+    today = date.today()
+
+    for ticker, params in _OHLCV_PARAMS.items():
+        rng = np.random.default_rng(hash(ticker) % (2**31))
+        dt = 1.0 / 252.0
+
+        # GBM: S(t+dt) = S(t) * exp((μ - σ²/2)dt + σ√dt · Z)
+        z = rng.standard_normal(n_days)
+        log_ret = (params["mu"] - 0.5 * params["sigma"] ** 2) * dt + params["sigma"] * np.sqrt(dt) * z
+        closes = params["start"] * np.exp(np.cumsum(log_ret))
+
+        noise = rng.uniform(0.002, 0.015, n_days)
+        highs = closes * (1.0 + noise)
+        lows  = closes * (1.0 - noise)
+        opens = np.roll(closes, 1)
+        opens[0] = closes[0]
+        volumes = rng.integers(1_000_000, 10_000_000, n_days)
+        dates = [today - timedelta(days=n_days - 1 - i) for i in range(n_days)]
+
+        frames.append(pd.DataFrame({
+            "timestamp":   dates,
+            "ticker":      ticker,
+            "open_price":  np.round(opens, 4),
+            "high_price":  np.round(highs, 4),
+            "low_price":   np.round(lows, 4),
+            "close_price": np.round(closes, 4),
+            "volume":      volumes.astype(np.int64),
+        }))
+
+    return pd.concat(frames, ignore_index=True)
 
 
 # ── Seeder ────────────────────────────────────────────────────────────────────
 
-_SEED_TICKERS: list[str] = ["AAPL", "MSFT"]
-_SEED_DAYS: int = 30
 
-_SQL_UPSERT = """
-INSERT INTO market_ticks
-    (timestamp, ticker, open_price, high_price, low_price, close_price, volume)
-VALUES (%s, %s, %s, %s, %s, %s, %s)
-ON CONFLICT DO NOTHING;
-"""
+def seed_mock_data(config: DatabaseConfig | None = None, n_days: int = 30) -> None:
+    """Bulk-insert synthetic OHLCV and dummy macro-regime rows.
 
-_Row = tuple[date, str, float, float, float, float, int]
+    market_ticks  — PostgreSQL COPY protocol (maximum throughput).
+    macro_regimes — executemany INSERT, skipped if table already populated.
+    """
+    logger.info("seed_mock_data_start", extra={"n_days": n_days})
+    ohlcv_df = _generate_ohlcv(n_days)
 
+    try:
+        with get_connection(config) as conn:
 
-class MarketDataSeeder:
-    """Downloads 30-day daily OHLCV via yfinance and upserts into market_ticks."""
+            # ── market_ticks: COPY FROM STDIN (bulk, ~10× faster than INSERT) ──
+            with conn.cursor() as cur:
+                with cur.copy(
+                    "COPY market_ticks "
+                    "(timestamp, ticker, open_price, high_price, low_price, close_price, volume) "
+                    "FROM STDIN"
+                ) as copy:
+                    for row in ohlcv_df.itertuples(index=False):
+                        copy.write_row((
+                            row.timestamp,
+                            row.ticker,
+                            float(row.open_price),
+                            float(row.high_price),
+                            float(row.low_price),
+                            float(row.close_price),
+                            int(row.volume),
+                        ))
+            logger.info("seed_market_ticks_done", extra={"rows": len(ohlcv_df)})
 
-    def __init__(self, config: DatabaseConfig | None = None) -> None:
-        self._db = DatabaseConnection(config)
-
-    def run(
-        self,
-        tickers: list[str] = _SEED_TICKERS,
-        days: int = _SEED_DAYS,
-    ) -> None:
-        rows = self._fetch(tickers, days)
-        if not rows:
-            logger.warning("seed_no_rows_fetched")
-            return
-
-        logger.info("seed_insert_start", extra={"rows": len(rows)})
-        with self._db.connect() as conn:
-            for row in rows:
-                conn.execute(_SQL_UPSERT, row)
-            conn.commit()
-        logger.info("seed_insert_complete", extra={"rows": len(rows)})
-
-    def _fetch(self, tickers: list[str], days: int) -> list[_Row]:
-        try:
-            import yfinance as yf  # optional dependency
-        except ImportError:
-            logger.error("yfinance_not_installed", extra={"hint": "pip install yfinance"})
-            return []
-
-        end = date.today()
-        start = end - timedelta(days=days)
-        rows: list[_Row] = []
-
-        for ticker in tickers:
-            try:
-                df = yf.download(
-                    ticker,
-                    start=start.isoformat(),
-                    end=end.isoformat(),
-                    progress=False,
-                    auto_adjust=True,
+            # ── macro_regimes: INSERT only if table is empty ──────────────────
+            row_count = conn.execute("SELECT COUNT(*) FROM macro_regimes").fetchone()
+            if row_count is not None and int(row_count[0]) == 0:
+                conn.executemany(
+                    "INSERT INTO macro_regimes (regime_name, market_phase, confidence_score) "
+                    "VALUES (%s, %s, %s)",
+                    [
+                        (r["regime_name"], r["market_phase"], r["confidence_score"])
+                        for r in _MOCK_REGIMES
+                    ],
                 )
-            except Exception as exc:  # noqa: BLE001
-                logger.error("yfinance_fetch_error", extra={"ticker": ticker, "error": str(exc)})
-                continue
+                logger.info("seed_macro_regimes_done", extra={"rows": len(_MOCK_REGIMES)})
+            else:
+                logger.info("seed_macro_regimes_skipped", extra={"reason": "table not empty"})
 
-            if df.empty:
-                logger.warning("yfinance_no_data", extra={"ticker": ticker})
-                continue
+            conn.commit()
 
-            # yfinance may return MultiIndex columns for single-ticker downloads
-            if hasattr(df.columns, "get_level_values"):
-                df.columns = df.columns.get_level_values(0)
+        logger.info("seed_mock_data_complete", extra={"tickers": list(_OHLCV_PARAMS.keys())})
 
-            for idx, row in df.iterrows():
-                rows.append((
-                    idx.date(),  # type: ignore[union-attr]
-                    ticker,
-                    float(row["Open"]),
-                    float(row["High"]),
-                    float(row["Low"]),
-                    float(row["Close"]),
-                    int(row["Volume"]),
-                ))
-
-            logger.info("yfinance_fetched", extra={"ticker": ticker, "rows": len(df)})
-
-        return rows
+    except Exception as exc:
+        logger.error("seed_mock_data_failed", extra={"error": str(exc)})
+        raise
 
 
-# ── Convenience ───────────────────────────────────────────────────────────────
-
-
-def init_db(config: DatabaseConfig | None = None) -> None:
-    """Run schema initialisation (idempotent)."""
-    DatabaseInitializer(config).run()
-
-
-def seed_db(config: DatabaseConfig | None = None) -> None:
-    """Seed AAPL + MSFT 30-day OHLCV data."""
-    MarketDataSeeder(config).run()
-
+# ── Entrypoint ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+    )
     init_db()
-    seed_db()
+    seed_mock_data()
+    _PoolManager.close()

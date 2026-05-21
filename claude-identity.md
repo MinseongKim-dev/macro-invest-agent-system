@@ -26,7 +26,7 @@ All backend logic lives in exactly these four files. Creating sub-files or sub-d
 | `src/main.py` | FastAPI routes, SSE/polling streams, LangChain orchestration |
 
 **Current file state (do not re-create):**
-- `src/database.py` — `DatabaseConfig`, `DatabaseConnection` (retry+ctx-mgr), `DatabaseInitializer` (market_ticks hypertable 7-day chunks + macro_regimes), `MarketDataSeeder` (yfinance AAPL/MSFT 30-day upsert)
+- `src/database.py` — `DatabaseConfig`, `_PoolManager` singleton, `get_pool()`, `get_connection()` (ctx-mgr, auto-return), `init_db()` (market_ticks hypertable 7-day chunks + macro_regimes, idempotent), `seed_mock_data()` (pandas GBM OHLCV COPY bulk-insert + dummy regimes for AAPL/MSFT)
 - `src/engines.py` — `BaseEngine` ABC, `QuantEngine` (MACD 12/26/9 + σ), `SentimentEngine` (keyword rule-base), `PersonaAdapterEngine` (AGGRESSIVE/BALANCED/CONSERVATIVE → BUY/HOLD/SELL)
 - `src/main.py` — `GET /health`, `GET /api/v1/intelligence`, `GET /api/v1/intelligence/stream` (SSE 1s), `GET /api/v1/regimes/latest`
 
@@ -41,7 +41,7 @@ All backend logic lives in exactly these four files. Creating sub-files or sub-d
 | Orchestration | LangChain agents — parse `OMNI://` terminal → execute tools |
 | API | FastAPI + SSE — high-frequency streaming to Next.js UI cards |
 | Frontend | Next.js 14 + Tailwind — `apps/frontend/` — never modified from backend tasks |
-| Python env | psycopg v3 (`psycopg[binary]`), pandas, numpy, yfinance, uvicorn |
+| Python env | psycopg v3 (`psycopg[binary]`), `psycopg-pool>=3.2`, pandas, numpy, uvicorn |
 
 ---
 
