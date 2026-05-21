@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    background: #000;
+    color: #E8F0FE;
+    font-family: 'Space Mono', 'Courier New', monospace;
+    overflow: hidden;
+    height: 100%;
+  }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,229,255,0.25); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0,229,255,0.5); }
+
+  ::selection { background: rgba(0,229,255,0.2); color: #E8F0FE; }
+}
+
+@layer components {
+  .glass-card {
+    background: rgba(255, 255, 255, 0.045);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+    border-radius: 12px;
+  }
+
+  .glass-card-cyan {
+    background: rgba(0, 229, 255, 0.04);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(0, 229, 255, 0.25);
+    border-radius: 12px;
+    box-shadow: 0 0 20px rgba(0,229,255,0.06), inset 0 0 20px rgba(0,229,255,0.03);
+  }
+
+  .neon-cyan   { color: #00E5FF; text-shadow: 0 0 10px rgba(0,229,255,0.7); }
+  .neon-purple { color: #BF00FF; text-shadow: 0 0 10px rgba(191,0,255,0.7); }
+
+  .badge-buy    { color: #00E5FF; border-color: rgba(0,229,255,0.35);   background: rgba(0,229,255,0.08); }
+  .badge-sell   { color: #BF00FF; border-color: rgba(191,0,255,0.35); background: rgba(191,0,255,0.08); }
+  .badge-hold   { color: #FF9800; border-color: rgba(255,152,0,0.35);  background: rgba(255,152,0,0.08); }
+  .badge-neutral{ color: #888;    border-color: rgba(136,136,136,0.3); background: rgba(136,136,136,0.06); }
+
+  .label-dim {
+    font-size: 9px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: rgba(232,240,254,0.4);
+  }
+}
+
+/* Ticker animation — doubles content so loop is seamless */
+.ticker-track {
+  display: inline-block;
+  white-space: nowrap;
+  animation: ticker 70s linear infinite;
+}
