@@ -62,11 +62,11 @@ class _PoolManager:
     One pool is created per process lifetime. Call `close()` only on shutdown.
     """
 
-    _instance: psycopg_pool.ConnectionPool | None = None  # type: ignore[type-arg]
+    _instance: psycopg_pool.ConnectionPool | None = None
     _lock: threading.Lock = threading.Lock()
 
     @classmethod
-    def get(cls, config: DatabaseConfig | None = None) -> psycopg_pool.ConnectionPool:  # type: ignore[type-arg]
+    def get(cls, config: DatabaseConfig | None = None) -> psycopg_pool.ConnectionPool:
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -85,7 +85,7 @@ class _PoolManager:
                     except Exception as exc:
                         logger.error("db_pool_creation_failed", extra={"error": str(exc)})
                         raise
-        return cls._instance  # type: ignore[return-value]
+        return cls._instance
 
     @classmethod
     def close(cls) -> None:
@@ -96,7 +96,7 @@ class _PoolManager:
                 logger.info("db_pool_closed")
 
 
-def get_pool(config: DatabaseConfig | None = None) -> psycopg_pool.ConnectionPool:  # type: ignore[type-arg]
+def get_pool(config: DatabaseConfig | None = None) -> psycopg_pool.ConnectionPool:
     """Return the process-wide connection pool, creating it on first call."""
     return _PoolManager.get(config)
 
@@ -106,7 +106,7 @@ def get_connection(config: DatabaseConfig | None = None) -> Iterator[psycopg.Con
     """Lease a connection from the pool; return it automatically on exit."""
     pool = get_pool(config)
     with pool.connection() as conn:
-        yield conn  # type: ignore[misc]
+        yield conn
 
 
 # ── DDL ───────────────────────────────────────────────────────────────────────
@@ -255,14 +255,15 @@ def seed_mock_data(config: DatabaseConfig | None = None, n_days: int = 30) -> No
             # ── macro_regimes: INSERT only if table is empty ──────────────────
             row_count = conn.execute("SELECT COUNT(*) FROM macro_regimes").fetchone()
             if row_count is not None and int(row_count[0]) == 0:
-                conn.executemany(
-                    "INSERT INTO macro_regimes (regime_name, market_phase, confidence_score) "
-                    "VALUES (%s, %s, %s)",
-                    [
-                        (r["regime_name"], r["market_phase"], r["confidence_score"])
-                        for r in _MOCK_REGIMES
-                    ],
-                )
+                with conn.cursor() as cur:
+                    cur.executemany(
+                        "INSERT INTO macro_regimes (regime_name, market_phase, confidence_score) "
+                        "VALUES (%s, %s, %s)",
+                        [
+                            (r["regime_name"], r["market_phase"], r["confidence_score"])
+                            for r in _MOCK_REGIMES
+                        ],
+                    )
                 logger.info("seed_macro_regimes_done", extra={"rows": len(_MOCK_REGIMES)})
             else:
                 logger.info("seed_macro_regimes_skipped", extra={"reason": "table not empty"})

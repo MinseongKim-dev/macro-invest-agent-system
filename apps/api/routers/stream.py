@@ -31,6 +31,7 @@ import asyncio
 import json
 import math
 import random
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, HTTPException, Query
@@ -141,7 +142,7 @@ async def stream_market() -> StreamingResponse:
     # Clone initial prices for this connection
     conn_prices: dict[str, float] = {t: d["price"] for t, d in _PARAMS.items()}
 
-    async def _generate() -> object:
+    async def _generate() -> AsyncGenerator[str, None]:
         while True:
             out: dict[str, float] = {}
             for ticker, price in conn_prices.items():
