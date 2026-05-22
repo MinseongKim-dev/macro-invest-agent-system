@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from domain.alerts.models import AlertSeverity, AlertTriggerType
-from domain.alerts.rule_engine import AlertRuleEngine
-from domain.alerts.rules import AlertRule
-from domain.macro.change_detection import RegimeDelta
+from src.domain.alerts.models import AlertSeverity, AlertTriggerType
+from src.domain.alerts.rule_engine import AlertRuleEngine
+from src.domain.alerts.rules import AlertRule
+from src.domain.macro.change_detection import RegimeDelta
 
 # ---------------------------------------------------------------------------
 # Helpers

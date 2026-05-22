@@ -14,16 +14,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agent.runtime.agent_runtime import AgentOperation, AgentRuntime, AgentRuntimeResult
-from agent.schemas import (
+from src.agent.runtime.agent_runtime import AgentOperation, AgentRuntime, AgentRuntimeResult
+from src.agent.schemas import (
     MacroSnapshotSummaryRequest,
     MacroSnapshotSummaryResponse,
     SignalReviewRequest,
     SignalReviewResponse,
 )
-from agent.service import AgentService
-from services.macro_service import MacroService
-from services.signal_service import SignalService
+from src.agent.service import AgentService
+from src.services.macro_service import MacroService
+from src.services.signal_service import SignalService
 
 # ---------------------------------------------------------------------------
 # Helpers

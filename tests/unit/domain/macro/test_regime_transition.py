@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from domain.macro.regime import (
+from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,
     RegimeFamily,
     RegimeLabel,
     RegimeTransitionType,
 )
-from domain.macro.regime_transition import derive_regime_transition
+from src.domain.macro.regime_transition import derive_regime_transition
 
 
 def _regime(label: RegimeLabel, family: RegimeFamily, confidence: RegimeConfidence) -> MacroRegime:

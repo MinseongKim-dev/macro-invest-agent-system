@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from core.exceptions.base import (
+from src.core.exceptions.base import (
     AppError,
     ConfigurationError,
     ConflictError,

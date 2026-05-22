@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime, timedelta
 
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.snapshot import (
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.snapshot import (
     DegradedStatus,
     FinancialConditionsState,
     GrowthState,
@@ -21,7 +21,7 @@ from domain.macro.snapshot import (
     derive_policy_state,
     select_latest_observations,
 )
-from pipelines.ingestion.models import (
+from src.pipelines.ingestion.models import (
     FreshnessMetadata,
     FreshnessStatus,
     NormalizedMacroObservation,
@@ -101,7 +101,7 @@ class TestSnapshotDerivation:
 class TestSnapshotComparison:
     def test_comparison_detects_changed_states_and_indicators(self) -> None:
         now = datetime(2026, 1, 10, tzinfo=UTC)
-        from domain.macro.snapshot import MacroSnapshotState
+        from src.domain.macro.snapshot import MacroSnapshotState
 
         previous = MacroSnapshotState(
             snapshot_id="prev",

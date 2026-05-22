@@ -6,16 +6,16 @@ from datetime import timedelta
 
 import pytest
 
-from adapters.repositories.in_memory_feature_store import InMemoryFeatureStore
-from adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
-from domain.macro.enums import DataFrequency, MacroIndicatorType
-from pipelines.ingestion.indicator_catalog import (
+from src.agent.adapters.repositories.in_memory_feature_store import InMemoryFeatureStore
+from src.agent.adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType
+from src.pipelines.ingestion.indicator_catalog import (
     INDICATOR_CATALOG,
     PRIORITY_INDICATORS,
     get_active_catalog_entries,
 )
-from pipelines.ingestion.macro_ingestion_service import MacroIngestionService
-from pipelines.ingestion.models import (
+from src.pipelines.ingestion.macro_ingestion_service import MacroIngestionService
+from src.pipelines.ingestion.models import (
     FeatureSnapshot,
     FreshnessStatus,
     RawFeatureRecord,

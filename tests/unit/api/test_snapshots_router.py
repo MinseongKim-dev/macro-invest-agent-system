@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 
 from apps.api.dependencies import get_macro_service
 from apps.api.main import app
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature, MacroSnapshot
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature, MacroSnapshot
 
 # ---------------------------------------------------------------------------
 # Fixtures

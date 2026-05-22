@@ -10,12 +10,12 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agent.formatting.comparison import (
+from src.agent.formatting.comparison import (
     format_comparison_error,
     format_comparison_summary,
     format_prior_missing_error,
 )
-from domain.macro.comparison import FeatureDelta, SnapshotComparison
+from src.domain.macro.comparison import FeatureDelta, SnapshotComparison
 
 # ---------------------------------------------------------------------------
 # Helpers

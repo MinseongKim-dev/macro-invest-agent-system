@@ -6,12 +6,12 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from domain.macro.history import (
+from src.domain.macro.history import (
     RegimeHistoryBundle,
     build_regime_history_bundle,
     regime_to_historical_record,
 )
-from domain.macro.regime import (
+from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,
     RegimeFamily,
@@ -19,8 +19,8 @@ from domain.macro.regime import (
     RegimeTransition,
     RegimeTransitionType,
 )
-from domain.macro.snapshot import DegradedStatus
-from pipelines.ingestion.models import FreshnessStatus
+from src.domain.macro.snapshot import DegradedStatus
+from src.pipelines.ingestion.models import FreshnessStatus
 
 
 def _make_regime(

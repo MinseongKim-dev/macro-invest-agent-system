@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from domain.macro.regime import RegimeLabel
-from domain.macro.regime_mapping import map_snapshot_to_regime_label
-from domain.macro.snapshot import (
+from src.domain.macro.regime import RegimeLabel
+from src.domain.macro.regime_mapping import map_snapshot_to_regime_label
+from src.domain.macro.snapshot import (
     DegradedStatus,
     FinancialConditionsState,
     GrowthState,
@@ -15,7 +15,7 @@ from domain.macro.snapshot import (
     MacroSnapshotState,
     PolicyState,
 )
-from pipelines.ingestion.models import FreshnessStatus
+from src.pipelines.ingestion.models import FreshnessStatus
 
 
 def _snapshot(

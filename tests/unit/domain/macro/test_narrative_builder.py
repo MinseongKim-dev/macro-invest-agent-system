@@ -4,16 +4,16 @@ from __future__ import annotations
 
 from datetime import UTC, date, datetime
 
-from domain.macro.narrative_builder import build_regime_narrative
-from domain.macro.regime import (
+from src.domain.macro.narrative_builder import build_regime_narrative
+from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,
     RegimeLabel,
     RegimeTransition,
     RegimeTransitionType,
 )
-from domain.macro.snapshot import DegradedStatus
-from pipelines.ingestion.models import FreshnessStatus
+from src.domain.macro.snapshot import DegradedStatus
+from src.pipelines.ingestion.models import FreshnessStatus
 
 
 def _regime(
@@ -27,7 +27,7 @@ def _regime(
     supporting_states: dict[str, str] | None = None,
     missing_inputs: list[str] | None = None,
 ) -> MacroRegime:
-    from domain.macro.regime import REGIME_LABEL_FAMILY_MAP
+    from src.domain.macro.regime import REGIME_LABEL_FAMILY_MAP
 
     family = REGIME_LABEL_FAMILY_MAP[label]
     return MacroRegime(
@@ -169,7 +169,7 @@ class TestBuildRegimeNarrative:
         assert "stale" in dq_text.lower()
 
     def test_seeded_regime_adds_data_quality_note(self) -> None:
-        from domain.macro.regime import (
+        from src.domain.macro.regime import (
             REGIME_LABEL_FAMILY_MAP,
             MacroRegime,
             RegimeTransition,

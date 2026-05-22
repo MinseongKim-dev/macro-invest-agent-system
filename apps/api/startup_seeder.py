@@ -41,16 +41,16 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 
-from core.logging.logger import get_logger
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from pipelines.ingestion.models import (
+from src.core.logging.logger import get_logger
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.pipelines.ingestion.models import (
     FreshnessMetadata,
     FreshnessStatus,
     NormalizedMacroObservation,
     RevisionStatus,
 )
-from services.macro_regime_service import MacroRegimeService
-from services.macro_snapshot_service import MacroSnapshotService
+from src.services.macro_regime_service import MacroRegimeService
+from src.services.macro_snapshot_service import MacroSnapshotService
 
 _log = get_logger(__name__)
 
@@ -238,7 +238,7 @@ async def seed_regime_from_synthetic_observations(
         # Stamp seeder metadata onto the persisted regime
         regime.metadata.update(SEEDER_METADATA)
         # Re-derive warnings now that is_seeded=True is known
-        from domain.macro.regime_mapping import derive_regime_warnings
+        from src.domain.macro.regime_mapping import derive_regime_warnings
         regime.warnings = derive_regime_warnings(
             snapshot=snapshot,
             label=regime.regime_label,

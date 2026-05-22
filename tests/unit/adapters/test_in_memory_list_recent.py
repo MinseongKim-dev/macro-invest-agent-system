@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, date, datetime
 
-from adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
-from adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
-from domain.macro.regime import (
+from src.agent.adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
+from src.agent.adapters.repositories.in_memory_macro_snapshot_store import (
+    InMemoryMacroSnapshotStore,
+)
+from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,
     RegimeFamily,
@@ -15,7 +17,7 @@ from domain.macro.regime import (
     RegimeTransition,
     RegimeTransitionType,
 )
-from domain.macro.snapshot import (
+from src.domain.macro.snapshot import (
     DegradedStatus,
     FinancialConditionsState,
     GrowthState,
@@ -24,7 +26,7 @@ from domain.macro.snapshot import (
     MacroSnapshotState,
     PolicyState,
 )
-from pipelines.ingestion.models import FreshnessStatus
+from src.pipelines.ingestion.models import FreshnessStatus
 
 
 def _regime(as_of_date: date) -> MacroRegime:

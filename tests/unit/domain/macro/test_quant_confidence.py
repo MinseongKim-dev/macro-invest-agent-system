@@ -13,9 +13,9 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from domain.macro.regime import MacroRegime, RegimeConfidence, RegimeFamily, RegimeLabel
-from domain.macro.regime_mapping import derive_regime_confidence
-from domain.macro.snapshot import (
+from src.domain.macro.regime import MacroRegime, RegimeConfidence, RegimeFamily, RegimeLabel
+from src.domain.macro.regime_mapping import derive_regime_confidence
+from src.domain.macro.snapshot import (
     DegradedStatus,
     FinancialConditionsState,
     GrowthState,
@@ -24,10 +24,10 @@ from domain.macro.snapshot import (
     MacroSnapshotState,
     PolicyState,
 )
-from domain.quant.models import QuantScoreBundle
-from domain.quant.scoring import score_snapshot
-from pipelines.ingestion.models import FreshnessStatus
-from services.signal_service import _adjust_signal_score
+from src.domain.quant.models import QuantScoreBundle
+from src.domain.quant.scoring import score_snapshot
+from src.pipelines.ingestion.models import FreshnessStatus
+from src.services.signal_service import _adjust_signal_score
 
 
 def _snapshot(
@@ -252,9 +252,9 @@ class TestSignalScoreAdjustmentInService:
     """Verify that adjusted scores are lower for degraded/low-confidence regimes."""
 
     async def test_low_confidence_regime_lowers_signal_scores(self) -> None:
-        from domain.macro.snapshot import DegradedStatus
-        from pipelines.ingestion.models import FreshnessStatus
-        from services.signal_service import SignalService
+        from src.domain.macro.snapshot import DegradedStatus
+        from src.pipelines.ingestion.models import FreshnessStatus
+        from src.services.signal_service import SignalService
 
         svc = SignalService()
 

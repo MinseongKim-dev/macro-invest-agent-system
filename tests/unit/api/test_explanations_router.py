@@ -7,10 +7,10 @@ from collections.abc import Generator
 import pytest
 from fastapi.testclient import TestClient
 
-from adapters.repositories.in_memory_explanation_store import InMemoryExplanationStore
 from apps.api.dependencies import get_explanation_repository
 from apps.api.main import app
 from apps.api.routers.explanations import build_and_register_explanation
+from src.agent.adapters.repositories.in_memory_explanation_store import InMemoryExplanationStore
 
 
 @pytest.fixture()

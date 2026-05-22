@@ -1,13 +1,13 @@
 """Tests for MCP schemas."""
 
-from mcp.schemas.common import MCPRequest, MCPResponse
-from mcp.schemas.get_macro_features import (
+from src.agent.mcp.schemas.common import MCPRequest, MCPResponse
+from src.agent.mcp.schemas.get_macro_features import (
     GetMacroFeaturesRequest,
     GetMacroFeaturesResponse,
     GetMacroSnapshotRequest,
     GetMacroSnapshotResponse,
 )
-from mcp.schemas.run_signal_engine import (
+from src.agent.mcp.schemas.run_signal_engine import (
     RunSignalEngineRequest,
     RunSignalEngineResponse,
 )

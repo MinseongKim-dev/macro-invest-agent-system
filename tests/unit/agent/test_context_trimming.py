@@ -10,8 +10,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent.context.models import AnalysisParameters, ConversationTurn
-from agent.context.trimming import (
+from src.agent.context.models import AnalysisParameters, ConversationTurn
+from src.agent.context.trimming import (
     extract_recent_summaries,
     keep_successful_only,
     trim_to_max_turns,

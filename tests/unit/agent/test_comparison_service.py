@@ -14,10 +14,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agent.schemas import PriorFeatureInput, SnapshotComparisonRequest, SnapshotComparisonResponse
-from agent.service import AgentService
-from services.macro_service import MacroService
-from services.signal_service import SignalService
+from src.agent.schemas import (
+    PriorFeatureInput,
+    SnapshotComparisonRequest,
+    SnapshotComparisonResponse,
+)
+from src.agent.service import AgentService
+from src.services.macro_service import MacroService
+from src.services.signal_service import SignalService
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -6,10 +6,12 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
-from adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
-from domain.macro.regime import RegimeConfidence, RegimeLabel, RegimeTransitionType
-from domain.macro.snapshot import (
+from src.agent.adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
+from src.agent.adapters.repositories.in_memory_macro_snapshot_store import (
+    InMemoryMacroSnapshotStore,
+)
+from src.domain.macro.regime import RegimeConfidence, RegimeLabel, RegimeTransitionType
+from src.domain.macro.snapshot import (
     DegradedStatus,
     FinancialConditionsState,
     GrowthState,
@@ -18,8 +20,8 @@ from domain.macro.snapshot import (
     MacroSnapshotState,
     PolicyState,
 )
-from pipelines.ingestion.models import FreshnessStatus
-from services.macro_regime_service import MacroRegimeService
+from src.pipelines.ingestion.models import FreshnessStatus
+from src.services.macro_regime_service import MacroRegimeService
 
 
 def _snapshot(

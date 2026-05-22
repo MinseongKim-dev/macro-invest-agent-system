@@ -14,17 +14,17 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agent.mcp_adapter import MCPAdapter, MCPToolError
-from agent.schemas import (
+from src.agent.mcp_adapter import MCPAdapter, MCPToolError
+from src.agent.schemas import (
     MacroSnapshotSummaryRequest,
     MacroSnapshotSummaryResponse,
     SignalReviewRequest,
     SignalReviewResponse,
 )
-from agent.service import AgentService
-from domain.signals.registry import SignalRegistry, default_registry
-from services.macro_service import MacroService
-from services.signal_service import SignalService
+from src.agent.service import AgentService
+from src.domain.signals.registry import SignalRegistry, default_registry
+from src.services.macro_service import MacroService
+from src.services.signal_service import SignalService
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -140,8 +140,8 @@ class TestReviewSignalsHappyPath:
 
     async def test_custom_registry_is_respected(self) -> None:
         """A custom registry with a different signal ID is used correctly."""
-        from domain.signals.enums import SignalType
-        from domain.signals.models import SignalDefinition, SignalRule
+        from src.domain.signals.enums import SignalType
+        from src.domain.signals.models import SignalDefinition, SignalRule
 
         custom_def = SignalDefinition(
             signal_id="custom_signal",

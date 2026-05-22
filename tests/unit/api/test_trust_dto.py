@@ -15,11 +15,11 @@ from apps.api.dto.builders import (
     signal_output_to_dto,
 )
 from apps.api.dto.trust import DataAvailability, FreshnessStatus, TrustMetadata
-from domain.macro.comparison import FeatureDelta, PriorFeatureInput, SnapshotComparison
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature, MacroSnapshot
-from domain.signals.enums import SignalStrength, SignalType, TrendDirection
-from domain.signals.models import SignalOutput, SignalResult
+from src.domain.macro.comparison import FeatureDelta, PriorFeatureInput, SnapshotComparison
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature, MacroSnapshot
+from src.domain.signals.enums import SignalStrength, SignalType, TrendDirection
+from src.domain.signals.models import SignalOutput, SignalResult
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -212,7 +212,7 @@ class TestBuildTrustFromComparison:
             version=1,
         )
         # One indicator matched, one no_prior
-        from domain.macro.comparison import compare_snapshots
+        from src.domain.macro.comparison import compare_snapshots
 
         comp = compare_snapshots(
             current=snap,

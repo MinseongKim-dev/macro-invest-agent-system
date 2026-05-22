@@ -29,9 +29,9 @@ from apps.api.dependencies import (
     get_signal_service,
 )
 from apps.api.main import app
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature, MacroSnapshot
-from domain.macro.regime import (
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature, MacroSnapshot
+from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,
     RegimeFamily,
@@ -39,10 +39,10 @@ from domain.macro.regime import (
     RegimeTransition,
     RegimeTransitionType,
 )
-from domain.macro.snapshot import DegradedStatus
-from domain.signals.enums import SignalStrength, SignalType, TrendDirection
-from domain.signals.models import SignalOutput, SignalResult
-from pipelines.ingestion.models import FreshnessStatus
+from src.domain.macro.snapshot import DegradedStatus
+from src.domain.signals.enums import SignalStrength, SignalType, TrendDirection
+from src.domain.signals.models import SignalOutput, SignalResult
+from src.pipelines.ingestion.models import FreshnessStatus
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
@@ -370,7 +370,7 @@ class TestSignalsLatestStatusContract:
         app.dependency_overrides.clear()
 
     def test_regime_grounded_success_status(self) -> None:
-        from services.signal_service import SignalService
+        from src.services.signal_service import SignalService
 
         regime = _make_regime()
         regime_svc = MagicMock()
@@ -386,7 +386,7 @@ class TestSignalsLatestStatusContract:
         assert payload["as_of_date"] == "2026-04-01"
 
     def test_regime_grounded_degraded_status_for_bootstrap(self) -> None:
-        from services.signal_service import SignalService
+        from src.services.signal_service import SignalService
 
         regime = _make_regime(metadata={"seeded": "true"})
         regime_svc = MagicMock()
@@ -482,7 +482,7 @@ class TestSignalsLatestEnvelope:
         app.dependency_overrides.clear()
 
     def test_response_envelope_has_all_required_fields(self) -> None:
-        from services.signal_service import SignalService
+        from src.services.signal_service import SignalService
 
         regime = _make_regime()
         regime_svc = MagicMock()
@@ -496,7 +496,7 @@ class TestSignalsLatestEnvelope:
         assert not missing, f"Missing top-level fields: {missing}"
 
     def test_each_signal_has_all_required_fields(self) -> None:
-        from services.signal_service import SignalService
+        from src.services.signal_service import SignalService
 
         regime = _make_regime()
         regime_svc = MagicMock()
@@ -512,7 +512,7 @@ class TestSignalsLatestEnvelope:
             assert not missing, f"Signal {sig.get('signal_id', '?')} missing fields: {missing}"
 
     def test_trust_has_required_subfields(self) -> None:
-        from services.signal_service import SignalService
+        from src.services.signal_service import SignalService
 
         regime = _make_regime()
         regime_svc = MagicMock()
@@ -541,7 +541,7 @@ class TestCrossEndpointStateConsistency:
     def test_bootstrap_regime_surfaces_as_seeded_in_both_endpoints(self) -> None:
         """When regime is seeded, both /api/regimes/latest and /api/signals/latest
         reflect degraded/bootstrap state."""
-        from services.signal_service import SignalService
+        from src.services.signal_service import SignalService
 
         regime = _make_regime(metadata={"seeded": "true", "source": "synthetic_seed"})
         regime_svc = MagicMock()
@@ -564,7 +564,7 @@ class TestCrossEndpointStateConsistency:
 
     def test_high_quality_regime_produces_clean_signals(self) -> None:
         """A healthy, fresh, non-seeded regime should produce non-degraded signals."""
-        from services.signal_service import SignalService
+        from src.services.signal_service import SignalService
 
         regime = _make_regime()  # HIGH confidence, FRESH, NONE degraded, not seeded
         regime_svc = MagicMock()

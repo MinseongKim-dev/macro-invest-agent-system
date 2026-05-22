@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from apps.api.dependencies import get_regime_service
 from apps.api.main import app
-from domain.macro.regime import (
+from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,
     RegimeFamily,
@@ -17,8 +17,8 @@ from domain.macro.regime import (
     RegimeTransition,
     RegimeTransitionType,
 )
-from domain.macro.snapshot import DegradedStatus
-from pipelines.ingestion.models import FreshnessStatus
+from src.domain.macro.snapshot import DegradedStatus
+from src.pipelines.ingestion.models import FreshnessStatus
 
 
 def _regime(

@@ -41,10 +41,10 @@ from apps.api.dto.builders import (
 )
 from apps.api.dto.explanations import ExplanationResponse
 from apps.api.dto.trust import DataAvailability, FreshnessStatus, TrustMetadata
-from domain.macro.narrative_builder import RegimeNarrative, build_regime_narrative
-from pipelines.ingestion.models import FreshnessStatus as PipelineFreshnessStatus
-from services.interfaces import RegimeServiceInterface
-from storage.repositories.explanation_repository import ExplanationRepositoryInterface
+from src.core.storage.repositories.explanation_repository import ExplanationRepositoryInterface
+from src.domain.macro.narrative_builder import RegimeNarrative, build_regime_narrative
+from src.pipelines.ingestion.models import FreshnessStatus as PipelineFreshnessStatus
+from src.services.interfaces import RegimeServiceInterface
 
 router = APIRouter(prefix="/api/explanations", tags=["explanations"])
 
@@ -132,7 +132,7 @@ async def get_regime_explanation(
     conflict_note = None
     quant_support_level = "unknown"
     if regime.quant_scores is not None:
-        from domain.signals.conflict import _quant_support_label
+        from src.domain.signals.conflict import _quant_support_label
 
         quant_support_level = _quant_support_label(regime.quant_scores.overall_support)
         if regime.quant_scores.overall_support < 0.35:

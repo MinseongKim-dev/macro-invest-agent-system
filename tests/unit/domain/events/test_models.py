@@ -7,13 +7,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from domain.events.enums import (
+from src.domain.events.enums import (
     ExternalEventFreshness,
     ExternalEventStatus,
     ExternalEventType,
     SourceReliabilityTier,
 )
-from domain.events.models import NormalizedExternalEvent, compute_event_freshness
+from src.domain.events.models import NormalizedExternalEvent, compute_event_freshness
 
 # ---------------------------------------------------------------------------
 # compute_event_freshness

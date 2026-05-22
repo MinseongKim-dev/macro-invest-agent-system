@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from domain.events.enums import ExternalEventType
-from domain.events.impact import ExternalEventImpact, ExternalEventImpactRouting
+from src.domain.events.enums import ExternalEventType
+from src.domain.events.impact import ExternalEventImpact, ExternalEventImpactRouting
 
 
 class TestExternalEventImpactRouting:

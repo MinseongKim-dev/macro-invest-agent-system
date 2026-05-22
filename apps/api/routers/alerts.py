@@ -36,15 +36,15 @@ from apps.api.dto.alerts import (
     AlertSnoozeRequest,
     AlertsRecentResponse,
 )
-from domain.alerts.models import AlertAcknowledgementState, AlertSeverity, AlertTriggerType
-from storage.repositories.alert_repository import AlertRepositoryInterface
+from src.core.storage.repositories.alert_repository import AlertRepositoryInterface
+from src.domain.alerts.models import AlertAcknowledgementState, AlertSeverity, AlertTriggerType
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 
 
 def _alert_to_dto(alert: object) -> AlertEventDTO:
     """Map a domain :class:`~domain.alerts.models.AlertEvent` to an :class:`AlertEventDTO`."""
-    from domain.alerts.models import AlertEvent
+    from src.domain.alerts.models import AlertEvent
 
     a: AlertEvent = alert  # type: ignore[assignment]
     return AlertEventDTO(

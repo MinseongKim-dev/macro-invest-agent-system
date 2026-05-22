@@ -6,13 +6,13 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from domain.macro.change_detection import (
+from src.domain.macro.change_detection import (
     ChangeSeverity,
     ConfidenceDirection,
     RegimeDelta,
     detect_regime_change,
 )
-from domain.macro.regime import (
+from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,
     RegimeFamily,
@@ -20,8 +20,8 @@ from domain.macro.regime import (
     RegimeTransition,
     RegimeTransitionType,
 )
-from domain.macro.snapshot import DegradedStatus
-from pipelines.ingestion.models import FreshnessStatus
+from src.domain.macro.snapshot import DegradedStatus
+from src.pipelines.ingestion.models import FreshnessStatus
 
 
 def _regime(

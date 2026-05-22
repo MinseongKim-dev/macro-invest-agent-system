@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from domain.macro.snapshot import (
+from src.domain.macro.snapshot import (
     DegradedStatus,
     FinancialConditionsState,
     GrowthState,
@@ -15,8 +15,8 @@ from domain.macro.snapshot import (
     MacroSnapshotState,
     PolicyState,
 )
-from domain.quant.models import QuantScoreBundle, ScoreDimension, ScoreLevel
-from domain.quant.scoring import (
+from src.domain.quant.models import QuantScoreBundle, ScoreDimension, ScoreLevel
+from src.domain.quant.scoring import (
     score_financial_conditions,
     score_growth,
     score_inflation,
@@ -24,8 +24,8 @@ from domain.quant.scoring import (
     score_policy,
     score_snapshot,
 )
-from pipelines.ingestion.models import FreshnessStatus
-from services.quant_scoring_service import QuantScoringService
+from src.pipelines.ingestion.models import FreshnessStatus
+from src.services.quant_scoring_service import QuantScoringService
 
 
 def _snapshot(

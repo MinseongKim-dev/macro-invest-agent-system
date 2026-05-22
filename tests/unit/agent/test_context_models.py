@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agent.context.models import AnalysisParameters, ConversationContext, ConversationTurn
+from src.agent.context.models import AnalysisParameters, ConversationContext, ConversationTurn
 
 # ---------------------------------------------------------------------------
 # Helpers

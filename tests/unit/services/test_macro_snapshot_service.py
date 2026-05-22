@@ -6,14 +6,16 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
-from adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from pipelines.ingestion.models import (
+from src.agent.adapters.repositories.in_memory_macro_snapshot_store import (
+    InMemoryMacroSnapshotStore,
+)
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.pipelines.ingestion.models import (
     FreshnessMetadata,
     FreshnessStatus,
     NormalizedMacroObservation,
 )
-from services.macro_snapshot_service import MacroSnapshotService
+from src.services.macro_snapshot_service import MacroSnapshotService
 
 
 def _obs(

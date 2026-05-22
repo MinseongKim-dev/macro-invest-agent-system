@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent.context.models import AnalysisParameters, ConversationContext, ConversationTurn
-from agent.context.store import ContextStore, InMemoryContextStore
+from src.agent.context.models import AnalysisParameters, ConversationContext, ConversationTurn
+from src.agent.context.store import ContextStore, InMemoryContextStore
 
 # ---------------------------------------------------------------------------
 # Helpers

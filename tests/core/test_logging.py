@@ -13,14 +13,14 @@ import uuid
 
 import pytest
 
-from core.logging.logger import (
+from src.core.logging.logger import (
     bind_request_context,
     get_session_id,
     get_trace_id,
     set_session_id,
     set_trace_id,
 )
-from core.logging.timing import timed_operation
+from src.core.logging.timing import timed_operation
 
 # ---------------------------------------------------------------------------
 # Trace ID

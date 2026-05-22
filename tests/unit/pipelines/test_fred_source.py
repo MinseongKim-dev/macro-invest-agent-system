@@ -18,12 +18,15 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from adapters.repositories.in_memory_feature_store import InMemoryFeatureStore
-from adapters.sources.fred.fred_macro_data_source import FredMacroDataSource
-from adapters.sources.fred.series_map import FRED_SERIES_MAP
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature
-from pipelines.ingestion.macro_ingestion_service import DEFAULT_INDICATORS, MacroIngestionService
+from src.agent.adapters.repositories.in_memory_feature_store import InMemoryFeatureStore
+from src.agent.adapters.sources.fred.fred_macro_data_source import FredMacroDataSource
+from src.agent.adapters.sources.fred.series_map import FRED_SERIES_MAP
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature
+from src.pipelines.ingestion.macro_ingestion_service import (
+    DEFAULT_INDICATORS,
+    MacroIngestionService,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers

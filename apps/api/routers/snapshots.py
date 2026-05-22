@@ -32,8 +32,8 @@ from apps.api.dto.snapshots import (
     SnapshotCompareResponse,
     SnapshotLatestResponse,
 )
-from domain.macro.comparison import PriorFeatureInput, compare_snapshots
-from services.interfaces import MacroServiceInterface
+from src.domain.macro.comparison import PriorFeatureInput, compare_snapshots
+from src.services.interfaces import MacroServiceInterface
 
 router = APIRouter(prefix="/api/snapshots", tags=["snapshots"])
 

@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from core.exceptions.base import AppError, NotFoundError
-from core.schemas.common import AuditMetadata, BaseResponse, ErrorDetail, FreshnessMetadata
+from src.core.exceptions.base import AppError, NotFoundError
+from src.core.schemas.common import AuditMetadata, BaseResponse, ErrorDetail, FreshnessMetadata
 
 
 class TestFreshnessMetadata:
