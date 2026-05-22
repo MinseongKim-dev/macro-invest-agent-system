@@ -132,3 +132,4 @@ Frontend UI card → backend source mapping:
 | Phase 3.1 | LLM / LangChain orchestration for OMNI command terminal | [X] |
 | Phase 3.2 | Milvus vector store wiring (news embeddings, semantic search) | [ ] |
 | Phase 4.0 | v0.1.0 pre-release repo restructure: layered src/ architecture (core→src/core, agent+mcp+adapters→src/agent, domain/pipelines/services→src/, evals→tests/evals); 631 import paths migrated; ChatAnthropic→ChatGroq (free tier); HuggingFaceEmbeddings stub wired; 1385 tests green | [X] |
+| Phase 4.1 | v0.1.0 documentation: README.md (features, quick start, API ref, env guide) + docs/ARCHITECTURE.md (layered diagram, SSE sequence diagram, agent pipeline, engine formula ref, zero-cost cost table, infra schema) | [X] |
