@@ -167,8 +167,11 @@ def init_db(config: DatabaseConfig | None = None) -> None:
 # ── Mock Data Generators ──────────────────────────────────────────────────────
 
 _OHLCV_PARAMS: dict[str, dict[str, float]] = {
-    "AAPL": {"start": 195.0, "mu": 0.10, "sigma": 0.22},
-    "MSFT": {"start": 415.0, "mu": 0.12, "sigma": 0.20},
+    "AAPL":   {"start": 195.0,     "mu": 0.10, "sigma": 0.22},
+    "MSFT":   {"start": 415.0,     "mu": 0.12, "sigma": 0.20},
+    "TSLA":   {"start": 245.0,     "mu": 0.08, "sigma": 0.48},
+    "005930": {"start": 72_000.0,  "mu": 0.09, "sigma": 0.28},
+    "000660": {"start": 195_000.0, "mu": 0.11, "sigma": 0.32},
 }
 
 _MOCK_REGIMES: list[dict[str, Any]] = [

@@ -117,3 +117,14 @@ Frontend UI card → backend source mapping:
 4. State the exact files that will change before writing any code.
 5. Execute with minimum blast radius.
 6. Commit with a descriptive message after every milestone.
+
+---
+
+## 7. Phase Milestones
+
+| Phase | Description | Status |
+|-------|-------------|--------|
+| Phase 2.1 | SSE stream → UI component bindings (useAlephStream hook, StatusBar sync dot, AlphaPanel/RiskMatrix stream props, page.tsx orchestration) | [X] |
+| Phase 2.2 | Polymorphic multi-engine upgrade + real DB price data wiring (SMA golden/dead cross, weighted sentiment lexicon, per-persona thresholds; market_ticks → engines → SSE payload) | [X] |
+| Phase 3.1 | LLM / LangChain orchestration for OMNI command terminal | [ ] |
+| Phase 3.2 | Milvus vector store wiring (news embeddings, semantic search) | [ ] |

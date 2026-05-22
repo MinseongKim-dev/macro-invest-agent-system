@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import random
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -88,6 +89,44 @@ _TICKER_NEWS: dict[str, list[str]] = {
         "Memory chip recovery expansion strong; AI-driven demand exceeds bearish forecasts",
     ],
 }
+
+# ── DB price cache ────────────────────────────────────────────────────────────
+# Keyed by ticker → (DataFrame | None, monotonic timestamp of last fetch)
+_DB_PRICE_CACHE: dict[str, tuple[pd.DataFrame | None, float]] = {}
+_DB_CACHE_TTL:   float = 10.0   # seconds — avoids a DB hit on every 1-second SSE tick
+
+
+def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | None:
+    """Return the last ``n_rows`` close prices for ``ticker`` from market_ticks.
+
+    Result is cached for ``_DB_CACHE_TTL`` seconds to keep DB load minimal.
+    Returns ``None`` when the ticker has no rows yet or the DB is unavailable.
+    """
+    now    = time.monotonic()
+    cached = _DB_PRICE_CACHE.get(ticker)
+    if cached is not None:
+        df_c, ts = cached
+        if now - ts < _DB_CACHE_TTL:
+            return df_c
+
+    df: pd.DataFrame | None = None
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT close_price FROM ("
+                "  SELECT close_price, timestamp FROM market_ticks"
+                "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT %s"
+                ") sub ORDER BY timestamp ASC",
+                (ticker, n_rows),
+            ).fetchall()
+        if rows:
+            df = pd.DataFrame({"close_price": [float(r[0]) for r in rows]})
+    except Exception as exc:
+        logger.warning("db_price_fetch_failed", extra={"ticker": ticker, "error": str(exc)})
+
+    _DB_PRICE_CACHE[ticker] = (df, now)
+    return df
+
 
 # ── Fibonacci sphere node positions ──────────────────────────────────────────
 
@@ -181,18 +220,31 @@ def _tick(rng: random.Random) -> None:
 
 # ── Payload assembly ──────────────────────────────────────────────────────────
 
-def _build_payload(rng: random.Random) -> dict[str, Any]:
-    """Assemble the full UI-contract JSON payload for one SSE tick."""
+def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -> dict[str, Any]:
+    """Assemble the full UI-contract JSON payload for one SSE tick.
+
+    Price data source (per ticker, in priority order):
+      1. Last 20 rows from ``market_ticks`` (DB, real seeded OHLCV) + latest live tick
+      2. In-memory rolling buffer ``_PRICE_HISTORY`` (GBM fallback when DB unavailable)
+    """
     macro_phase = _REGIME_CACHE.get("market_phase", "LATE_CYCLE")
 
     risk_matrix: list[dict[str, Any]] = []
     confidences: list[float]          = []
 
     for ticker in TICKERS:
-        buf    = _PRICE_HISTORY[ticker]
-        df     = pd.DataFrame({"close_price": buf})
-        news   = _TICKER_NEWS.get(ticker, [])
-        row    = build_intelligence_row(ticker, df, news, macro_phase)
+        # ── Prefer DB-backed price history ────────────────────────────────────
+        db_df = _fetch_price_df_from_db(ticker, n_rows=20)
+        if db_df is not None and len(db_df) >= 5:
+            # Append current live tick so the engine sees the freshest price
+            live_row = pd.DataFrame({"close_price": [_PRICE_STATE[ticker]]})
+            price_df = pd.concat([db_df, live_row], ignore_index=True)
+        else:
+            # Fallback: in-memory GBM buffer (always available)
+            price_df = pd.DataFrame({"close_price": _PRICE_HISTORY[ticker]})
+
+        news = _TICKER_NEWS.get(ticker, [])
+        row  = build_intelligence_row(ticker, price_df, news, macro_phase, persona)
 
         risk_matrix.append(row)
         confidences.append(float(row.get("_confidence", 0.5)))
@@ -480,7 +532,7 @@ async def intelligence_stream(
                 break
             try:
                 _tick(rng)
-                payload = _build_payload(rng)
+                payload = _build_payload(rng, persona)
                 yield {"data": json.dumps(payload, ensure_ascii=False), "event": "intelligence"}
             except Exception as exc:
                 logger.error("sse_tick_error", extra={"error": str(exc)})
