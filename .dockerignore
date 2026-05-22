@@ -24,6 +24,9 @@ venv
 .env
 env/
 
+# uv local cache (can be several GB — never needed in image)
+.uv/
+
 # Dev tooling
 .ruff_cache
 .mypy_cache
