@@ -18,9 +18,9 @@ import json
 import logging
 import math
 import random
-from collections.abc import AsyncGenerator, Iterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -31,7 +31,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from src.database import DatabaseConfig, _PoolManager, get_connection, init_db, seed_mock_data
+from src.database import _PoolManager, get_connection, init_db, seed_mock_data
 from src.engines import (
     DISPLAY_NAMES,
     TICKER_GROUPS,
@@ -202,7 +202,7 @@ def _build_payload(rng: random.Random) -> dict[str, Any]:
 
     # Derive active_signals from risk_matrix (top 3 by confidence)
     sorted_rows = sorted(
-        zip(TICKERS, risk_matrix, confidences),
+        zip(TICKERS, risk_matrix, confidences, strict=False),
         key=lambda t: t[2],
         reverse=True,
     )
@@ -223,7 +223,7 @@ def _build_payload(rng: random.Random) -> dict[str, Any]:
     ]
 
     return {
-        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        "timestamp": datetime.now(tz=UTC).isoformat(),
         "status":    "LIVE",
         "portfolio_health": {
             "score":  health_score,
@@ -521,7 +521,7 @@ async def intelligence_command(body: CommandRequest) -> dict[str, Any]:
 
     # Assemble response conforming to UI contract shape
     response: dict[str, Any] = {
-        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
+        "timestamp": datetime.now(tz=UTC).isoformat(),
         "status":    "ANALYZED" if matched else "SYNCING",
         "portfolio_health": {
             "score":  75.0,

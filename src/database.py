@@ -235,12 +235,11 @@ def seed_mock_data(config: DatabaseConfig | None = None, n_days: int = 30) -> No
         with get_connection(config) as conn:
 
             # ── market_ticks: COPY FROM STDIN (bulk, ~10× faster than INSERT) ──
-            with conn.cursor() as cur:
-                with cur.copy(
-                    "COPY market_ticks "
-                    "(timestamp, ticker, open_price, high_price, low_price, close_price, volume) "
-                    "FROM STDIN"
-                ) as copy:
+            with conn.cursor() as cur, cur.copy(
+                "COPY market_ticks "
+                "(timestamp, ticker, open_price, high_price, low_price, close_price, volume) "
+                "FROM STDIN"
+            ) as copy:
                     for row in ohlcv_df.itertuples(index=False):
                         copy.write_row((
                             row.timestamp,
