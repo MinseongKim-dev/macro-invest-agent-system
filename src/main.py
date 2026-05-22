@@ -29,6 +29,7 @@ import pandas as pd
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from langchain_core.tools import tool  # type: ignore[import-not-found]
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -45,6 +46,9 @@ from src.engines import (
     TICKER_GROUPS,
     TICKERS,
     PersonaProfile,
+    QuantEngine,
+    SentimentEngine,
+    _compute_rsi,
     build_intelligence_row,
 )
 
@@ -541,6 +545,236 @@ def _match_scenario(
     return _DEFAULT_RESPONSE, None
 
 
+# ── LangChain Agent — Tools, Builder, Runner ──────────────────────────────────
+
+_AGENT_SYSTEM_PROMPT: str = (
+    "You are ALEPH-ONE — a J.A.R.V.I.S.-style hyper-professional financial "
+    "intelligence synchronizer. You operate with the precision of a top-tier "
+    "quantitative hedge fund. Your universe: AAPL · MSFT · TSLA · 005930(삼성전자) · "
+    "000660(SK하이닉스).\n\n"
+    "Core analytical framework embedded in your engines:\n"
+    "• Ray Dalio — Volatility Targeting: vol_spike (recent 5-day σ > 1.5× 20-day σ) "
+    "forces status WATCH + applies momentum penalty\n"
+    "• James Simons — Regime Switching: crisis keyword frequency "
+    "(inflation/hawkish/tightening/crisis ≥ 3 occurrences) → CRISIS_MODE\n"
+    "• Warren Buffett — Margin of Safety: RSI ≥ 70 locks BUY → HOLD for CONSERVATIVE\n\n"
+    "Operational protocol:\n"
+    "1. Call get_quant_intelligence for each relevant ticker (momentum, RSI, vol_spike)\n"
+    "2. Call get_sentiment_intelligence for each relevant ticker (sentiment, regime_switch)\n"
+    "3. Synthesize findings into a sharp, structured investment briefing\n"
+    "4. Lead with actionable signals and quantitative evidence\n"
+    "5. Concise and data-driven — no vague commentary\n"
+    "6. Format like a top-tier hedge fund quant report with clear sections"
+)
+
+# Lazy-initialised AgentExecutor singleton — built on first OMNI command
+_AGENT_EXECUTOR: Any = None
+
+
+@tool
+def get_quant_intelligence(ticker: str) -> str:
+    """Run the Aleph-One QuantEngine on a specific equity ticker.
+
+    Returns SMA-5/20 golden/dead-cross momentum analysis, Ray Dalio volatility
+    targeting spike detection, and Warren Buffett Margin of Safety RSI(14) status.
+    Use this tool to obtain quantitative market signals for a specific ticker.
+
+    Args:
+        ticker: Internal ticker ID. Valid values: AAPL, MSFT, TSLA, 005930, 000660
+    """
+    price_df = _fetch_price_df_from_db(ticker, n_rows=20)
+    if price_df is None or price_df.empty:
+        return json.dumps({"error": f"no_price_data_for_{ticker}", "ticker": ticker})
+
+    live_price = _PRICE_STATE.get(ticker)
+    if live_price:
+        price_df = pd.concat(
+            [price_df, pd.DataFrame({"close_price": [live_price]})],
+            ignore_index=True,
+        )
+
+    q = QuantEngine().analyze(ticker, price_df, [])
+    rsi_val = _compute_rsi(price_df["close_price"].astype(float))
+
+    return json.dumps({
+        "ticker":            ticker,
+        "display_name":      DISPLAY_NAMES.get(ticker, ticker),
+        "momentum_score":    round(q["momentum_score"], 3),
+        "status":            q["status"],
+        "golden_cross":      q["golden_cross"],
+        "dead_cross":        q["dead_cross"],
+        "vol_spike":         q["vol_spike"],
+        "vol_spike_penalty": round(q["vol_spike_penalty"], 3),
+        "vol_ratio_pct":     f"{q['vol_ratio']:.2%}",
+        "sma5":              round(q["sma5_last"], 2),
+        "sma20":             round(q["sma20_last"], 2),
+        "rsi":               round(rsi_val, 2),
+        "margin_of_safety":  "UNSAFE_OVERBOUGHT" if rsi_val >= 70.0 else "SAFE",
+    })
+
+
+@tool
+def get_sentiment_intelligence(ticker: str) -> str:
+    """Run the Aleph-One SentimentEngine on the latest news for a specific equity ticker.
+
+    Applies weighted financial lexicon scoring and James Simons Regime Switching
+    (crisis keyword frequency → regime_switch flag) to Yahoo Finance news headlines.
+    Use this tool to assess news sentiment and macro regime signals for a specific ticker.
+
+    Args:
+        ticker: Internal ticker ID. Valid values: AAPL, MSFT, TSLA, 005930, 000660
+    """
+    news = _LIVE_NEWS_CACHE.get(ticker) or _TICKER_NEWS.get(ticker, [])
+    if not news:
+        return json.dumps({"error": f"no_news_for_{ticker}", "ticker": ticker})
+
+    dummy_df = pd.DataFrame({"close_price": [100.0] * 5})
+    s = SentimentEngine().analyze(ticker, dummy_df, news)
+
+    return json.dumps({
+        "ticker":               ticker,
+        "display_name":         DISPLAY_NAMES.get(ticker, ticker),
+        "sentiment_score":      round(s["sentiment_score"], 3),
+        "positive_ratio":       f"{s['positive_ratio']:.2%}",
+        "negative_ratio":       f"{s['negative_ratio']:.2%}",
+        "regime_switch":        s["regime_switch"],
+        "crisis_keyword_count": s["crisis_keyword_count"],
+        "news_count":           s["sample_size"],
+        "macro_regime_signal":  "CRISIS_MODE" if s["regime_switch"] else "NORMAL",
+        "top_headlines":        news[:3],
+    })
+
+
+def _build_lc_agent() -> Any:  # noqa: ANN401
+    """Construct a LangChain tool-calling AgentExecutor backed by Claude.
+
+    Imports are deferred so the module loads even without langchain-anthropic
+    installed. Raises RuntimeError (caught by intelligence_command → fallback)
+    if required packages are absent.
+    """
+    try:
+        from langchain.agents import (  # type: ignore[import-not-found]
+            AgentExecutor,
+            create_tool_calling_agent,
+        )
+        from langchain_anthropic import ChatAnthropic  # type: ignore[import-not-found]
+        from langchain_core.prompts import (  # type: ignore[import-not-found]
+            ChatPromptTemplate,
+            MessagesPlaceholder,
+        )
+    except ImportError as exc:
+        raise RuntimeError(
+            f"LangChain agent packages unavailable: {exc}. "
+            "Ensure langchain>=0.3.0 and langchain-anthropic>=0.3.0 are installed."
+        ) from exc
+
+    llm = ChatAnthropic(
+        model="claude-sonnet-4-6",
+        temperature=0.1,
+        max_tokens=2048,
+    )
+    prompt = ChatPromptTemplate.from_messages([
+        ("system", _AGENT_SYSTEM_PROMPT),
+        MessagesPlaceholder("chat_history", optional=True),
+        ("human", "{input}"),
+        MessagesPlaceholder("agent_scratchpad"),
+    ])
+    tools = [get_quant_intelligence, get_sentiment_intelligence]
+    agent = create_tool_calling_agent(llm, tools, prompt)
+    logger.info("lc_agent_built", extra={"model": "claude-sonnet-4-6", "tools": len(tools)})
+    return AgentExecutor(agent=agent, tools=tools, verbose=False, max_iterations=6)
+
+
+async def _run_agent_async(query: str, persona: PersonaProfile) -> dict[str, Any]:
+    """Invoke the LangChain agent and assemble a full UI-contract response.
+
+    Pipeline:
+    1. Run the agent (uses tools to fetch real engine data) → briefing text.
+    2. Execute the full engine pipeline for all tickers → live risk_matrix.
+    3. Combine into the UI-contract JSON shape (same schema as SSE stream).
+    """
+    global _AGENT_EXECUTOR
+    if _AGENT_EXECUTOR is None:
+        _AGENT_EXECUTOR = _build_lc_agent()
+
+    # Run agent in thread pool — LangChain sync invoke blocks the event loop otherwise
+    agent_result: dict[str, Any] = await asyncio.to_thread(
+        _AGENT_EXECUTOR.invoke,
+        {"input": query, "chat_history": []},
+    )
+    briefing: str = str(agent_result.get("output", "Analysis complete."))
+
+    # Rebuild risk_matrix from the live engine pipeline for this cycle
+    rng = random.Random()
+    _tick(rng)
+    macro_phase = _REGIME_CACHE.get("market_phase", "LATE_CYCLE")
+    risk_matrix: list[dict[str, Any]] = []
+    confidences: list[float]           = []
+
+    for ticker in TICKERS:
+        db_df = _fetch_price_df_from_db(ticker, n_rows=20)
+        if db_df is not None and len(db_df) >= 5:
+            live_row = pd.DataFrame({"close_price": [_PRICE_STATE[ticker]]})
+            price_df = pd.concat([db_df, live_row], ignore_index=True)
+        else:
+            price_df = pd.DataFrame({"close_price": _PRICE_HISTORY[ticker]})
+
+        news = _LIVE_NEWS_CACHE.get(ticker) or _TICKER_NEWS.get(ticker, [])
+        row  = build_intelligence_row(ticker, price_df, news, macro_phase, persona)
+        risk_matrix.append(row)
+        confidences.append(float(row.get("_confidence", 0.5)))
+
+    health_score      = round(float(np.mean(confidences)) * 100, 1)
+    any_regime_switch = any(r.get("_regime_switch", False) for r in risk_matrix)
+    any_vol_spike     = any(r.get("_vol_spike", False)     for r in risk_matrix)
+    live_regime_name  = (
+        "CRISIS_MODE"       if any_regime_switch else
+        "VOLATILITY_REGIME" if any_vol_spike     else
+        _REGIME_CACHE.get("regime_name", "POLICY_TIGHTENING")
+    )
+
+    sorted_rows = sorted(
+        zip(TICKERS, risk_matrix, confidences, strict=False),
+        key=lambda t: t[2],
+        reverse=True,
+    )
+    active_signals = [
+        {
+            "action":      row["sig_score"],
+            "strategy":    f"{DISPLAY_NAMES.get(t, t)}: Agent-synthesised signal",
+            "probability": round(conf, 3),
+        }
+        for t, row, conf in sorted_rows[:3]
+    ]
+    clean_matrix = [
+        {k: v for k, v in r.items() if not k.startswith("_")}
+        for r in risk_matrix
+    ]
+
+    logger.info("agent_response_assembled", extra={"health": health_score})
+    return {
+        "timestamp": datetime.now(tz=UTC).isoformat(),
+        "status":    "ANALYZED",
+        "portfolio_health": {
+            "score":  health_score,
+            "source": "LANGCHAIN_AGENT",
+        },
+        "macro_regime": {
+            "regime_name":      live_regime_name,
+            "market_phase":     _REGIME_CACHE.get("market_phase", "LATE_CYCLE"),
+            "confidence_score": _REGIME_CACHE.get("confidence_score", 0.85),
+        },
+        "active_signals": active_signals,
+        "intelligence_synthesis": {
+            "assets_count":  len(TICKERS),
+            "vector_mode":   "LANGCHAIN-AGENT VECTORS",
+            "network_nodes": _perturb_nodes(_BASE_NODES, sigma=0.03, rng=rng),
+            "risk_matrix":   clean_matrix,
+        },
+        "omni_report": briefing,
+    }
+
+
 # ── FastAPI application ───────────────────────────────────────────────────────
 
 @asynccontextmanager
@@ -655,25 +889,30 @@ class CommandRequest(BaseModel):
 
 @app.post("/api/v1/intelligence/command", tags=["intelligence"])
 async def intelligence_command(body: CommandRequest) -> dict[str, Any]:
-    """OMNI:// terminal — keyword-matched scenario response.
+    """OMNI:// terminal — LangChain agent response with static-scenario fallback.
+
+    Attempts to run the full LangChain agent pipeline. If langchain /
+    langchain-anthropic are not installed, or the agent raises, falls back to
+    keyword-matched scenario responses.
 
     Example::
 
         POST /api/v1/intelligence/command
         {"query": "How should I adjust my tech exposure for Q3?", "persona": "AGGRESSIVE"}
-
-    Keyword groups (any match triggers the scenario):
-    - Tech/Q3:    ``tech  q3  exposure  reduce  trim``
-    - KR Semi:    ``korea kr  semiconductor  hbm  memory``
-    - Regime:     ``regime cycle tightening contraction recession``
     """
     logger.info("omni_command_received", extra={"query": body.query[:80]})
 
+    try:
+        response = await _run_agent_async(body.query, body.persona)
+        logger.info("omni_agent_dispatched")
+        return response
+    except Exception as exc:
+        logger.warning("omni_agent_fallback", extra={"error": str(exc)})
+
+    # Static keyword-scenario fallback
     scenario, twisted_nodes = _match_scenario(body.query)
     matched = twisted_nodes is not None
-
-    # Assemble response conforming to UI contract shape
-    response: dict[str, Any] = {
+    fallback: dict[str, Any] = {
         "timestamp": datetime.now(tz=UTC).isoformat(),
         "status":    "ANALYZED" if matched else "SYNCING",
         "portfolio_health": {
@@ -698,12 +937,10 @@ async def intelligence_command(body: CommandRequest) -> dict[str, Any]:
             "network_nodes": twisted_nodes if twisted_nodes else _BASE_NODES,
             "risk_matrix":   scenario.get("risk_matrix") or [],
         },
-        # Extra field — JARVIS analysis report (consumed by CommandTerminal component)
         "omni_report": scenario.get("report", ""),
     }
-
-    logger.info("omni_command_dispatched", extra={"matched": matched})
-    return response
+    logger.info("omni_command_dispatched", extra={"matched": matched, "mode": "fallback"})
+    return fallback
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
