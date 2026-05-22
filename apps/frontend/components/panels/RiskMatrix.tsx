@@ -1,22 +1,28 @@
 'use client'
 import { useSignals, useRegime } from '@/hooks/useAlephData'
 import { seededRand } from '@/lib/utils'
+import type { AlephRiskRow, SignalSummaryDTO } from '@/lib/types'
 
-const ROWS = ['AAPL', 'MSFT', 'GOOGL', 'TSLA', 'NVDA']
 const COLS = ['MOMENTUM', 'REGIME', 'RATES', 'SENTIMENT', 'SIG SCORE']
 
 const HDR_X = 56   // row-label column width
 const HDR_Y = 24   // header row height
 const CW    = 82   // cell width
 const CH    = 46   // cell height
-const W     = HDR_X + COLS.length * CW
-const H     = HDR_Y + ROWS.length * CH
+
+function scoreFromWatchStatus(ws: string): number {
+  return ws === 'WATCH' ? 0.20 : 0.75
+}
+
+function scoreFromSigScore(sig: string): number {
+  if (sig === 'BUY')  return 0.90
+  if (sig === 'SELL') return 0.10
+  return 0.50
+}
 
 function scoreCell(ri: number, ci: number, avgSigScore: number, regimeFam: string): number {
-  // SIG SCORE column → actual live signal score
   if (ci === 4) return avgSigScore
 
-  // REGIME column → reflect regime family direction
   if (ci === 1) {
     const fam = regimeFam.toLowerCase()
     if (fam.includes('expansion') || fam.includes('goldilocks') || fam.includes('recovery'))
@@ -26,8 +32,18 @@ function scoreCell(ri: number, ci: number, avgSigScore: number, regimeFam: strin
     return 0.35 + seededRand(ri * 11 + 3) * 0.30
   }
 
-  // Other columns: deterministic per (ri, ci) with slight live bias from regime
   return 0.15 + seededRand(ri * 7 + ci * 31 + 17) * 0.70
+}
+
+function scoreFromStreamRow(row: AlephRiskRow, ci: number): number {
+  switch (ci) {
+    case 0: return scoreFromWatchStatus(row.momentum)
+    case 1: return scoreFromWatchStatus(row.regime)
+    case 2: return scoreFromWatchStatus(row.rates)
+    case 3: return scoreFromWatchStatus(row.sentiment)
+    case 4: return scoreFromSigScore(row.sig_score)
+    default: return 0.5
+  }
 }
 
 interface Cell {
@@ -38,44 +54,68 @@ interface Cell {
   tag: string | null; tagColor: string
 }
 
-function buildCells(avgSigScore: number, regimeFam: string): Cell[] {
-  return ROWS.flatMap((_, ri) =>
-    COLS.map((_, ci) => {
-      const score  = scoreCell(ri, ci, avgSigScore, regimeFam)
-      const x      = HDR_X + ci * CW
-      const y      = HDR_Y + ri * CH
-      const isOpp  = score >= 0.62
-      const isRisk = score < 0.32
+function buildCell(ri: number, ci: number, score: number): Cell {
+  const x      = HDR_X + ci * CW
+  const y      = HDR_Y + ri * CH
+  const isOpp  = score >= 0.62
+  const isRisk = score < 0.32
 
-      const fill   = isOpp
-        ? `rgba(0,229,255,${(0.10 + score * 0.22).toFixed(2)})`
-        : isRisk
-          ? `rgba(191,0,255,${(0.10 + (1 - score) * 0.22).toFixed(2)})`
-          : 'rgba(255,255,255,0.035)'
-      const stroke = isOpp
-        ? 'rgba(0,229,255,0.30)'
-        : isRisk
-          ? 'rgba(191,0,255,0.30)'
-          : 'rgba(255,255,255,0.07)'
+  const fill   = isOpp
+    ? `rgba(0,229,255,${(0.10 + score * 0.22).toFixed(2)})`
+    : isRisk
+      ? `rgba(191,0,255,${(0.10 + (1 - score) * 0.22).toFixed(2)})`
+      : 'rgba(255,255,255,0.035)'
+  const stroke = isOpp
+    ? 'rgba(0,229,255,0.30)'
+    : isRisk
+      ? 'rgba(191,0,255,0.30)'
+      : 'rgba(255,255,255,0.07)'
 
-      const tag      = score > 0.83 ? '▲ ADJUST' : score < 0.20 ? '▼ REDUCE' : null
-      const tagColor = score > 0.83 ? '#00E5FF' : '#BF00FF'
+  const tag      = score > 0.83 ? '▲ ADJUST' : score < 0.20 ? '▼ REDUCE' : null
+  const tagColor = score > 0.83 ? '#00E5FF' : '#BF00FF'
 
-      return { ri, ci, x, y, score, fill, stroke, tag, tagColor }
-    })
+  return { ri, ci, x, y, score, fill, stroke, tag, tagColor }
+}
+
+function buildSwrCells(avgSigScore: number, regimeFam: string, rows: string[]): Cell[] {
+  return rows.flatMap((_, ri) =>
+    COLS.map((_, ci) => buildCell(ri, ci, scoreCell(ri, ci, avgSigScore, regimeFam)))
   )
 }
 
-export default function RiskMatrix({ className = '' }: { className?: string }) {
+function buildStreamCells(riskMatrix: AlephRiskRow[]): Cell[] {
+  return riskMatrix.flatMap((row, ri) =>
+    COLS.map((_, ci) => buildCell(ri, ci, scoreFromStreamRow(row, ci)))
+  )
+}
+
+interface Props {
+  className?:   string
+  riskMatrix?:  AlephRiskRow[] | null
+}
+
+export default function RiskMatrix({ className = '', riskMatrix }: Props) {
   const { data: signals } = useSignals()
   const { data: regime }  = useRegime()
 
-  const sigList  = signals?.signals ?? []
-  const avgScore = sigList.length
-    ? sigList.reduce((s, x) => s + x.score, 0) / sigList.length
-    : 0.5
-  const regimeFam = regime?.regime_family ?? 'unknown'
-  const cells     = buildCells(avgScore, regimeFam)
+  const hasStream = !!riskMatrix && riskMatrix.length > 0
+
+  const rows: string[] = hasStream
+    ? riskMatrix!.map(r => r.ticker)
+    : ['AAPL', 'MSFT', 'GOOGL', 'TSLA', 'NVDA']
+
+  const cells: Cell[] = hasStream
+    ? buildStreamCells(riskMatrix!)
+    : (() => {
+        const sigList   = signals?.signals ?? []
+        const avgScore  = sigList.length
+          ? sigList.reduce((s: number, x: SignalSummaryDTO) => s + x.score, 0) / sigList.length
+          : 0.5
+        return buildSwrCells(avgScore, regime?.regime_family ?? 'unknown', rows)
+      })()
+
+  const W = HDR_X + COLS.length * CW
+  const H = HDR_Y + rows.length * CH
 
   return (
     <div className={`w-full h-full flex items-start justify-center ${className}`}>
@@ -100,7 +140,7 @@ export default function RiskMatrix({ className = '' }: { className?: string }) {
         ))}
 
         {/* Row headers */}
-        {ROWS.map((row, ri) => (
+        {rows.map((row, ri) => (
           <text
             key={row}
             x={HDR_X - 5}
@@ -121,6 +161,7 @@ export default function RiskMatrix({ className = '' }: { className?: string }) {
               x={x + 1} y={y + 1}
               width={CW - 2} height={CH - 2}
               rx={5} fill={fill} stroke={stroke} strokeWidth={0.6}
+              style={{ transition: 'fill 0.5s ease, stroke 0.5s ease' }}
             />
             <text
               x={x + CW / 2} y={y + CH / 2 - 2}
@@ -155,7 +196,7 @@ export default function RiskMatrix({ className = '' }: { className?: string }) {
             stroke="rgba(255,255,255,0.05)" strokeWidth={0.5}
           />
         ))}
-        {ROWS.map((_, ri) => (
+        {rows.map((_, ri) => (
           <line
             key={`hl-${ri}`}
             x1={HDR_X} y1={HDR_Y + ri * CH}

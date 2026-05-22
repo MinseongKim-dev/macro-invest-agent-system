@@ -187,3 +187,44 @@ export interface AlertsRecentResponse {
   total: number
   limit_applied: number
 }
+
+// ── Aleph-One Intelligence Stream (src/main.py contract) ───────────────────
+
+export type WatchStatus  = 'WATCH' | 'STABLE'
+export type StreamSignal = 'BUY' | 'HOLD' | 'SELL'
+export type StreamStatus = 'CONNECTING' | 'LIVE' | 'ERROR'
+
+export interface AlephNetworkNode {
+  id: string; x: number; y: number; z: number; group: string
+}
+
+export interface AlephRiskRow {
+  ticker:    string
+  momentum:  WatchStatus
+  regime:    WatchStatus
+  rates:     WatchStatus
+  sentiment: WatchStatus
+  sig_score: StreamSignal
+}
+
+export interface AlephStreamData {
+  timestamp: string
+  status:    'LIVE' | 'SYNCING' | 'ERROR'
+  portfolio_health: { score: number; source: string }
+  macro_regime: {
+    regime_name:      string
+    market_phase:     string
+    confidence_score: number
+  }
+  active_signals: Array<{
+    action:      StreamSignal
+    strategy:    string
+    probability: number
+  }>
+  intelligence_synthesis: {
+    assets_count:  number
+    vector_mode:   string
+    network_nodes: AlephNetworkNode[]
+    risk_matrix:   AlephRiskRow[]
+  }
+}

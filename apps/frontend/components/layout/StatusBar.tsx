@@ -1,7 +1,9 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { useRegime } from '@/hooks/useAlephData'
+import { useAlephStream } from '@/hooks/useAlephStream'
 import { regimeColor, formatUtcClock } from '@/lib/utils'
+import type { StreamStatus } from '@/lib/types'
 
 const STATUS_COLORS: Record<string, string> = {
   success:   '#00E5FF',
@@ -10,9 +12,16 @@ const STATUS_COLORS: Record<string, string> = {
   bootstrap: '#BF00FF',
 }
 
+const SYNC_DOT: Record<StreamStatus, { color: string; pulse: boolean }> = {
+  LIVE:       { color: '#10B981', pulse: true  },
+  CONNECTING: { color: '#F59E0B', pulse: true  },
+  ERROR:      { color: '#FF1744', pulse: false },
+}
+
 export default function StatusBar() {
   const [clock, setClock] = useState('')
   const { data: regime, isLoading, error } = useRegime()
+  const { status: streamStatus } = useAlephStream()
 
   useEffect(() => {
     setClock(formatUtcClock())
@@ -25,6 +34,7 @@ export default function StatusBar() {
   const status   = regime?.status ?? 'unknown'
   const dotColor = error ? '#FF1744' : STATUS_COLORS[status] ?? '#8899AA'
   const dotLabel = error ? 'ERR' : regime ? status.toUpperCase() : '···'
+  const sync     = SYNC_DOT[streamStatus]
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 flex items-center gap-4 px-4
@@ -32,8 +42,15 @@ export default function StatusBar() {
       bg-[rgba(8,8,26,0.92)] backdrop-blur-[24px]
       font-mono text-[11px] select-none">
 
-      {/* Brand */}
-      <span className="neon-cyan font-bold tracking-[0.25em]">ALEPH-ONE</span>
+      {/* Brand + stream sync indicator */}
+      <span className="flex items-center gap-1.5">
+        <span className="neon-cyan font-bold tracking-[0.25em]">ALEPH-ONE</span>
+        <span
+          className={`inline-block w-1.5 h-1.5 rounded-full${sync.pulse ? ' animate-pulse' : ''}`}
+          style={{ background: sync.color, boxShadow: `0 0 5px ${sync.color}` }}
+          title={`Stream: ${streamStatus}`}
+        />
+      </span>
       <span className="text-[rgba(232,240,254,0.25)]">▸</span>
 
       {/* Clock */}

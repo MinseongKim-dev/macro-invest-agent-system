@@ -1,4 +1,6 @@
+'use client'
 import dynamic from 'next/dynamic'
+import { useAlephStream } from '@/hooks/useAlephStream'
 import AlphaPanel      from '@/components/layout/AlphaPanel'
 import CommandTerminal from '@/components/panels/CommandTerminal'
 import RiskMatrix      from '@/components/panels/RiskMatrix'
@@ -32,6 +34,8 @@ const LiveChart = dynamic(
 )
 
 export default function Home() {
+  const { data: streamData } = useAlephStream()
+
   return (
     /*
      * Fixed top:   StatusBar  (40 px)
@@ -46,7 +50,7 @@ export default function Home() {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Personal Alpha panel */}
-        <AlphaPanel />
+        <AlphaPanel streamData={streamData} />
 
         {/* Center column */}
         <main className="flex-1 flex flex-col gap-3 p-3 overflow-y-auto min-h-0">
@@ -68,7 +72,10 @@ export default function Home() {
                 Risk · Opportunity Matrix
               </span>
               <div className="flex-1 min-h-0">
-                <RiskMatrix className="w-full h-full" />
+                <RiskMatrix
+                  className="w-full h-full"
+                  riskMatrix={streamData?.intelligence_synthesis.risk_matrix ?? null}
+                />
               </div>
             </div>
           </div>

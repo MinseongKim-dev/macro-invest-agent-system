@@ -85,6 +85,35 @@ services:
       start_period: 15s
 
   # ---------------------------------------------------------------------------
+  # Aleph-API — SSE intelligence stream + OMNI command terminal (src/main.py)
+  # Internal port 8001; not exposed to host — consumed by the frontend proxy.
+  # ---------------------------------------------------------------------------
+  aleph-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql://${DB_USER:-aleph_admin}:${DB_PASSWORD:-aleph_secure_pass}@timescaledb:5432/${DB_NAME:-aleph_core}
+      DB_HOST: timescaledb
+      DB_PORT: "5432"
+      DB_NAME: ${DB_NAME:-aleph_core}
+      DB_USER: ${DB_USER:-aleph_admin}
+      DB_PASSWORD: ${DB_PASSWORD:-aleph_secure_pass}
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ---------------------------------------------------------------------------
   # Frontend — Next.js app (Aleph-One UI)
   # UI → http://localhost:3000
   # ---------------------------------------------------------------------------
@@ -96,8 +125,11 @@ services:
       - "3000:3000"
     environment:
       API_BASE_URL: http://api:8000
+      ALEPH_API_URL: http://aleph-api:8001
     depends_on:
       api:
+        condition: service_healthy
+      aleph-api:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/"]
