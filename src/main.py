@@ -29,7 +29,7 @@ import pandas as pd
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from langchain_core.tools import tool  # type: ignore[import-not-found]
+from langchain_core.tools import tool
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
@@ -646,43 +646,28 @@ def get_sentiment_intelligence(ticker: str) -> str:
 
 
 def _build_lc_agent() -> Any:  # noqa: ANN401
-    """Construct a LangChain tool-calling AgentExecutor backed by Claude.
+    """Construct a LangChain 1.x tool-calling agent backed by Claude.
 
     Imports are deferred so the module loads even without langchain-anthropic
     installed. Raises RuntimeError (caught by intelligence_command → fallback)
     if required packages are absent.
     """
     try:
-        from langchain.agents import (  # type: ignore[import-not-found]
-            AgentExecutor,
-            create_tool_calling_agent,
-        )
-        from langchain_anthropic import ChatAnthropic  # type: ignore[import-not-found]
-        from langchain_core.prompts import (  # type: ignore[import-not-found]
-            ChatPromptTemplate,
-            MessagesPlaceholder,
-        )
+        from langchain.agents import create_agent
+        from langchain_anthropic import ChatAnthropic
     except ImportError as exc:
         raise RuntimeError(
             f"LangChain agent packages unavailable: {exc}. "
-            "Ensure langchain>=0.3.0 and langchain-anthropic>=0.3.0 are installed."
+            "Ensure langchain>=1.0.0 and langchain-anthropic>=0.3.0 are installed."
         ) from exc
 
-    llm = ChatAnthropic(
-        model="claude-sonnet-4-6",
-        temperature=0.1,
-        max_tokens=2048,
+    llm = ChatAnthropic(  # type: ignore[call-arg]
+        model="claude-sonnet-4-6", temperature=0.1, max_tokens=2048
     )
-    prompt = ChatPromptTemplate.from_messages([
-        ("system", _AGENT_SYSTEM_PROMPT),
-        MessagesPlaceholder("chat_history", optional=True),
-        ("human", "{input}"),
-        MessagesPlaceholder("agent_scratchpad"),
-    ])
     tools = [get_quant_intelligence, get_sentiment_intelligence]
-    agent = create_tool_calling_agent(llm, tools, prompt)
+    agent = create_agent(llm, tools, system_prompt=_AGENT_SYSTEM_PROMPT)
     logger.info("lc_agent_built", extra={"model": "claude-sonnet-4-6", "tools": len(tools)})
-    return AgentExecutor(agent=agent, tools=tools, verbose=False, max_iterations=6)
+    return agent
 
 
 async def _run_agent_async(query: str, persona: PersonaProfile) -> dict[str, Any]:
@@ -700,9 +685,12 @@ async def _run_agent_async(query: str, persona: PersonaProfile) -> dict[str, Any
     # Run agent in thread pool — LangChain sync invoke blocks the event loop otherwise
     agent_result: dict[str, Any] = await asyncio.to_thread(
         _AGENT_EXECUTOR.invoke,
-        {"input": query, "chat_history": []},
+        {"messages": [{"role": "user", "content": query}]},
     )
-    briefing: str = str(agent_result.get("output", "Analysis complete."))
+    # LangChain 1.x returns {"messages": [...]}; last message is the AI response
+    messages: list[Any] = agent_result.get("messages", [])
+    last_msg = messages[-1] if messages else None
+    briefing: str = str(getattr(last_msg, "content", None) or "Analysis complete.")
 
     # Rebuild risk_matrix from the live engine pipeline for this cycle
     rng = random.Random()
