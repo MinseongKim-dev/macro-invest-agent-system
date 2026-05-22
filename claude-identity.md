@@ -27,8 +27,8 @@ All backend logic lives in exactly these four files. Creating sub-files or sub-d
 
 **Current file state (do not re-create):**
 - `src/database.py` — `DatabaseConfig`, `_PoolManager` singleton, `get_pool()`, `get_connection()` (ctx-mgr, auto-return), `init_db()` (market_ticks hypertable 7-day chunks + macro_regimes, idempotent), `seed_mock_data()` (pandas GBM OHLCV COPY bulk-insert + dummy regimes for AAPL/MSFT)
-- `src/engines.py` — `BaseEngine` ABC, `QuantEngine` (MACD 12/26/9 + σ), `SentimentEngine` (keyword rule-base), `PersonaAdapterEngine` (AGGRESSIVE/BALANCED/CONSERVATIVE → BUY/HOLD/SELL)
-- `src/main.py` — `GET /health`, `GET /api/v1/intelligence`, `GET /api/v1/intelligence/stream` (SSE 1s), `GET /api/v1/regimes/latest`
+- `src/engines.py` — `BaseEngine` ABC, `QuantEngine` (5/20 EMA crossover + σ), `SentimentEngine` (growth/surpass/bullish vs drag/drop/bearish keyword rule-base), `PersonaAdapterEngine` (AGGRESSIVE/BALANCED/CONSERVATIVE → BUY/HOLD/SELL + confidence), `build_intelligence_row()` orchestration helper. Universe: AAPL · MSFT · TSLA · 005930 · 000660
+- `src/main.py` — CORS + lifespan (init_db → seed → history → regime cache), `GET /api/v1/intelligence/stream` (SSE EventSourceResponse 1s, full UI contract + random walk), `POST /api/v1/intelligence/command` (OMNI:// terminal, 3 keyword scenarios → JARVIS report + twisted network_nodes)
 
 ---
 
