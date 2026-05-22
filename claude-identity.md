@@ -131,3 +131,4 @@ Frontend UI card → backend source mapping:
 | Phase 2.5 | yfinance live pipeline: LIVE_TICKERS domain map, fetch_live_market_data() (DELETE+COPY upsert, ×3 retry), fetch_live_news() → SentimentEngine, asyncio background collector in SSE stream (60s cycle, auto-cancel on disconnect) | [X] |
 | Phase 3.1 | LLM / LangChain orchestration for OMNI command terminal | [X] |
 | Phase 3.2 | Milvus vector store wiring (news embeddings, semantic search) | [ ] |
+| Phase 4.0 | v0.1.0 pre-release repo restructure: layered src/ architecture (core→src/core, agent+mcp+adapters→src/agent, domain/pipelines/services→src/, evals→tests/evals); 631 import paths migrated; ChatAnthropic→ChatGroq (free tier); HuggingFaceEmbeddings stub wired; 1385 tests green | [X] |
