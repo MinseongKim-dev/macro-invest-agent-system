@@ -438,9 +438,9 @@ def _compute_rsi(close: pd.Series, period: int = _RSI_PERIOD) -> float:
     avg_loss = float(losses.iloc[:period].mean())
 
     # Wilder's smoothing over remaining bars
-    for g, l in zip(gains.iloc[period:], losses.iloc[period:], strict=False):
+    for g, loss in zip(gains.iloc[period:], losses.iloc[period:], strict=False):
         avg_gain = (avg_gain * (period - 1) + g) / period
-        avg_loss = (avg_loss * (period - 1) + l) / period
+        avg_loss = (avg_loss * (period - 1) + loss) / period
 
     if avg_loss < 1e-10:
         return 100.0
@@ -508,19 +508,20 @@ class PersonaAdapterEngine(BaseEngine):
             # Lock BUY → HOLD to protect capital.
             margin_of_safety_lock = False
             rsi_value             = 50.0
-            if self._persona == "CONSERVATIVE" and signal == "BUY":
-                if "close_price" in market_data.columns and len(market_data) >= _RSI_PERIOD + 1:
-                    rsi_value = _compute_rsi(market_data["close_price"].astype(float))
-                    if rsi_value >= _RSI_OVERBOUGHT:
-                        signal                = "HOLD"
-                        margin_of_safety_lock = True
-                        logger.info(
-                            "margin_of_safety_lock",
-                            extra={
-                                "ticker": ticker, "rsi": round(rsi_value, 2),
-                                "persona": self._persona,
-                            },
-                        )
+            if (self._persona == "CONSERVATIVE" and signal == "BUY"
+                    and "close_price" in market_data.columns
+                    and len(market_data) >= _RSI_PERIOD + 1):
+                rsi_value = _compute_rsi(market_data["close_price"].astype(float))
+                if rsi_value >= _RSI_OVERBOUGHT:
+                    signal                = "HOLD"
+                    margin_of_safety_lock = True
+                    logger.info(
+                        "margin_of_safety_lock",
+                        extra={
+                            "ticker": ticker, "rsi": round(rsi_value, 2),
+                            "persona": self._persona,
+                        },
+                    )
 
             strategy = _strategy_text(ticker, signal, quant_d, sentiment_d)
 

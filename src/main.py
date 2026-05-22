@@ -254,9 +254,8 @@ def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -
 
     # James Simons — Regime Switching: if any ticker triggered crisis mode,
     # escalate macro_regime to CRISIS_MODE in the SSE payload.
-    any_regime_switch  = any(row.get("_regime_switch", False) for row in risk_matrix)
-    any_vol_spike      = any(row.get("_vol_spike", False)      for row in risk_matrix)
-    any_mos_lock       = any(row.get("_margin_of_safety_lock", False) for row in risk_matrix)
+    any_regime_switch = any(row.get("_regime_switch", False) for row in risk_matrix)
+    any_vol_spike     = any(row.get("_vol_spike", False)     for row in risk_matrix)
 
     if any_regime_switch:
         live_regime_name   = "CRISIS_MODE"
