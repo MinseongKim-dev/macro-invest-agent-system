@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ALEPH-ONE // Financial Intelligence Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+  <!-- STATUS BAR -->
+  <header class="status-bar">
+    <span class="neon-cyan logo-text">ALEPH-ONE</span>
+    <span class="status-sep">◆</span>
+    <span id="clock" class="text-dim">00:00:00 UTC</span>
+    <span class="status-sep">◆</span>
+    <span id="regime-badge" class="regime-badge">LOADING…</span>
+    <span class="status-sep">◆</span>
+    <span class="status-dot"></span>
+    <span class="text-dim">SYSTEM LIVE</span>
+  </header>
+
+  <!-- MAIN LAYOUT -->
+  <div class="main-layout">
+
+    <!-- LEFT PANEL: PERSONAL ALPHA -->
+    <aside class="panel-left glass-card">
+      <div class="panel-title neon-cyan">PERSONAL ALPHA</div>
+
+      <div class="alpha-section">
+        <div class="alpha-label text-dim">PORTFOLIO HEALTH</div>
+        <div class="alpha-value" id="alpha-health-value">—</div>
+        <div class="health-arc-wrap">
+          <svg class="health-arc" viewBox="0 0 100 60" xmlns="http://www.w3.org/2000/svg">
+            <path d="M10,55 A45,45 0 0,1 90,55" fill="none" stroke="rgba(255,255,255,0.08)" stroke-width="8" stroke-linecap="round"/>
+            <path id="health-arc-path" d="M10,55 A45,45 0 0,1 90,55" fill="none" stroke="#00E5FF" stroke-width="8" stroke-linecap="round" stroke-dasharray="141" stroke-dashoffset="141" style="transition:stroke-dashoffset 1s ease"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="alpha-section">
+        <div class="alpha-label text-dim">MACRO REGIME</div>
+        <div class="alpha-value small" id="alpha-regime-value">—</div>
+      </div>
+
+      <div class="alpha-section">
+        <div class="alpha-label text-dim">TOP SIGNALS</div>
+        <div id="alpha-signals-list" class="signals-list"></div>
+      </div>
+
+      <div class="alpha-section">
+        <div class="alpha-label text-dim">ACTIVE ASSETS</div>
+        <div class="asset-badges">
+          <span class="asset-badge">AAPL</span>
+          <span class="asset-badge">MSFT</span>
+          <span class="asset-badge">TSLA</span>
+          <span class="asset-badge">005930</span>
+          <span class="asset-badge">000660</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- CENTER PANEL -->
+    <main class="panel-center">
+
+      <!-- COMMAND TERMINAL -->
+      <div class="command-terminal glass-card">
+        <span class="neon-cyan terminal-prompt">OMNI://</span>
+        <input
+          type="text"
+          id="command-input"
+          class="command-input"
+          placeholder="Enter intelligence query…"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="analyze-btn" class="analyze-btn neon-cyan">ANALYZE</button>
+      </div>
+
+      <!-- RESPONSE CARD -->
+      <div class="response-card glass-card" id="response-card">
+        <div class="scan-line" id="scan-line"></div>
+        <div class="response-grid">
+
+          <!-- 3D NETWORK MAP -->
+          <div class="response-pane">
+            <div class="pane-title text-dim">3D PORTFOLIO NETWORK</div>
+            <canvas id="network-canvas"></canvas>
+          </div>
+
+          <!-- RISK / OPPORTUNITY MATRIX -->
+          <div class="response-pane">
+            <div class="pane-title text-dim">RISK · OPPORTUNITY MATRIX</div>
+            <svg id="risk-matrix-svg"></svg>
+          </div>
+
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- GLOBAL INTEL: WORLD MAP + TICKER -->
+  <section class="global-intel glass-card">
+    <div class="pane-title text-dim">GLOBAL MACRO INTELLIGENCE STREAM</div>
+    <div class="world-map-wrap">
+      <svg id="world-map-svg" viewBox="0 0 900 380" xmlns="http://www.w3.org/2000/svg">
+        <!-- Simplified continent outlines -->
+        <!-- North America -->
+        <path class="continent" d="M60,60 L140,50 L180,70 L200,100 L210,140 L190,170 L170,180 L150,160 L130,170 L110,200 L90,220 L70,200 L50,180 L40,150 L50,110 Z"/>
+        <!-- South America -->
+        <path class="continent" d="M130,240 L170,230 L190,250 L200,280 L195,320 L175,350 L155,360 L135,340 L120,310 L115,280 L120,255 Z"/>
+        <!-- Europe -->
+        <path class="continent" d="M380,50 L430,45 L450,60 L460,80 L450,100 L430,110 L410,105 L390,90 L375,70 Z"/>
+        <!-- Africa -->
+        <path class="continent" d="M390,130 L440,120 L470,140 L480,170 L475,210 L460,240 L440,260 L415,265 L395,250 L380,220 L375,190 L380,160 Z"/>
+        <!-- Asia -->
+        <path class="continent" d="M470,40 L560,30 L640,50 L680,70 L700,100 L690,130 L660,150 L620,160 L580,155 L540,140 L510,120 L490,100 L470,80 Z"/>
+        <!-- Australia -->
+        <path class="continent" d="M640,240 L700,235 L730,250 L740,275 L730,300 L705,310 L675,305 L650,290 L638,268 Z"/>
+        <!-- Japan (small island) -->
+        <path class="continent" d="M690,80 L710,75 L720,85 L715,100 L700,105 L688,95 Z"/>
+        <!-- Korea (small) -->
+        <path class="continent" d="M665,85 L680,82 L685,93 L676,102 L662,98 Z"/>
+
+        <!-- Heatmap dots will be injected by JS -->
+        <g id="heatmap-dots"></g>
+      </svg>
+    </div>
+    <div class="ticker-bar">
+      <span class="ticker-label neon-cyan">INTEL //</span>
+      <div class="ticker-track">
+        <span id="ticker-content" class="ticker-content">LOADING INTELLIGENCE STREAM…</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- CDN: Three.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+  <!-- App modules -->
+  <script src="js/api.js"></script>
+  <script src="js/network-map.js"></script>
+  <script src="js/risk-matrix.js"></script>
+  <script src="js/world-map.js"></script>
+  <script src="js/app.js"></script>
+
+</body>
+</html>
