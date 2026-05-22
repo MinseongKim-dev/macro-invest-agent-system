@@ -1,8 +1,41 @@
 @import url('https://fonts.googleapis.com/css2?family=Space+Mono:ital,wght@0,400;0,700;1,400&display=swap');
+@import "tailwindcss";
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@theme {
+  --color-a-bg:     #000000;
+  --color-a-deep:   #08081A;
+  --color-a-mid:    #1A1A2E;
+  --color-a-cyan:   #00E5FF;
+  --color-a-purple: #BF00FF;
+  --color-a-text:   #E8F0FE;
+
+  --font-mono: "Space Mono", "Courier New", monospace;
+
+  --animate-ticker-scroll: ticker 60s linear infinite;
+  --animate-glow-pulse:    glow-pulse 2.5s ease-in-out infinite;
+  --animate-blink:         blink 1.2s step-start infinite;
+  --animate-fade-in:       fade-in 0.4s ease-out;
+}
+
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(0, 229, 255, 0.2); }
+  50%       { box-shadow: 0 0 28px rgba(0, 229, 255, 0.7); }
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
 
 @layer base {
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -17,10 +50,10 @@
 
   ::-webkit-scrollbar { width: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: rgba(0,229,255,0.25); border-radius: 2px; }
-  ::-webkit-scrollbar-thumb:hover { background: rgba(0,229,255,0.5); }
+  ::-webkit-scrollbar-thumb { background: rgba(0, 229, 255, 0.25); border-radius: 2px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(0, 229, 255, 0.5); }
 
-  ::selection { background: rgba(0,229,255,0.2); color: #E8F0FE; }
+  ::selection { background: rgba(0, 229, 255, 0.2); color: #E8F0FE; }
 }
 
 @layer components {
@@ -38,22 +71,22 @@
     -webkit-backdrop-filter: blur(24px);
     border: 1px solid rgba(0, 229, 255, 0.25);
     border-radius: 12px;
-    box-shadow: 0 0 20px rgba(0,229,255,0.06), inset 0 0 20px rgba(0,229,255,0.03);
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.06), inset 0 0 20px rgba(0, 229, 255, 0.03);
   }
 
-  .neon-cyan   { color: #00E5FF; text-shadow: 0 0 10px rgba(0,229,255,0.7); }
-  .neon-purple { color: #BF00FF; text-shadow: 0 0 10px rgba(191,0,255,0.7); }
+  .neon-cyan   { color: #00E5FF; text-shadow: 0 0 10px rgba(0, 229, 255, 0.7); }
+  .neon-purple { color: #BF00FF; text-shadow: 0 0 10px rgba(191, 0, 255, 0.7); }
 
-  .badge-buy    { color: #00E5FF; border-color: rgba(0,229,255,0.35);   background: rgba(0,229,255,0.08); }
-  .badge-sell   { color: #BF00FF; border-color: rgba(191,0,255,0.35); background: rgba(191,0,255,0.08); }
-  .badge-hold   { color: #FF9800; border-color: rgba(255,152,0,0.35);  background: rgba(255,152,0,0.08); }
-  .badge-neutral{ color: #888;    border-color: rgba(136,136,136,0.3); background: rgba(136,136,136,0.06); }
+  .badge-buy     { color: #00E5FF; border-color: rgba(0, 229, 255, 0.35);   background: rgba(0, 229, 255, 0.08); }
+  .badge-sell    { color: #BF00FF; border-color: rgba(191, 0, 255, 0.35);   background: rgba(191, 0, 255, 0.08); }
+  .badge-hold    { color: #FF9800; border-color: rgba(255, 152, 0, 0.35);   background: rgba(255, 152, 0, 0.08); }
+  .badge-neutral { color: #888;    border-color: rgba(136, 136, 136, 0.3);  background: rgba(136, 136, 136, 0.06); }
 
   .label-dim {
     font-size: 9px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
-    color: rgba(232,240,254,0.4);
+    color: rgba(232, 240, 254, 0.4);
   }
 }
 

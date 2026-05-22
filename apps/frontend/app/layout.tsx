@@ -1,9 +1,6 @@
 import type { Metadata } from 'next'
-import dynamic from 'next/dynamic'
+import StatusBarLazy from '@/components/layout/StatusBarLazy'
 import './globals.css'
-
-// StatusBar uses clock (browser-only) — must be client-only
-const StatusBar = dynamic(() => import('@/components/layout/StatusBar'), { ssr: false })
 
 export const metadata: Metadata = {
   title: 'Aleph-One | Macro Intelligence',
@@ -14,7 +11,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body>
-        <StatusBar />
+        <StatusBarLazy />
         {children}
       </body>
     </html>
