@@ -1,0 +1,58 @@
+# Version control
+.git
+.gitignore
+.gitattributes
+
+# Python artifacts
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info
+.eggs
+dist
+build
+*.whl
+
+# Virtual environments
+.venv
+venv
+.env
+env/
+
+# Dev tooling
+.ruff_cache
+.mypy_cache
+.pytest_cache
+.coverage
+htmlcov/
+.tox
+
+# Tests and docs (not needed at runtime)
+tests/
+docs/
+backlog/
+logs/
+
+# Legacy (quarantined)
+legacy/
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local env overrides (secrets never in image)
+.env
+.env.local
+*.env
+
+# Node (handled by frontend Dockerfile separately)
+apps/frontend/node_modules
+apps/frontend/.next

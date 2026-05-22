@@ -2,7 +2,8 @@
 FROM python:3.12-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    UV_LINK_MODE=copy
 
 WORKDIR /app
 
@@ -10,13 +11,18 @@ WORKDIR /app
 COPY --from=ghcr.io/astral-sh/uv:0.4.29 /uv /usr/local/bin/uv
 
 # Copy dependency manifests first for layer caching
-COPY pyproject.toml uv.lock* ./
+COPY pyproject.toml uv.lock ./
 
-# Install dependencies (no dev extras)
-RUN uv sync --no-dev
+# Install dependencies with BuildKit cache mount — packages are reused across builds
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-install-project
 
-# Copy application source
+# Copy application source (invalidates only this layer on code changes)
 COPY . .
+
+# Install the project itself (fast — deps already cached)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
 
 EXPOSE 8000
 
