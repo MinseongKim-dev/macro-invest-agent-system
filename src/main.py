@@ -39,6 +39,8 @@ from src.database import (
     fetch_live_news,
     get_connection,
     init_db,
+    init_milvus,
+    search_milvus_news,
     seed_mock_data,
 )
 from src.engines import (
@@ -559,12 +561,15 @@ _AGENT_SYSTEM_PROMPT: str = (
     "(inflation/hawkish/tightening/crisis ≥ 3 occurrences) → CRISIS_MODE\n"
     "• Warren Buffett — Margin of Safety: RSI ≥ 70 locks BUY → HOLD for CONSERVATIVE\n\n"
     "Operational protocol:\n"
-    "1. Call get_quant_intelligence for each relevant ticker (momentum, RSI, vol_spike)\n"
-    "2. Call get_sentiment_intelligence for each relevant ticker (sentiment, regime_switch)\n"
-    "3. Synthesize findings into a sharp, structured investment briefing\n"
-    "4. Lead with actionable signals and quantitative evidence\n"
-    "5. Concise and data-driven — no vague commentary\n"
-    "6. Format like a top-tier hedge fund quant report with clear sections"
+    "1. Call search_news_database with the user query to retrieve the most relevant\n"
+    "   real news articles from the Milvus vector store for RAG context\n"
+    "2. Call get_quant_intelligence for each relevant ticker (momentum, RSI, vol_spike)\n"
+    "3. Call get_sentiment_intelligence for each relevant ticker (sentiment, regime_switch)\n"
+    "4. Synthesize findings — real news context + quant signals — into a sharp briefing\n"
+    "5. Cite specific headlines from search_news_database when making claims\n"
+    "6. Lead with actionable signals and quantitative evidence\n"
+    "7. Concise and data-driven — no vague commentary\n"
+    "8. Format like a top-tier hedge fund quant report with clear sections"
 )
 
 # Lazy-initialised AgentExecutor singleton — built on first OMNI command
@@ -645,6 +650,41 @@ def get_sentiment_intelligence(ticker: str) -> str:
     })
 
 
+@tool
+def search_news_database(query: str, ticker: str = "") -> str:
+    """Search the Milvus vector database for real news most semantically similar to the query.
+
+    Uses sentence-transformers/all-MiniLM-L6-v2 to embed the query and retrieves
+    the top-3 most relevant Yahoo Finance headlines ingested by the live collector.
+    Call this FIRST to ground your analysis in real, timestamped market news.
+
+    Args:
+        query:  Natural-language query (e.g. "AI chip demand outlook", "Fed rate hike impact")
+        ticker: Optional ticker filter: AAPL, MSFT, TSLA, 005930, 000660 — or "" for all tickers
+    """
+    hits = search_milvus_news(query, ticker=ticker or None, top_k=3)
+    if not hits:
+        fallback = _LIVE_NEWS_CACHE or _TICKER_NEWS
+        sample   = []
+        for t, headlines in fallback.items():
+            if not ticker or t == ticker:
+                sample.extend(headlines[:2])
+        if sample:
+            return json.dumps({
+                "source":   "in_memory_fallback",
+                "note":     "Milvus unavailable — returning cached headlines",
+                "results":  [{"title": h, "score": 0.0} for h in sample[:3]],
+            })
+        return json.dumps({"source": "empty", "results": []})
+
+    return json.dumps({
+        "source":  "milvus_vector_db",
+        "query":   query,
+        "ticker":  ticker or "all",
+        "results": hits,
+    })
+
+
 def _build_lc_agent() -> Any:  # noqa: ANN401
     """Construct a LangChain 1.x tool-calling agent (ChatGroq, free tier).
 
@@ -664,7 +704,7 @@ def _build_lc_agent() -> Any:  # noqa: ANN401
     import os
     model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
     llm = ChatGroq(model=model, temperature=0.1)
-    tools = [get_quant_intelligence, get_sentiment_intelligence]
+    tools = [search_news_database, get_quant_intelligence, get_sentiment_intelligence]
     agent = create_agent(llm, tools, system_prompt=_AGENT_SYSTEM_PROMPT)
     logger.info("lc_agent_built", extra={"model": model, "tools": len(tools)})
     return agent
@@ -781,6 +821,12 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
         await asyncio.to_thread(_load_regime_from_db)
     except Exception as exc:
         logger.warning("regime_cache_fallback", extra={"error": str(exc)})
+
+    # Milvus vector store — optional; app boots normally if Milvus is unavailable
+    try:
+        await asyncio.to_thread(init_milvus)
+    except Exception as exc:
+        logger.warning("milvus_startup_skipped", extra={"error": str(exc)})
 
     logger.info("aleph_one_ready")
     yield

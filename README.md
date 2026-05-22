@@ -33,9 +33,16 @@ Three quantitative formulas from legendary investors, wired in sequence:
 - Primary path: LangChain 1.x agent (`langchain.agents.create_agent`) with two `@tool` functions calling live engine data
 - Fallback: keyword-scenario matching (no LLM dependency required to boot)
 
+### Milvus RAG — Semantic News Search (Phase 3.2)
+- **Live ingestion**: every 60 s collector cycle embeds Yahoo Finance headlines with `all-MiniLM-L6-v2` and upserts into Milvus `news_collection` (HNSW index, COSINE similarity)
+- **Deduplication**: SHA-256 title hash prevents re-embedding identical articles across cycles
+- **Agent RAG tool**: `search_news_database(query, ticker)` — LangChain agent calls this first to ground analysis in real ingested news before running quant/sentiment engines
+- **Graceful degradation**: if Milvus is unreachable, the tool falls back to in-memory news cache; app continues running
+
 ### Zero-Cost AI Architecture
 - LLM: **ChatGroq** (Llama 3.1 8B Instant, free tier — 14 400 req/day) or **ChatOllama** (fully local, no API key)
-- Embeddings: **HuggingFace sentence-transformers** (`all-MiniLM-L6-v2`) — pre-wired for Milvus RAG in Phase 3.2
+- Embeddings: **HuggingFace sentence-transformers** (`all-MiniLM-L6-v2`, CPU-optimised, 384-dim)
+- Vector DB: **Milvus Standalone** (self-hosted Docker, zero licensing cost)
 - No Anthropic, OpenAI, or Cohere API keys required
 
 ---
@@ -216,7 +223,7 @@ macro-invest-agent-system/
 |-------|--------|-------------|
 | 2.x | ✅ Done | Multi-engine formulas, Aleph-One UI, yfinance live pipeline |
 | 3.1 | ✅ Done | LangChain agent wired to OMNI terminal |
-| 3.2 | 🔜 Next | Milvus vector store — news embedding + semantic RAG search |
+| 3.2 | ✅ Done | Milvus vector store — news embedding + semantic RAG search |
 | 4.0 | ✅ Done | v0.1.0 layered architecture refactor + zero-cost LLM migration |
 
 ---

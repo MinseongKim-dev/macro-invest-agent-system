@@ -154,7 +154,7 @@ Browser                FastAPI (src/main.py)      src/database.py         src/en
 
 ---
 
-## 4. OMNI Terminal — Agent Pipeline
+## 4. OMNI Terminal — Agent Pipeline (with RAG)
 
 ```
 POST /api/v1/intelligence/command
@@ -168,22 +168,53 @@ POST /api/v1/intelligence/command
          │         │
          │         ├── _build_lc_agent()  [lazy, once]
          │         │     ChatGroq(llama-3.1-8b-instant)
-         │         │     tools = [get_quant_intelligence, get_sentiment_intelligence]
-         │         │     create_agent(llm, tools, system_prompt=_AGENT_SYSTEM_PROMPT)
+         │         │     tools = [search_news_database,
+         │         │              get_quant_intelligence,
+         │         │              get_sentiment_intelligence]
+         │         │     create_agent(llm, tools, system_prompt=...)
          │         │
          │         ├── asyncio.to_thread(agent.invoke, {"messages": [query]})
          │         │         │
-         │         │         ├── @tool get_quant_intelligence(ticker)
+         │         │         ├── @tool search_news_database(query, ticker)  ← Step 1
+         │         │         │     embed query → Milvus ANN search (HNSW COSINE)
+         │         │         │     → top-3 real news hits with similarity score
+         │         │         │     → fallback: _LIVE_NEWS_CACHE if Milvus unavailable
+         │         │         │
+         │         │         ├── @tool get_quant_intelligence(ticker)       ← Step 2
          │         │         │     QuantEngine + _compute_rsi → JSON
          │         │         │
-         │         │         └── @tool get_sentiment_intelligence(ticker)
+         │         │         └── @tool get_sentiment_intelligence(ticker)   ← Step 3
          │         │               SentimentEngine + _LIVE_NEWS_CACHE → JSON
          │         │
          │         ├── full engine pipeline → live risk_matrix (all tickers)
          │         └── assemble UI-contract response + omni_report briefing
+         │               (RAG news cited in report alongside quant signals)
          │
          └── _match_scenario(query)                      [fallback if agent fails]
                keyword groups → static scenario response
+```
+
+### RAG pipeline detail
+
+```
+Browser OMNI query
+  │
+  ▼  search_news_database(query="reduce tech Q3", ticker="TSLA")
+  │
+  ├── embed_query(query)         → 384-dim vector (all-MiniLM-L6-v2, ~5ms CPU)
+  │
+  ├── milvus.search(             → ANN lookup in news_collection
+  │     data=[vec],                  HNSW index, metric=COSINE
+  │     expr='ticker == "TSLA"',     scalar filter on VARCHAR field
+  │     limit=3,
+  │     output_fields=["ticker","title","published_at"]
+  │   )
+  │
+  └── return [                   → Agent uses as context for final briefing
+        {"title": "Tesla deliveries drop ...", "score": 0.89},
+        {"title": "EV competition intensifies ...", "score": 0.82},
+        {"title": "Demand concerns bear risk ...", "score": 0.78},
+      ]
 ```
 
 ---
@@ -258,19 +289,39 @@ LLM_PROVIDER env var
              Requires: ollama pull llama3.1:8b
 ```
 
-### Embedding layer (Phase 3.2 pre-wire)
+### Embedding layer (Phase 3.2 — live)
 
 ```python
-# src/core/ — stub ready for Milvus RAG wiring
+# src/database.py — HuggingFaceEmbeddings singleton (lazy-loaded on first use)
 from langchain_huggingface import HuggingFaceEmbeddings
 
-embeddings = HuggingFaceEmbeddings(
-    model_name="sentence-transformers/all-MiniLM-L6-v2"
+_embedder = HuggingFaceEmbeddings(
+    model_name="sentence-transformers/all-MiniLM-L6-v2",
+    model_kwargs={"device": "cpu"},
+    encode_kwargs={"normalize_embeddings": True},   # unit vectors → COSINE ≡ dot product
 )
-# 384-dim vectors, ~22 MB model download, CPU-friendly
+# 384-dim vectors, ~22 MB model download once, ~5ms per batch inference on CPU
 ```
 
-When Phase 3.2 (Milvus vector store) is implemented, news headlines are embedded at collection time and queried via approximate nearest-neighbour search. The agent's `get_sentiment_intelligence` tool will be augmented with a semantic retrieval step before lexicon scoring.
+**Milvus `news_collection` schema:**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `id` | INT64 (auto) | Primary key |
+| `news_hash` | VARCHAR(32) | SHA-256[:16] of title — dedup key |
+| `ticker` | VARCHAR(10) | Internal ticker ID filter |
+| `title` | VARCHAR(512) | Headline text |
+| `published_at` | INT64 | Unix timestamp of ingestion |
+| `embedding` | FLOAT_VECTOR(384) | all-MiniLM-L6-v2 embedding |
+
+**Deduplication flow:**
+```
+for each headline in news_map:
+    hash = sha256(title)[:16]
+→ batch query Milvus: news_hash in [h1, h2, ...]
+→ insert only hashes NOT already in collection
+→ flush segment → HNSW index incrementally updated
+```
 
 ### Cost comparison
 
