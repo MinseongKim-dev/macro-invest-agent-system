@@ -252,6 +252,22 @@ def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -
     # Portfolio health: average confidence scaled to 0–100
     health_score = round(float(np.mean(confidences)) * 100, 1)
 
+    # James Simons — Regime Switching: if any ticker triggered crisis mode,
+    # escalate macro_regime to CRISIS_MODE in the SSE payload.
+    any_regime_switch  = any(row.get("_regime_switch", False) for row in risk_matrix)
+    any_vol_spike      = any(row.get("_vol_spike", False)      for row in risk_matrix)
+    any_mos_lock       = any(row.get("_margin_of_safety_lock", False) for row in risk_matrix)
+
+    if any_regime_switch:
+        live_regime_name   = "CRISIS_MODE"
+        live_regime_conf   = 0.95
+    elif any_vol_spike:
+        live_regime_name   = "VOLATILITY_REGIME"
+        live_regime_conf   = 0.88
+    else:
+        live_regime_name   = _REGIME_CACHE.get("regime_name", "POLICY_TIGHTENING")
+        live_regime_conf   = _REGIME_CACHE.get("confidence_score", 0.85)
+
     # Derive active_signals from risk_matrix (top 3 by confidence)
     sorted_rows = sorted(
         zip(TICKERS, risk_matrix, confidences, strict=False),
@@ -262,7 +278,8 @@ def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -
         {
             "action":      row["sig_score"],
             "strategy":    f"{DISPLAY_NAMES.get(t, t)}: {row['momentum']} momentum, "
-                           f"{row['sentiment']} sentiment",
+                           f"{row['sentiment']} sentiment"
+                           + (" [MoS-LOCK]" if row.get("_margin_of_safety_lock") else ""),
             "probability": round(conf, 3),
         }
         for t, row, conf in sorted_rows[:3]
@@ -282,9 +299,9 @@ def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -
             "source": "MARKET_DATA",
         },
         "macro_regime": {
-            "regime_name":      _REGIME_CACHE.get("regime_name",      "POLICY_TIGHTENING"),
-            "market_phase":     _REGIME_CACHE.get("market_phase",     "LATE_CYCLE"),
-            "confidence_score": _REGIME_CACHE.get("confidence_score", 0.85),
+            "regime_name":      live_regime_name,
+            "market_phase":     _REGIME_CACHE.get("market_phase", "LATE_CYCLE"),
+            "confidence_score": live_regime_conf,
         },
         "active_signals":        active_signals,
         "intelligence_synthesis": {
