@@ -3,6 +3,9 @@
 .gitignore
 .gitattributes
 
+# Ensure lockfile is always included (overrides any broad glob below)
+!uv.lock
+
 # Python artifacts
 __pycache__
 *.pyc
