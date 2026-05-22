@@ -18,6 +18,7 @@ import json
 import logging
 import math
 import random
+import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -31,7 +32,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from src.database import _PoolManager, get_connection, init_db, seed_mock_data
+from src.database import (
+    _PoolManager,
+    fetch_live_market_data,
+    fetch_live_news,
+    get_connection,
+    init_db,
+    seed_mock_data,
+)
 from src.engines import (
     DISPLAY_NAMES,
     TICKER_GROUPS,
@@ -88,6 +96,51 @@ _TICKER_NEWS: dict[str, list[str]] = {
         "Memory chip recovery expansion strong; AI-driven demand exceeds bearish forecasts",
     ],
 }
+
+# ── DB price cache ────────────────────────────────────────────────────────────
+# Keyed by ticker → (DataFrame | None, monotonic timestamp of last fetch)
+_DB_PRICE_CACHE: dict[str, tuple[pd.DataFrame | None, float]] = {}
+_DB_CACHE_TTL:   float = 10.0   # seconds — avoids a DB hit on every 1-second SSE tick
+
+# ── Live collector state ──────────────────────────────────────────────────────
+# News cache updated by the background collector; falls back to _TICKER_NEWS.
+_LIVE_NEWS_CACHE:     dict[str, list[str]]    = {}
+# Single shared background task — started on first SSE connect, cancelled on last disconnect.
+_LIVE_COLLECTOR_TASK: asyncio.Task[None] | None = None
+_SSE_CONNECTION_COUNT: int                      = 0
+
+
+def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | None:
+    """Return the last ``n_rows`` close prices for ``ticker`` from market_ticks.
+
+    Result is cached for ``_DB_CACHE_TTL`` seconds to keep DB load minimal.
+    Returns ``None`` when the ticker has no rows yet or the DB is unavailable.
+    """
+    now    = time.monotonic()
+    cached = _DB_PRICE_CACHE.get(ticker)
+    if cached is not None:
+        df_c, ts = cached
+        if now - ts < _DB_CACHE_TTL:
+            return df_c
+
+    df: pd.DataFrame | None = None
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT close_price FROM ("
+                "  SELECT close_price, timestamp FROM market_ticks"
+                "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT %s"
+                ") sub ORDER BY timestamp ASC",
+                (ticker, n_rows),
+            ).fetchall()
+        if rows:
+            df = pd.DataFrame({"close_price": [float(r[0]) for r in rows]})
+    except Exception as exc:
+        logger.warning("db_price_fetch_failed", extra={"ticker": ticker, "error": str(exc)})
+
+    _DB_PRICE_CACHE[ticker] = (df, now)
+    return df
+
 
 # ── Fibonacci sphere node positions ──────────────────────────────────────────
 
@@ -163,6 +216,58 @@ def _load_regime_from_db() -> None:
         logger.warning("regime_load_fallback", extra={"error": str(exc)})
 
 
+# ── Live collector loop ───────────────────────────────────────────────────────
+
+
+async def _live_collector_loop() -> None:
+    """Background task: fetch real OHLCV + news from Yahoo Finance every 60 s.
+
+    Lifecycle:
+    - Created (asyncio.create_task) when the first SSE client connects.
+    - Cancelled automatically when the last SSE client disconnects.
+    - Each cycle: fetch market data → upsert DB → clear price cache → fetch news.
+    - Network errors are logged and swallowed so the loop never crashes.
+    """
+    logger.info("live_collector_started")
+    while True:
+        # ── Market data ───────────────────────────────────────────────────────
+        try:
+            rows = await asyncio.to_thread(fetch_live_market_data)
+            logger.info("live_collector_market_ok", extra={"rows": rows})
+            # Invalidate the DB price cache so the next SSE tick reads fresh data
+            _DB_PRICE_CACHE.clear()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("live_collector_market_error", extra={"error": str(exc)})
+
+        # ── News ──────────────────────────────────────────────────────────────
+        try:
+            news = await asyncio.to_thread(fetch_live_news)
+            _LIVE_NEWS_CACHE.update(news)
+            logger.info("live_collector_news_ok", extra={"tickers": list(news.keys())})
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("live_collector_news_error", extra={"error": str(exc)})
+
+        try:
+            await asyncio.sleep(60)
+        except asyncio.CancelledError:
+            logger.info("live_collector_stopped")
+            raise
+
+
+async def _on_sse_disconnect() -> None:
+    """Decrement connection counter; cancel the collector task when idle."""
+    global _LIVE_COLLECTOR_TASK, _SSE_CONNECTION_COUNT
+    _SSE_CONNECTION_COUNT = max(0, _SSE_CONNECTION_COUNT - 1)
+    if _SSE_CONNECTION_COUNT == 0 and _LIVE_COLLECTOR_TASK is not None:
+        _LIVE_COLLECTOR_TASK.cancel()
+        _LIVE_COLLECTOR_TASK = None
+        logger.info("live_collector_task_cancelled", extra={"reason": "no_active_connections"})
+
+
 # ── Live tick ─────────────────────────────────────────────────────────────────
 
 def _tick(rng: random.Random) -> None:
@@ -181,24 +286,53 @@ def _tick(rng: random.Random) -> None:
 
 # ── Payload assembly ──────────────────────────────────────────────────────────
 
-def _build_payload(rng: random.Random) -> dict[str, Any]:
-    """Assemble the full UI-contract JSON payload for one SSE tick."""
+def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -> dict[str, Any]:
+    """Assemble the full UI-contract JSON payload for one SSE tick.
+
+    Price data source (per ticker, in priority order):
+      1. Last 20 rows from ``market_ticks`` (DB, real seeded OHLCV) + latest live tick
+      2. In-memory rolling buffer ``_PRICE_HISTORY`` (GBM fallback when DB unavailable)
+    """
     macro_phase = _REGIME_CACHE.get("market_phase", "LATE_CYCLE")
 
     risk_matrix: list[dict[str, Any]] = []
     confidences: list[float]          = []
 
     for ticker in TICKERS:
-        buf    = _PRICE_HISTORY[ticker]
-        df     = pd.DataFrame({"close_price": buf})
-        news   = _TICKER_NEWS.get(ticker, [])
-        row    = build_intelligence_row(ticker, df, news, macro_phase)
+        # ── Prefer DB-backed price history ────────────────────────────────────
+        db_df = _fetch_price_df_from_db(ticker, n_rows=20)
+        if db_df is not None and len(db_df) >= 5:
+            # Append current live tick so the engine sees the freshest price
+            live_row = pd.DataFrame({"close_price": [_PRICE_STATE[ticker]]})
+            price_df = pd.concat([db_df, live_row], ignore_index=True)
+        else:
+            # Fallback: in-memory GBM buffer (always available)
+            price_df = pd.DataFrame({"close_price": _PRICE_HISTORY[ticker]})
+
+        # Prefer live Yahoo Finance headlines; fall back to static seed corpus
+        news = _LIVE_NEWS_CACHE.get(ticker) or _TICKER_NEWS.get(ticker, [])
+        row  = build_intelligence_row(ticker, price_df, news, macro_phase, persona)
 
         risk_matrix.append(row)
         confidences.append(float(row.get("_confidence", 0.5)))
 
     # Portfolio health: average confidence scaled to 0–100
     health_score = round(float(np.mean(confidences)) * 100, 1)
+
+    # James Simons — Regime Switching: if any ticker triggered crisis mode,
+    # escalate macro_regime to CRISIS_MODE in the SSE payload.
+    any_regime_switch = any(row.get("_regime_switch", False) for row in risk_matrix)
+    any_vol_spike     = any(row.get("_vol_spike", False)     for row in risk_matrix)
+
+    if any_regime_switch:
+        live_regime_name   = "CRISIS_MODE"
+        live_regime_conf   = 0.95
+    elif any_vol_spike:
+        live_regime_name   = "VOLATILITY_REGIME"
+        live_regime_conf   = 0.88
+    else:
+        live_regime_name   = _REGIME_CACHE.get("regime_name", "POLICY_TIGHTENING")
+        live_regime_conf   = _REGIME_CACHE.get("confidence_score", 0.85)
 
     # Derive active_signals from risk_matrix (top 3 by confidence)
     sorted_rows = sorted(
@@ -210,7 +344,8 @@ def _build_payload(rng: random.Random) -> dict[str, Any]:
         {
             "action":      row["sig_score"],
             "strategy":    f"{DISPLAY_NAMES.get(t, t)}: {row['momentum']} momentum, "
-                           f"{row['sentiment']} sentiment",
+                           f"{row['sentiment']} sentiment"
+                           + (" [MoS-LOCK]" if row.get("_margin_of_safety_lock") else ""),
             "probability": round(conf, 3),
         }
         for t, row, conf in sorted_rows[:3]
@@ -230,9 +365,9 @@ def _build_payload(rng: random.Random) -> dict[str, Any]:
             "source": "MARKET_DATA",
         },
         "macro_regime": {
-            "regime_name":      _REGIME_CACHE.get("regime_name",      "POLICY_TIGHTENING"),
-            "market_phase":     _REGIME_CACHE.get("market_phase",     "LATE_CYCLE"),
-            "confidence_score": _REGIME_CACHE.get("confidence_score", 0.85),
+            "regime_name":      live_regime_name,
+            "market_phase":     _REGIME_CACHE.get("market_phase", "LATE_CYCLE"),
+            "confidence_score": live_regime_conf,
         },
         "active_signals":        active_signals,
         "intelligence_synthesis": {
@@ -466,29 +601,47 @@ async def intelligence_stream(
 ) -> EventSourceResponse:
     """SSE stream — emits full UI-contract JSON every second.
 
+    On first connect: starts a background asyncio task (_live_collector_loop)
+    that fetches real OHLCV + news from Yahoo Finance every 60 seconds and
+    refreshes the TimescaleDB market_ticks table. The task is cancelled when
+    the last client disconnects, conserving server resources.
+
     Connect from the frontend::
 
         const es = new EventSource('/api/v1/intelligence/stream?persona=AGGRESSIVE')
         es.onmessage = (e) => update(JSON.parse(e.data))
     """
+    global _LIVE_COLLECTOR_TASK, _SSE_CONNECTION_COUNT
+
+    _SSE_CONNECTION_COUNT += 1
+    if _LIVE_COLLECTOR_TASK is None or _LIVE_COLLECTOR_TASK.done():
+        _LIVE_COLLECTOR_TASK = asyncio.create_task(_live_collector_loop())
+        logger.info(
+            "live_collector_task_created",
+            extra={"connections": _SSE_CONNECTION_COUNT},
+        )
+
     rng = random.Random()
 
     async def _generator() -> AsyncGenerator[dict[str, str], None]:
-        while True:
-            if await request.is_disconnected():
-                logger.info("sse_client_disconnected")
-                break
-            try:
-                _tick(rng)
-                payload = _build_payload(rng)
-                yield {"data": json.dumps(payload, ensure_ascii=False), "event": "intelligence"}
-            except Exception as exc:
-                logger.error("sse_tick_error", extra={"error": str(exc)})
-                yield {
-                    "data":  json.dumps({"status": "ERROR", "error": str(exc)}),
-                    "event": "error",
-                }
-            await asyncio.sleep(1.0)
+        try:
+            while True:
+                if await request.is_disconnected():
+                    logger.info("sse_client_disconnected")
+                    break
+                try:
+                    _tick(rng)
+                    payload = _build_payload(rng, persona)
+                    yield {"data": json.dumps(payload, ensure_ascii=False), "event": "intelligence"}
+                except Exception as exc:
+                    logger.error("sse_tick_error", extra={"error": str(exc)})
+                    yield {
+                        "data":  json.dumps({"status": "ERROR", "error": str(exc)}),
+                        "event": "error",
+                    }
+                await asyncio.sleep(1.0)
+        finally:
+            await _on_sse_disconnect()
 
     return EventSourceResponse(_generator())
 
