@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from src.domain.signals.registry import SignalRegistry, default_registry
 from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineRequest
 from src.agent.mcp.tools.run_signal_engine import handle_run_signal_engine
+from src.domain.signals.registry import SignalRegistry, default_registry
 from src.services.macro_service import MacroService
 from src.services.signal_service import SignalService
 

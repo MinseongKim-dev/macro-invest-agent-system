@@ -23,7 +23,10 @@ from src.agent.adapters.sources.fred.fred_macro_data_source import FredMacroData
 from src.agent.adapters.sources.fred.series_map import FRED_SERIES_MAP
 from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
 from src.domain.macro.models import MacroFeature
-from src.pipelines.ingestion.macro_ingestion_service import DEFAULT_INDICATORS, MacroIngestionService
+from src.pipelines.ingestion.macro_ingestion_service import (
+    DEFAULT_INDICATORS,
+    MacroIngestionService,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers

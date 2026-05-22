@@ -41,10 +41,10 @@ from apps.api.dto.builders import (
 )
 from apps.api.dto.explanations import ExplanationResponse
 from apps.api.dto.trust import DataAvailability, FreshnessStatus, TrustMetadata
+from src.core.storage.repositories.explanation_repository import ExplanationRepositoryInterface
 from src.domain.macro.narrative_builder import RegimeNarrative, build_regime_narrative
 from src.pipelines.ingestion.models import FreshnessStatus as PipelineFreshnessStatus
 from src.services.interfaces import RegimeServiceInterface
-from src.core.storage.repositories.explanation_repository import ExplanationRepositoryInterface
 
 router = APIRouter(prefix="/api/explanations", tags=["explanations"])
 

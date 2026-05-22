@@ -11,16 +11,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from src.agent.mcp.schemas.get_macro_features import GetMacroSnapshotRequest
+from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineRequest
+from src.agent.mcp.tools.get_macro_features import handle_get_macro_snapshot
+from src.agent.mcp.tools.run_signal_engine import handle_run_signal_engine
 from src.core.exceptions.base import (
     PartialDataError,
     ProviderHTTPError,
     ProviderTimeoutError,
 )
 from src.core.exceptions.failure_category import FailureCategory
-from src.agent.mcp.schemas.get_macro_features import GetMacroSnapshotRequest
-from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineRequest
-from src.agent.mcp.tools.get_macro_features import handle_get_macro_snapshot
-from src.agent.mcp.tools.run_signal_engine import handle_run_signal_engine
 from src.services.macro_service import MacroService
 from src.services.signal_service import SignalService
 

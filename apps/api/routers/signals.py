@@ -33,6 +33,7 @@ from apps.api.dto.builders import build_trust_from_signal_result, signal_output_
 from apps.api.dto.signals import SignalsLatestResponse
 from apps.api.dto.trust import DataAvailability, FreshnessStatus, TrustMetadata
 from apps.api.routers.explanations import build_and_register_explanation
+from src.core.storage.repositories.explanation_repository import ExplanationRepositoryInterface
 from src.domain.signals.registry import default_registry
 from src.services.interfaces import (
     MacroServiceInterface,
@@ -40,7 +41,6 @@ from src.services.interfaces import (
     SignalServiceInterface,
 )
 from src.services.signal_service import SignalService
-from src.core.storage.repositories.explanation_repository import ExplanationRepositoryInterface
 
 router = APIRouter(prefix="/api/signals", tags=["signals"])
 

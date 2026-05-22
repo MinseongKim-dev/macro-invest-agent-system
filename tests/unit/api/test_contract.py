@@ -21,11 +21,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from src.agent.adapters.repositories.in_memory_explanation_store import InMemoryExplanationStore
 from apps.api.dependencies import get_explanation_repository, get_macro_service, get_signal_service
 from apps.api.main import app
 from apps.api.routers.explanations import build_and_register_explanation
 from apps.api.routers.sessions import clear_session_store, create_session
+from src.agent.adapters.repositories.in_memory_explanation_store import InMemoryExplanationStore
 from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
 from src.domain.macro.models import MacroFeature, MacroSnapshot
 from src.domain.signals.models import SignalOutput, SignalResult

@@ -6,12 +6,14 @@ from datetime import date
 
 import pytest
 
-from src.agent.adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
-from src.agent.adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
 from apps.api.startup_seeder import (
     SEEDER_METADATA,
     SeedStatus,
     seed_regime_from_synthetic_observations,
+)
+from src.agent.adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
+from src.agent.adapters.repositories.in_memory_macro_snapshot_store import (
+    InMemoryMacroSnapshotStore,
 )
 from src.domain.macro.regime import RegimeLabel
 from src.services.macro_regime_service import MacroRegimeService

@@ -6,9 +6,9 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
-from src.agent.adapters.repositories.in_memory_event_store import InMemoryEventStore
 from apps.api.dependencies import get_event_repository
 from apps.api.main import app
+from src.agent.adapters.repositories.in_memory_event_store import InMemoryEventStore
 from src.domain.events.enums import (
     ExternalEventFreshness,
     ExternalEventStatus,

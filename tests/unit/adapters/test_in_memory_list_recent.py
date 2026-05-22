@@ -6,7 +6,9 @@ import asyncio
 from datetime import UTC, date, datetime
 
 from src.agent.adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
-from src.agent.adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
+from src.agent.adapters.repositories.in_memory_macro_snapshot_store import (
+    InMemoryMacroSnapshotStore,
+)
 from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,

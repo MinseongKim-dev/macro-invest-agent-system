@@ -8,9 +8,11 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from src.agent.adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
 from apps.api.dependencies import get_regime_service
 from apps.api.main import app
+from src.agent.adapters.repositories.in_memory_macro_snapshot_store import (
+    InMemoryMacroSnapshotStore,
+)
 from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,

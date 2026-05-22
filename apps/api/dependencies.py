@@ -27,7 +27,12 @@ from src.agent.adapters.repositories.in_memory_alert_store import InMemoryAlertS
 from src.agent.adapters.repositories.in_memory_event_store import InMemoryEventStore
 from src.agent.adapters.repositories.in_memory_explanation_store import InMemoryExplanationStore
 from src.agent.adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
-from src.agent.adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
+from src.agent.adapters.repositories.in_memory_macro_snapshot_store import (
+    InMemoryMacroSnapshotStore,
+)
+from src.core.storage.repositories.alert_repository import AlertRepositoryInterface
+from src.core.storage.repositories.event_repository import EventRepositoryInterface
+from src.core.storage.repositories.explanation_repository import ExplanationRepositoryInterface
 from src.services.interfaces import (
     MacroServiceInterface,
     RegimeServiceInterface,
@@ -36,9 +41,6 @@ from src.services.interfaces import (
 from src.services.macro_regime_service import MacroRegimeService
 from src.services.macro_service import MacroService
 from src.services.signal_service import SignalService
-from src.core.storage.repositories.alert_repository import AlertRepositoryInterface
-from src.core.storage.repositories.event_repository import EventRepositoryInterface
-from src.core.storage.repositories.explanation_repository import ExplanationRepositoryInterface
 
 
 @lru_cache(maxsize=1)

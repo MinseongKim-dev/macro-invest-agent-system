@@ -12,7 +12,11 @@ import pytest
 from src.agent.mcp_adapter import MCPAdapter
 from src.agent.runtime.agent_runtime import AgentOperation
 from src.agent.runtime.langchain_runtime import LangChainAgentRuntime
-from src.agent.schemas import PriorFeatureInput, SnapshotComparisonRequest, SnapshotComparisonResponse
+from src.agent.schemas import (
+    PriorFeatureInput,
+    SnapshotComparisonRequest,
+    SnapshotComparisonResponse,
+)
 from src.agent.service import AgentService
 from src.services.macro_service import MacroService
 from src.services.signal_service import SignalService

@@ -20,7 +20,10 @@ from src.agent.adapters.sources.fixture_macro_data_source import FixtureMacroDat
 from src.agent.adapters.sources.in_memory_macro_data_source import InMemoryMacroDataSource
 from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
 from src.domain.macro.models import MacroFeature
-from src.pipelines.ingestion.macro_ingestion_service import DEFAULT_INDICATORS, MacroIngestionService
+from src.pipelines.ingestion.macro_ingestion_service import (
+    DEFAULT_INDICATORS,
+    MacroIngestionService,
+)
 from src.pipelines.ingestion.models import FeatureSnapshot
 
 # ---------------------------------------------------------------------------

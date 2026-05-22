@@ -36,8 +36,8 @@ from apps.api.dto.alerts import (
     AlertSnoozeRequest,
     AlertsRecentResponse,
 )
-from src.domain.alerts.models import AlertAcknowledgementState, AlertSeverity, AlertTriggerType
 from src.core.storage.repositories.alert_repository import AlertRepositoryInterface
+from src.domain.alerts.models import AlertAcknowledgementState, AlertSeverity, AlertTriggerType
 
 router = APIRouter(prefix="/api/alerts", tags=["alerts"])
 

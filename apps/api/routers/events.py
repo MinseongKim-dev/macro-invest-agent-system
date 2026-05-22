@@ -25,9 +25,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from apps.api.dependencies import get_event_repository
 from apps.api.dto.events import EventsRecentResponse, ExternalEventDTO
+from src.core.storage.repositories.event_repository import EventRepositoryInterface
 from src.domain.events.enums import ExternalEventStatus, ExternalEventType
 from src.domain.events.models import NormalizedExternalEvent
-from src.core.storage.repositories.event_repository import EventRepositoryInterface
 
 router = APIRouter(prefix="/api/events", tags=["events"])
 

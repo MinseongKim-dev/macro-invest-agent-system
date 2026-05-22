@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import pytest
 
-from src.agent.schemas import MacroSnapshotSummaryResponse, SignalReviewResponse
-from src.core.exceptions.failure_category import FailureCategory
 from src.agent.mcp.schemas.get_macro_features import GetMacroSnapshotResponse
 from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineResponse
+from src.agent.schemas import MacroSnapshotSummaryResponse, SignalReviewResponse
+from src.core.exceptions.failure_category import FailureCategory
 
 
 class TestFailureCategoryOnMCPResponse:
