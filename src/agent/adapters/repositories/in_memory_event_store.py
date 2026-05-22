@@ -18,9 +18,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from domain.events.enums import ExternalEventStatus, ExternalEventType
-from domain.events.models import NormalizedExternalEvent
-from storage.repositories.event_repository import EventRepositoryInterface
+from src.core.storage.repositories.event_repository import EventRepositoryInterface
+from src.domain.events.enums import ExternalEventStatus, ExternalEventType
+from src.domain.events.models import NormalizedExternalEvent
 
 
 class InMemoryEventStore(EventRepositoryInterface):

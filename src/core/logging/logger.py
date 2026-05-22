@@ -15,7 +15,7 @@ spans in any observability backend.
 
 Usage::
 
-    from core.logging.logger import get_logger, bind_request_context
+    from src.core.logging.logger import get_logger, bind_request_context
 
     log = get_logger(__name__)
 
@@ -34,7 +34,7 @@ from typing import Any, cast
 import structlog
 from structlog.types import FilteringBoundLogger
 
-from core.config.settings import get_settings
+from src.core.config.settings import get_settings
 
 # ---------------------------------------------------------------------------
 # Trace-ID context variable
@@ -154,7 +154,7 @@ def _inject_otel_ids(
     which is kept in the tracing module to avoid a circular import.  When the
     OTel SDK is not active the call is a cheap no-op.
     """
-    from core.tracing.tracer import inject_otel_context_into_structlog
+    from src.core.tracing.tracer import inject_otel_context_into_structlog
 
     return inject_otel_context_into_structlog(logger, method, event_dict)  # type: ignore[arg-type]
 

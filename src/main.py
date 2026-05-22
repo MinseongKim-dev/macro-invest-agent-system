@@ -646,27 +646,27 @@ def get_sentiment_intelligence(ticker: str) -> str:
 
 
 def _build_lc_agent() -> Any:  # noqa: ANN401
-    """Construct a LangChain 1.x tool-calling agent backed by Claude.
+    """Construct a LangChain 1.x tool-calling agent (ChatGroq, free tier).
 
-    Imports are deferred so the module loads even without langchain-anthropic
+    Imports are deferred so the module loads even without langchain-groq
     installed. Raises RuntimeError (caught by intelligence_command → fallback)
     if required packages are absent.
     """
     try:
         from langchain.agents import create_agent
-        from langchain_anthropic import ChatAnthropic
+        from langchain_groq import ChatGroq
     except ImportError as exc:
         raise RuntimeError(
             f"LangChain agent packages unavailable: {exc}. "
-            "Ensure langchain>=1.0.0 and langchain-anthropic>=0.3.0 are installed."
+            "Ensure langchain>=1.0.0 and langchain-groq>=0.3.0 are installed."
         ) from exc
 
-    llm = ChatAnthropic(  # type: ignore[call-arg]
-        model="claude-sonnet-4-6", temperature=0.1, max_tokens=2048
-    )
+    import os
+    model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    llm = ChatGroq(model=model, temperature=0.1)
     tools = [get_quant_intelligence, get_sentiment_intelligence]
     agent = create_agent(llm, tools, system_prompt=_AGENT_SYSTEM_PROMPT)
-    logger.info("lc_agent_built", extra={"model": "claude-sonnet-4-6", "tools": len(tools)})
+    logger.info("lc_agent_built", extra={"model": model, "tools": len(tools)})
     return agent
 
 
@@ -880,7 +880,7 @@ async def intelligence_command(body: CommandRequest) -> dict[str, Any]:
     """OMNI:// terminal — LangChain agent response with static-scenario fallback.
 
     Attempts to run the full LangChain agent pipeline. If langchain /
-    langchain-anthropic are not installed, or the agent raises, falls back to
+    langchain-groq are not installed, or the agent raises, falls back to
     keyword-matched scenario responses.
 
     Example::

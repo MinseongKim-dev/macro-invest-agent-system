@@ -11,7 +11,7 @@ Covers:
 
 from __future__ import annotations
 
-from agent.prompts.templates import (
+from src.agent.prompts.templates import (
     SIGNAL_REVIEW_PROMPT,
     SNAPSHOT_SUMMARY_PROMPT,
     render_signal_review_summary,

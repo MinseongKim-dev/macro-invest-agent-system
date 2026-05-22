@@ -23,7 +23,7 @@ See also
 from __future__ import annotations
 
 from apps.api.dto.explanations import ExplanationResponse
-from storage.repositories.explanation_repository import ExplanationRepositoryInterface
+from src.core.storage.repositories.explanation_repository import ExplanationRepositoryInterface
 
 
 class InMemoryExplanationStore(ExplanationRepositoryInterface):

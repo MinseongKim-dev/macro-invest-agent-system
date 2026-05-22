@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from core.exceptions.failure_category import FailureCategory
+from src.core.exceptions.failure_category import FailureCategory
 
 
 class MCPRequest(BaseModel):

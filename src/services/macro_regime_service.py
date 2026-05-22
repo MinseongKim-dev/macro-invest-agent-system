@@ -4,19 +4,19 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from core.contracts.macro_regime_repository import MacroRegimeRepositoryContract
-from core.contracts.macro_snapshot_repository import MacroSnapshotRepositoryContract
-from domain.macro.regime import MacroRegime
-from domain.macro.regime_mapping import (
+from src.core.contracts.macro_regime_repository import MacroRegimeRepositoryContract
+from src.core.contracts.macro_snapshot_repository import MacroSnapshotRepositoryContract
+from src.domain.macro.regime import MacroRegime
+from src.domain.macro.regime_mapping import (
     build_regime_rationale,
     derive_regime_confidence,
     derive_regime_missing_inputs,
     derive_regime_warnings,
     map_snapshot_to_regime,
 )
-from domain.macro.regime_transition import derive_regime_transition
-from domain.quant.scoring import score_snapshot
-from services.interfaces import RegimeServiceInterface
+from src.domain.macro.regime_transition import derive_regime_transition
+from src.domain.quant.scoring import score_snapshot
+from src.services.interfaces import RegimeServiceInterface
 
 
 class MacroRegimeService(RegimeServiceInterface):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import date
 
-from domain.macro.snapshot import MacroSnapshotState
+from src.domain.macro.snapshot import MacroSnapshotState
 
 
 class MacroSnapshotRepositoryContract(ABC):

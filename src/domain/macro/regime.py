@@ -8,9 +8,9 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, model_validator
 
-from domain.macro.snapshot import DegradedStatus
-from domain.quant.models import QuantScoreBundle
-from pipelines.ingestion.models import FreshnessStatus
+from src.domain.macro.snapshot import DegradedStatus
+from src.domain.quant.models import QuantScoreBundle
+from src.pipelines.ingestion.models import FreshnessStatus
 
 
 class RegimeLabel(StrEnum):

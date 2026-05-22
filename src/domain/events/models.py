@@ -33,7 +33,7 @@ from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel, Field, model_validator
 
-from domain.events.enums import (
+from src.domain.events.enums import (
     ExternalEventFreshness,
     ExternalEventStatus,
     ExternalEventType,

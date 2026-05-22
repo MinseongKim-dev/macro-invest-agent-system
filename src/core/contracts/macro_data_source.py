@@ -39,7 +39,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
-from domain.macro.models import MacroFeature
+from src.domain.macro.models import MacroFeature
 
 
 @dataclass(frozen=True)

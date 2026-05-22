@@ -17,17 +17,20 @@ Callable boundary contract
 
 from __future__ import annotations
 
-from core.logging.logger import get_logger
-from core.logging.timing import timed_operation
-from core.metrics import MCP_TOOL_CALLS_TOTAL, MCP_TOOL_DURATION
-from core.tracing import get_tracer
-from core.tracing.span_attributes import COUNTRY, MCP_TOOL, REQUEST_ID, RESULT_SUCCESS
-from domain.signals.registry import SignalRegistry, default_registry
-from mcp.schemas.get_macro_features import GetMacroSnapshotRequest, GetMacroSnapshotResponse
-from mcp.schemas.run_signal_engine import RunSignalEngineRequest, RunSignalEngineResponse
-from mcp.tools.get_macro_features import handle_get_macro_snapshot
-from mcp.tools.run_signal_engine import handle_run_signal_engine
-from services.interfaces import MacroServiceInterface, SignalServiceInterface
+from src.agent.mcp.schemas.get_macro_features import (
+    GetMacroSnapshotRequest,
+    GetMacroSnapshotResponse,
+)
+from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineRequest, RunSignalEngineResponse
+from src.agent.mcp.tools.get_macro_features import handle_get_macro_snapshot
+from src.agent.mcp.tools.run_signal_engine import handle_run_signal_engine
+from src.core.logging.logger import get_logger
+from src.core.logging.timing import timed_operation
+from src.core.metrics import MCP_TOOL_CALLS_TOTAL, MCP_TOOL_DURATION
+from src.core.tracing import get_tracer
+from src.core.tracing.span_attributes import COUNTRY, MCP_TOOL, REQUEST_ID, RESULT_SUCCESS
+from src.domain.signals.registry import SignalRegistry, default_registry
+from src.services.interfaces import MacroServiceInterface, SignalServiceInterface
 
 _log = get_logger(__name__)
 _tracer = get_tracer(__name__)

@@ -155,7 +155,7 @@ class ErrorDetail(BaseModel):
             A new :class:`ErrorDetail` instance.
         """
         # Import here to avoid a circular dependency at module load time.
-        from core.exceptions.base import AppError  # noqa: PLC0415
+        from src.core.exceptions.base import AppError  # noqa: PLC0415
 
         if isinstance(exc, AppError):
             return cls(

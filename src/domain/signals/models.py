@@ -4,9 +4,9 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
-from domain.macro.models import MacroSnapshot
-from domain.signals.conflict import ConflictSurface
-from domain.signals.enums import SignalStrength, SignalType, TrendDirection
+from src.domain.macro.models import MacroSnapshot
+from src.domain.signals.conflict import ConflictSurface
+from src.domain.signals.enums import SignalStrength, SignalType, TrendDirection
 
 
 class SignalRule(BaseModel):

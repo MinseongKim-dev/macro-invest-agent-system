@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import pytest
 
-from agent.schemas import MacroSnapshotSummaryResponse, SignalReviewResponse
-from core.exceptions.failure_category import FailureCategory
-from mcp.schemas.get_macro_features import GetMacroSnapshotResponse
-from mcp.schemas.run_signal_engine import RunSignalEngineResponse
+from src.agent.schemas import MacroSnapshotSummaryResponse, SignalReviewResponse
+from src.core.exceptions.failure_category import FailureCategory
+from src.agent.mcp.schemas.get_macro_features import GetMacroSnapshotResponse
+from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineResponse
 
 
 class TestFailureCategoryOnMCPResponse:
@@ -114,7 +114,7 @@ class TestFailureCategoryRoundTrip:
         assert data["is_degraded"] is True
 
     def test_partial_data_round_trip(self) -> None:
-        from mcp.schemas.get_macro_features import GetMacroFeaturesResponse
+        from src.agent.mcp.schemas.get_macro_features import GetMacroFeaturesResponse
 
         resp = GetMacroFeaturesResponse(
             request_id="round-trip-4",

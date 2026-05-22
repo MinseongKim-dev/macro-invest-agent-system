@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from domain.macro.regime import (
+from src.domain.macro.regime import (
     RegimeConfidence,
     RegimeFamily,
     RegimeLabel,
     regime_family_for_label,
 )
-from domain.macro.snapshot import (
+from src.domain.macro.snapshot import (
     DegradedStatus,
     FinancialConditionsState,
     GrowthState,
@@ -17,8 +17,8 @@ from domain.macro.snapshot import (
     MacroSnapshotState,
     PolicyState,
 )
-from domain.quant.models import QuantScoreBundle
-from pipelines.ingestion.models import FreshnessStatus
+from src.domain.quant.models import QuantScoreBundle
+from src.pipelines.ingestion.models import FreshnessStatus
 
 
 def _has_unknown_state(snapshot: MacroSnapshotState) -> bool:

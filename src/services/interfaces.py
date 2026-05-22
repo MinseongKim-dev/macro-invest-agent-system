@@ -3,9 +3,9 @@
 from abc import ABC, abstractmethod
 from datetime import date
 
-from domain.macro.models import MacroFeature, MacroSnapshot
-from domain.macro.regime import MacroRegime
-from domain.signals.models import SignalDefinition, SignalResult
+from src.domain.macro.models import MacroFeature, MacroSnapshot
+from src.domain.macro.regime import MacroRegime
+from src.domain.signals.models import SignalDefinition, SignalResult
 
 
 class MacroServiceInterface(ABC):

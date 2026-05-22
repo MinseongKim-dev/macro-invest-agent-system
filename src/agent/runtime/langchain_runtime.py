@@ -54,22 +54,22 @@ from __future__ import annotations
 
 from typing import Any
 
-from agent.context.models import AnalysisParameters, ConversationContext, ConversationTurn
-from agent.context.store import InMemoryContextStore
-from agent.formatting.summaries import dominant_signal_type
-from agent.mcp_adapter import MCPAdapter
-from agent.prompts.templates import (
+from src.agent.context.models import AnalysisParameters, ConversationContext, ConversationTurn
+from src.agent.context.store import InMemoryContextStore
+from src.agent.formatting.summaries import dominant_signal_type
+from src.agent.mcp_adapter import MCPAdapter
+from src.agent.prompts.templates import (
     render_signal_review_summary,
     render_snapshot_comparison_summary,
     render_snapshot_summary,
 )
-from agent.runtime.agent_runtime import (
+from src.agent.runtime.agent_runtime import (
     AgentOperation,
     AgentRequestInput,
     AgentRuntimeResult,
 )
-from agent.runtime.output_validation import validate_runtime_result
-from agent.schemas import (
+from src.agent.runtime.output_validation import validate_runtime_result
+from src.agent.schemas import (
     MacroSnapshotSummaryRequest,
     MacroSnapshotSummaryResponse,
     SignalReviewRequest,
@@ -77,8 +77,8 @@ from agent.schemas import (
     SnapshotComparisonRequest,
     SnapshotComparisonResponse,
 )
-from agent.service import AgentService
-from core.logging.logger import get_logger
+from src.agent.service import AgentService
+from src.core.logging.logger import get_logger
 
 _log = get_logger(__name__)
 
@@ -147,7 +147,7 @@ class LangChainAgentRuntime:
         # Session-keyed store for requests that supply a session_id.
         self._session_store = InMemoryContextStore()
 
-        from agent.runtime.tools import (
+        from src.agent.runtime.tools import (
             create_macro_snapshot_tool,
             create_signal_engine_tool,
         )
@@ -314,7 +314,7 @@ class LangChainAgentRuntime:
         regenerated.  *context_hint* is appended to the system message when
         non-empty but never overrides the deterministic tool results.
         """
-        from mcp.schemas.run_signal_engine import RunSignalEngineResponse
+        from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineResponse
 
         engine_like = RunSignalEngineResponse(
             request_id=response.request_id,

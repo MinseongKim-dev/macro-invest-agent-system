@@ -3,8 +3,8 @@
 import os
 from unittest.mock import patch
 
-from core.config.settings import get_settings
-from core.logging.logger import get_logger, get_trace_id, set_trace_id
+from src.core.config.settings import get_settings
+from src.core.logging.logger import get_logger, get_trace_id, set_trace_id
 
 
 class TestTraceId:
@@ -37,13 +37,13 @@ class TestGetLogger:
     def setup_method(self) -> None:
         get_settings.cache_clear()
         # Reset structlog configuration state for isolated tests
-        import core.logging.logger as logger_mod
+        import src.core.logging.logger as logger_mod
 
         logger_mod._configured = False
 
     def teardown_method(self) -> None:
         get_settings.cache_clear()
-        import core.logging.logger as logger_mod
+        import src.core.logging.logger as logger_mod
 
         logger_mod._configured = False
 
@@ -73,7 +73,7 @@ class TestGetLogger:
 
     def test_pretty_mode_configures_without_error(self) -> None:
         with patch.dict(os.environ, {"LOG_PRETTY": "true", "APP_ENV": "local"}):
-            import core.logging.logger as logger_mod
+            import src.core.logging.logger as logger_mod
 
             logger_mod._configured = False
             log = get_logger("pretty_test")

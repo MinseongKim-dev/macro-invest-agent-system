@@ -2,8 +2,8 @@
 
 import pytest
 
-from domain.macro.enums import MacroIndicatorType
-from services.macro_service import MacroService
+from src.domain.macro.enums import MacroIndicatorType
+from src.services.macro_service import MacroService
 
 
 @pytest.mark.asyncio

@@ -19,9 +19,9 @@ Design notes
 
 Usage::
 
-    from adapters.sources.source_registry import SourceRegistry
-    from adapters.sources.fred import FredMacroDataSource
-    from adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
+    from src.agent.adapters.sources.source_registry import SourceRegistry
+    from src.agent.adapters.sources.fred import FredMacroDataSource
+    from src.agent.adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
 
     registry = SourceRegistry([
         FredMacroDataSource(api_key="..."),
@@ -35,7 +35,7 @@ Usage::
 
 from __future__ import annotations
 
-from core.contracts.macro_data_source import MacroDataSourceContract
+from src.core.contracts.macro_data_source import MacroDataSourceContract
 
 
 class SourceRegistry:

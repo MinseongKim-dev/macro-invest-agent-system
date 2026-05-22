@@ -34,7 +34,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from domain.macro.models import MacroSnapshot
+from src.domain.macro.models import MacroSnapshot
 
 # ---------------------------------------------------------------------------
 # Prior feature input
@@ -173,7 +173,7 @@ def compare_snapshots(
 
     Example::
 
-        from domain.macro.comparison import compare_snapshots, PriorFeatureInput
+        from src.domain.macro.comparison import compare_snapshots, PriorFeatureInput
 
         comparison = compare_snapshots(
             current=current_snapshot,

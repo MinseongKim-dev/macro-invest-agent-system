@@ -10,8 +10,8 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from domain.events.enums import ExternalEventStatus, ExternalEventType
-from domain.events.models import NormalizedExternalEvent
+from src.domain.events.enums import ExternalEventStatus, ExternalEventType
+from src.domain.events.models import NormalizedExternalEvent
 
 
 class EventRepositoryInterface(ABC):

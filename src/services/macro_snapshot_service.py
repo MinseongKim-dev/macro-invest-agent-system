@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 
-from core.contracts.macro_snapshot_repository import MacroSnapshotRepositoryContract
-from domain.macro.snapshot import (
+from src.core.contracts.macro_snapshot_repository import MacroSnapshotRepositoryContract
+from src.domain.macro.snapshot import (
     MacroSnapshotState,
     compare_snapshot_states,
     derive_degraded_status,
@@ -17,8 +17,8 @@ from domain.macro.snapshot import (
     derive_policy_state,
     select_latest_observations,
 )
-from pipelines.ingestion.indicator_catalog import PRIORITY_INDICATORS
-from pipelines.ingestion.models import NormalizedMacroObservation
+from src.pipelines.ingestion.indicator_catalog import PRIORITY_INDICATORS
+from src.pipelines.ingestion.models import NormalizedMacroObservation
 
 
 class MacroSnapshotService:

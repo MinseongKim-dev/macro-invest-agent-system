@@ -19,9 +19,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TypedDict
 
-from domain.macro.regime import MacroRegime, RegimeConfidence, RegimeLabel
-from domain.macro.snapshot import DegradedStatus
-from pipelines.ingestion.models import FreshnessStatus
+from src.domain.macro.regime import MacroRegime, RegimeConfidence, RegimeLabel
+from src.domain.macro.snapshot import DegradedStatus
+from src.pipelines.ingestion.models import FreshnessStatus
 
 
 class RegimeNarrative(TypedDict):

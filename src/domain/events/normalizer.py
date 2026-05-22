@@ -30,13 +30,13 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from domain.events.enums import (
+from src.domain.events.enums import (
     ExternalEventFreshness,
     ExternalEventStatus,
     ExternalEventType,
     SourceReliabilityTier,
 )
-from domain.events.models import NormalizedExternalEvent, compute_event_freshness
+from src.domain.events.models import NormalizedExternalEvent, compute_event_freshness
 
 # ---------------------------------------------------------------------------
 # Source → reliability tier mapping

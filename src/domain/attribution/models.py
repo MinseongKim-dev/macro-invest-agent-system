@@ -36,7 +36,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, model_validator
 
-from domain.attribution.enums import AttributionConfidence, AttributionMatchStatus
+from src.domain.attribution.enums import AttributionConfidence, AttributionMatchStatus
 
 # ---------------------------------------------------------------------------
 # Attribution Rule

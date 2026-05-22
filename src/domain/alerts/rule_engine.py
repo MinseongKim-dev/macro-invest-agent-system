@@ -45,9 +45,9 @@ Design principles
 
 from __future__ import annotations
 
-from domain.alerts.models import AlertEvent, AlertTriggerType
-from domain.alerts.rules import AlertRule
-from domain.macro.change_detection import RegimeDelta
+from src.domain.alerts.models import AlertEvent, AlertTriggerType
+from src.domain.alerts.rules import AlertRule
+from src.domain.macro.change_detection import RegimeDelta
 
 # Ordered rank for change severity comparison
 _SEVERITY_RANK: dict[str, int] = {

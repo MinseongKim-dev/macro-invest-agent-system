@@ -14,7 +14,7 @@ Design notes
 
 from __future__ import annotations
 
-from domain.macro.comparison import SnapshotComparison
+from src.domain.macro.comparison import SnapshotComparison
 
 
 def format_comparison_summary(comparison: SnapshotComparison) -> str:

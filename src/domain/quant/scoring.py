@@ -23,7 +23,7 @@ and returns a fully-populated :class:`~domain.quant.models.QuantScoreBundle`.
 
 from __future__ import annotations
 
-from domain.macro.snapshot import (
+from src.domain.macro.snapshot import (
     FinancialConditionsState,
     GrowthState,
     InflationState,
@@ -31,7 +31,7 @@ from domain.macro.snapshot import (
     MacroSnapshotState,
     PolicyState,
 )
-from domain.quant.models import (
+from src.domain.quant.models import (
     DimensionScore,
     QuantScoreBundle,
     ScoreDimension,

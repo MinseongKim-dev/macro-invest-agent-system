@@ -15,10 +15,10 @@ from typing import cast
 from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 
-import core.tracing.tracer as tracer_mod
-from core.config.settings import Settings
-from core.tracing import span_attributes
-from core.tracing.tracer import (
+import src.core.tracing.tracer as tracer_mod
+from src.core.config.settings import Settings
+from src.core.tracing import span_attributes
+from src.core.tracing.tracer import (
     configure_tracing,
     get_tracer,
     inject_otel_context_into_structlog,

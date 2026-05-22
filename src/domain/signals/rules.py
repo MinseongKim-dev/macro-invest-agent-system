@@ -4,7 +4,7 @@ Rules are deterministic condition checks against macro snapshots.
 Each rule returns a float score (0.0-1.0) indicating how well the condition was met.
 """
 
-from domain.macro.models import MacroSnapshot
+from src.domain.macro.models import MacroSnapshot
 
 
 async def evaluate_rules(rule_name: str, condition: str, snapshot: MacroSnapshot) -> float:
@@ -39,7 +39,7 @@ async def evaluate_inflation_rule(snapshot: MacroSnapshot, threshold: float) -> 
         Score from 0.0 to 1.0
     """
     # Placeholder: look for inflation feature and compare
-    from domain.macro.enums import MacroIndicatorType
+    from src.domain.macro.enums import MacroIndicatorType
 
     inflation_feature = snapshot.get_feature_by_indicator(MacroIndicatorType.INFLATION)
     if not inflation_feature:

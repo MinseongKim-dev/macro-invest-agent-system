@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import Field
 
-from mcp.schemas.common import MCPRequest, MCPResponse
+from src.agent.mcp.schemas.common import MCPRequest, MCPResponse
 
 
 class GetMacroFeaturesRequest(MCPRequest):

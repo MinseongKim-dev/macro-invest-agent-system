@@ -3,17 +3,17 @@
 import uuid
 from datetime import UTC, datetime
 
-from core.logging.logger import get_logger
-from core.metrics import SIGNAL_GENERATION_DURATION
-from core.tracing import get_tracer
-from core.tracing.span_attributes import SIGNAL_COUNT
-from domain.macro.models import MacroSnapshot
-from domain.macro.regime import MacroRegime, RegimeConfidence
-from domain.signals.conflict import derive_conflict
-from domain.signals.engine import SignalEngine
-from domain.signals.models import SignalDefinition, SignalOutput, SignalResult
-from domain.signals.regime_signal_rules import get_regime_signal_rules
-from services.interfaces import SignalServiceInterface
+from src.core.logging.logger import get_logger
+from src.core.metrics import SIGNAL_GENERATION_DURATION
+from src.core.tracing import get_tracer
+from src.core.tracing.span_attributes import SIGNAL_COUNT
+from src.domain.macro.models import MacroSnapshot
+from src.domain.macro.regime import MacroRegime, RegimeConfidence
+from src.domain.signals.conflict import derive_conflict
+from src.domain.signals.engine import SignalEngine
+from src.domain.signals.models import SignalDefinition, SignalOutput, SignalResult
+from src.domain.signals.regime_signal_rules import get_regime_signal_rules
+from src.services.interfaces import SignalServiceInterface
 
 _log = get_logger(__name__)
 _tracer = get_tracer(__name__)
@@ -148,9 +148,9 @@ class SignalService(SignalServiceInterface):
         Returns:
             :class:`~domain.signals.models.SignalResult` with all regime-derived signals.
         """
-        from domain.macro.regime import RegimeConfidence, RegimeLabel
-        from domain.macro.snapshot import DegradedStatus
-        from pipelines.ingestion.models import FreshnessStatus
+        from src.domain.macro.regime import RegimeConfidence, RegimeLabel
+        from src.domain.macro.snapshot import DegradedStatus
+        from src.pipelines.ingestion.models import FreshnessStatus
 
         run_id = str(uuid.uuid4())
         rules = get_regime_signal_rules(regime.regime_label)
@@ -255,8 +255,8 @@ class SignalService(SignalServiceInterface):
             signals_generated=len(signals),
             is_degraded=regime_is_degraded,
         )
-        from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-        from domain.macro.models import MacroFeature, MacroSnapshot
+        from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+        from src.domain.macro.models import MacroFeature, MacroSnapshot
 
         placeholder_feature = MacroFeature(
             indicator_type=MacroIndicatorType.PMI,

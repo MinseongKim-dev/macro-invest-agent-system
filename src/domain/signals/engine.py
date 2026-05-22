@@ -3,9 +3,9 @@
 import uuid
 from datetime import UTC, datetime
 
-from domain.macro.models import MacroSnapshot
-from domain.signals.enums import SignalStrength
-from domain.signals.models import SignalDefinition, SignalOutput, SignalResult
+from src.domain.macro.models import MacroSnapshot
+from src.domain.signals.enums import SignalStrength
+from src.domain.signals.models import SignalDefinition, SignalOutput, SignalResult
 
 
 class SignalEngine:
@@ -81,7 +81,7 @@ class SignalEngine:
         Returns:
             SignalOutput with score and triggered_at timestamp
         """
-        from domain.signals.rules import evaluate_rules
+        from src.domain.signals.rules import evaluate_rules
 
         rule_results = {}
         total_weight = 0.0

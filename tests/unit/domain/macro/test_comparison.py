@@ -16,14 +16,14 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from domain.macro.comparison import (
+from src.domain.macro.comparison import (
     FeatureDelta,
     PriorFeatureInput,
     SnapshotComparison,
     compare_snapshots,
 )
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature, MacroSnapshot
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature, MacroSnapshot
 
 # ---------------------------------------------------------------------------
 # Helpers

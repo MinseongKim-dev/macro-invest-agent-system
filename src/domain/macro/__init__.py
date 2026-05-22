@@ -1,14 +1,14 @@
 """Macroeconomic domain models and contracts."""
 
-from domain.macro.comparison import (
+from src.domain.macro.comparison import (
     FeatureDelta,
     PriorFeatureInput,
     SnapshotComparison,
     compare_snapshots,
 )
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature, MacroSnapshot
-from domain.macro.regime import (
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature, MacroSnapshot
+from src.domain.macro.regime import (
     REGIME_LABEL_FAMILY_MAP,
     MacroRegime,
     RegimeConfidence,
@@ -18,14 +18,14 @@ from domain.macro.regime import (
     RegimeTransitionType,
     regime_family_for_label,
 )
-from domain.macro.regime_mapping import (
+from src.domain.macro.regime_mapping import (
     build_regime_rationale,
     derive_regime_confidence,
     derive_regime_missing_inputs,
     map_snapshot_to_regime,
     map_snapshot_to_regime_label,
 )
-from domain.macro.regime_transition import derive_regime_transition
+from src.domain.macro.regime_transition import derive_regime_transition
 
 __all__ = [
     "MacroIndicatorType",

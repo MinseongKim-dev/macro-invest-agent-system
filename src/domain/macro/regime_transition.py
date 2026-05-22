@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from domain.macro.regime import (
+from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,
     RegimeTransition,

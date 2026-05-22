@@ -72,9 +72,9 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from domain.events.enums import ExternalEventType, SourceReliabilityTier
-from domain.events.impact import ExternalEventImpact, ExternalEventImpactRouting
-from domain.events.models import NormalizedExternalEvent
+from src.domain.events.enums import ExternalEventType, SourceReliabilityTier
+from src.domain.events.impact import ExternalEventImpact, ExternalEventImpactRouting
+from src.domain.events.models import NormalizedExternalEvent
 
 
 def _build_impact(  # noqa: PLR0913

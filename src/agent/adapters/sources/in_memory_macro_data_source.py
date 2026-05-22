@@ -17,8 +17,8 @@ Design notes
 
 from __future__ import annotations
 
-from core.contracts.macro_data_source import MacroDataSourceContract, SourceMetadata
-from domain.macro.models import MacroFeature
+from src.core.contracts.macro_data_source import MacroDataSourceContract, SourceMetadata
+from src.domain.macro.models import MacroFeature
 
 
 class InMemoryMacroDataSource(MacroDataSourceContract):

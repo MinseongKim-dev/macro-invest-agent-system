@@ -12,14 +12,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from agent.formatting.errors import format_signal_review_error, format_snapshot_summary_error
-from agent.formatting.summaries import (
+from src.agent.formatting.errors import format_signal_review_error, format_snapshot_summary_error
+from src.agent.formatting.summaries import (
     dominant_signal_type,
     format_signal_review_summary,
     format_snapshot_summary,
 )
-from mcp.schemas.get_macro_features import GetMacroSnapshotResponse
-from mcp.schemas.run_signal_engine import RunSignalEngineResponse
+from src.agent.mcp.schemas.get_macro_features import GetMacroSnapshotResponse
+from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineResponse
 
 # ---------------------------------------------------------------------------
 # Helpers

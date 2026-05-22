@@ -4,8 +4,8 @@ from datetime import datetime
 
 import pytest
 
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature, MacroSnapshot
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature, MacroSnapshot
 
 
 class TestMacroFeature:

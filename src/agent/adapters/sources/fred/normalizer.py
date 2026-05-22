@@ -19,8 +19,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature
 
 
 def normalize_fred_observation(

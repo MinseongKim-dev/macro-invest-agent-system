@@ -8,10 +8,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
-from adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
+from src.agent.adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
 from apps.api.dependencies import get_regime_service
 from apps.api.main import app
-from domain.macro.regime import (
+from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,
     RegimeFamily,
@@ -19,8 +19,8 @@ from domain.macro.regime import (
     RegimeTransition,
     RegimeTransitionType,
 )
-from domain.macro.regime_mapping import derive_regime_warnings
-from domain.macro.snapshot import (
+from src.domain.macro.regime_mapping import derive_regime_warnings
+from src.domain.macro.snapshot import (
     DegradedStatus,
     FinancialConditionsState,
     GrowthState,
@@ -29,8 +29,8 @@ from domain.macro.snapshot import (
     MacroSnapshotState,
     PolicyState,
 )
-from pipelines.ingestion.models import FreshnessStatus
-from services.macro_regime_service import MacroRegimeService
+from src.pipelines.ingestion.models import FreshnessStatus
+from src.services.macro_regime_service import MacroRegimeService
 
 
 def _snapshot(

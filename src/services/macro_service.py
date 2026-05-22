@@ -8,13 +8,13 @@ placeholder data is returned so that the service layer is always operational.
 
 from datetime import UTC, datetime
 
-from core.contracts.macro_data_source import MacroDataSourceContract
-from core.logging.logger import get_logger
-from core.tracing import get_tracer
-from core.tracing.span_attributes import COUNTRY, FEATURES_COUNT, INDICATOR_COUNT, SOURCE_ID
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature, MacroSnapshot
-from services.interfaces import MacroServiceInterface
+from src.core.contracts.macro_data_source import MacroDataSourceContract
+from src.core.logging.logger import get_logger
+from src.core.tracing import get_tracer
+from src.core.tracing.span_attributes import COUNTRY, FEATURES_COUNT, INDICATOR_COUNT, SOURCE_ID
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature, MacroSnapshot
+from src.services.interfaces import MacroServiceInterface
 
 _log = get_logger(__name__)
 _tracer = get_tracer(__name__)

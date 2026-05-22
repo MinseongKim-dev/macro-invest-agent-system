@@ -9,9 +9,9 @@ Public API
 .. autoprotocol:: agent.context.store.ContextStore
 """
 
-from agent.context.models import AnalysisParameters, ConversationContext, ConversationTurn
-from agent.context.store import ContextStore, InMemoryContextStore
-from agent.context.trimming import (
+from src.agent.context.models import AnalysisParameters, ConversationContext, ConversationTurn
+from src.agent.context.store import ContextStore, InMemoryContextStore
+from src.agent.context.trimming import (
     extract_recent_summaries,
     keep_successful_only,
     trim_to_max_turns,

@@ -8,8 +8,8 @@ also inject a custom registry for testing.
 
 from __future__ import annotations
 
-from domain.signals.enums import SignalType
-from domain.signals.models import SignalDefinition, SignalRule
+from src.domain.signals.enums import SignalType
+from src.domain.signals.models import SignalDefinition, SignalRule
 
 # ---------------------------------------------------------------------------
 # Built-in signal definitions

@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from adapters.sources.fred import FredMacroDataSource
+from src.agent.adapters.sources.fred import FredMacroDataSource
 
 
 class TestTimeoutEval:

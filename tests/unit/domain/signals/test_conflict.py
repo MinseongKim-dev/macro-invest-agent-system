@@ -6,14 +6,14 @@ from datetime import UTC, date, datetime
 
 import pytest
 
-from domain.signals.conflict import (
+from src.domain.signals.conflict import (
     ConflictStatus,
     ConflictSurface,
     _quant_support_label,
     derive_conflict,
 )
-from domain.signals.enums import SignalStrength, SignalType
-from domain.signals.models import SignalOutput
+from src.domain.signals.enums import SignalStrength, SignalType
+from src.domain.signals.models import SignalOutput
 
 # ---------------------------------------------------------------------------
 # ConflictSurface model
@@ -307,10 +307,10 @@ class TestDTOBuilderConflictFields:
 @pytest.mark.asyncio
 class TestConflictSurfaceInRegimeEngine:
     async def test_goldilocks_signals_have_conflict_populated(self) -> None:
-        from domain.macro.regime import MacroRegime, RegimeConfidence, RegimeFamily, RegimeLabel
-        from domain.macro.snapshot import DegradedStatus
-        from pipelines.ingestion.models import FreshnessStatus
-        from services.signal_service import SignalService
+        from src.domain.macro.regime import MacroRegime, RegimeConfidence, RegimeFamily, RegimeLabel
+        from src.domain.macro.snapshot import DegradedStatus
+        from src.pipelines.ingestion.models import FreshnessStatus
+        from src.services.signal_service import SignalService
 
         svc = SignalService()
         regime = MacroRegime(
@@ -330,10 +330,10 @@ class TestConflictSurfaceInRegimeEngine:
 
     async def test_goldilocks_signals_are_mostly_clean_or_tension(self) -> None:
         """Goldilocks is a coherent regime — most signals should not be 'mixed'."""
-        from domain.macro.regime import MacroRegime, RegimeConfidence, RegimeFamily, RegimeLabel
-        from domain.macro.snapshot import DegradedStatus
-        from pipelines.ingestion.models import FreshnessStatus
-        from services.signal_service import SignalService
+        from src.domain.macro.regime import MacroRegime, RegimeConfidence, RegimeFamily, RegimeLabel
+        from src.domain.macro.snapshot import DegradedStatus
+        from src.pipelines.ingestion.models import FreshnessStatus
+        from src.services.signal_service import SignalService
 
         svc = SignalService()
         regime = MacroRegime(
@@ -357,10 +357,10 @@ class TestConflictSurfaceInRegimeEngine:
 
     async def test_conflict_is_none_in_fallback_engine_path(self) -> None:
         """Legacy snapshot-based engine does not produce conflict surface."""
-        from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-        from domain.macro.models import MacroFeature, MacroSnapshot
-        from domain.signals.models import SignalDefinition, SignalRule
-        from services.signal_service import SignalService
+        from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+        from src.domain.macro.models import MacroFeature, MacroSnapshot
+        from src.domain.signals.models import SignalDefinition, SignalRule
+        from src.services.signal_service import SignalService
 
         svc = SignalService()
         snap = MacroSnapshot(
@@ -404,10 +404,10 @@ class TestSignalsAPIConflictFields:
 
         from apps.api.dependencies import get_regime_service, get_signal_service
         from apps.api.main import app
-        from domain.macro.regime import MacroRegime, RegimeConfidence, RegimeFamily, RegimeLabel
-        from domain.macro.snapshot import DegradedStatus
-        from pipelines.ingestion.models import FreshnessStatus
-        from services.signal_service import SignalService
+        from src.domain.macro.regime import MacroRegime, RegimeConfidence, RegimeFamily, RegimeLabel
+        from src.domain.macro.snapshot import DegradedStatus
+        from src.pipelines.ingestion.models import FreshnessStatus
+        from src.services.signal_service import SignalService
 
         regime = MacroRegime(
             as_of_date=date(2026, 4, 1),

@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
-from adapters.sources.in_memory_macro_data_source import InMemoryMacroDataSource
-from adapters.sources.source_registry import SourceRegistry
-from core.contracts.macro_data_source import MacroDataSourceContract, SourceMetadata
-from domain.macro.enums import MacroIndicatorType
-from domain.macro.models import MacroFeature
+from src.agent.adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
+from src.agent.adapters.sources.in_memory_macro_data_source import InMemoryMacroDataSource
+from src.agent.adapters.sources.source_registry import SourceRegistry
+from src.core.contracts.macro_data_source import MacroDataSourceContract, SourceMetadata
+from src.domain.macro.enums import MacroIndicatorType
+from src.domain.macro.models import MacroFeature
 
 
 class _HighPrioritySource(MacroDataSourceContract):
@@ -148,7 +148,7 @@ class TestConcreteAdapterMetadata:
     def test_in_memory_source_metadata_reflects_stored_indicators(self) -> None:
         from datetime import UTC, datetime
 
-        from domain.macro.enums import DataFrequency, MacroSourceType
+        from src.domain.macro.enums import DataFrequency, MacroSourceType
 
         src = InMemoryMacroDataSource()
         feature = MacroFeature(

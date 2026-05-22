@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from domain.macro.regime import RegimeLabel
-from domain.signals.enums import SignalStrength, SignalType, TrendDirection
-from domain.signals.regime_signal_rules import REGIME_SIGNAL_MAP, get_regime_signal_rules
+from src.domain.macro.regime import RegimeLabel
+from src.domain.signals.enums import SignalStrength, SignalType, TrendDirection
+from src.domain.signals.regime_signal_rules import REGIME_SIGNAL_MAP, get_regime_signal_rules
 
 
 class TestRegimeSignalMap:
@@ -95,14 +95,14 @@ async def test_signal_service_run_regime_grounded_engine() -> None:
     """SignalService.run_regime_grounded_engine produces grounded signals."""
     from datetime import UTC, date, datetime
 
-    from domain.macro.regime import (
+    from src.domain.macro.regime import (
         MacroRegime,
         RegimeConfidence,
         RegimeFamily,
     )
-    from domain.macro.snapshot import DegradedStatus
-    from pipelines.ingestion.models import FreshnessStatus
-    from services.signal_service import SignalService
+    from src.domain.macro.snapshot import DegradedStatus
+    from src.pipelines.ingestion.models import FreshnessStatus
+    from src.services.signal_service import SignalService
 
     regime = MacroRegime(
         as_of_date=date(2026, 4, 1),

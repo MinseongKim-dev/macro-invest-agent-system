@@ -14,12 +14,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agent.mcp_adapter import MCPAdapter
-from agent.schemas import MacroSnapshotSummaryRequest
-from agent.service import AgentService
-from core.exceptions.base import StaleDataError
-from services.macro_service import MacroService
-from services.signal_service import SignalService
+from src.agent.mcp_adapter import MCPAdapter
+from src.agent.schemas import MacroSnapshotSummaryRequest
+from src.agent.service import AgentService
+from src.core.exceptions.base import StaleDataError
+from src.services.macro_service import MacroService
+from src.services.signal_service import SignalService
 
 
 def _make_stale_macro_service() -> MacroService:
@@ -66,8 +66,8 @@ class TestStaleDataEval:
 
     async def test_mcp_get_snapshot_stale_sets_is_degraded(self) -> None:
         """GetMacroSnapshot tool returns is_degraded=True on StaleDataError."""
-        from mcp.schemas.get_macro_features import GetMacroSnapshotRequest
-        from mcp.tools.get_macro_features import handle_get_macro_snapshot
+        from src.agent.mcp.schemas.get_macro_features import GetMacroSnapshotRequest
+        from src.agent.mcp.tools.get_macro_features import handle_get_macro_snapshot
 
         macro_svc = MacroService()
         stale_exc = StaleDataError("stale data", stale_since=datetime(2025, 12, 1, tzinfo=UTC))

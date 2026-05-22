@@ -39,7 +39,7 @@ class Settings(BaseSettings):
 
     Example::
 
-        from core.config.settings import get_settings
+        from src.core.config.settings import get_settings
         settings = get_settings()
         print(settings.app_env)  # Environment.LOCAL
     """

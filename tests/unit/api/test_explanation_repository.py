@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from adapters.repositories.in_memory_explanation_store import InMemoryExplanationStore
+from src.agent.adapters.repositories.in_memory_explanation_store import InMemoryExplanationStore
 from apps.api.dto.explanations import ExplanationResponse
 from apps.api.dto.trust import DataAvailability, FreshnessStatus, TrustMetadata
 

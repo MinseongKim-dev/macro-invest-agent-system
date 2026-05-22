@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import pytest
 
-from agent.mcp_adapter import MCPAdapter
-from agent.runtime.langchain_runtime import LangChainAgentRuntime
-from agent.schemas import MacroSnapshotSummaryRequest
-from agent.service import AgentService
-from services.macro_service import MacroService
-from services.signal_service import SignalService
+from src.agent.mcp_adapter import MCPAdapter
+from src.agent.runtime.langchain_runtime import LangChainAgentRuntime
+from src.agent.schemas import MacroSnapshotSummaryRequest
+from src.agent.service import AgentService
+from src.services.macro_service import MacroService
+from src.services.signal_service import SignalService
 
 
 def _make_bounded_runtime(max_turns: int) -> LangChainAgentRuntime:

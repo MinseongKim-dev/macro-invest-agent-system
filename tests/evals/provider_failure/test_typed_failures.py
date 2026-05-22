@@ -11,18 +11,18 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from core.exceptions.base import (
+from src.core.exceptions.base import (
     PartialDataError,
     ProviderHTTPError,
     ProviderTimeoutError,
 )
-from core.exceptions.failure_category import FailureCategory
-from mcp.schemas.get_macro_features import GetMacroSnapshotRequest
-from mcp.schemas.run_signal_engine import RunSignalEngineRequest
-from mcp.tools.get_macro_features import handle_get_macro_snapshot
-from mcp.tools.run_signal_engine import handle_run_signal_engine
-from services.macro_service import MacroService
-from services.signal_service import SignalService
+from src.core.exceptions.failure_category import FailureCategory
+from src.agent.mcp.schemas.get_macro_features import GetMacroSnapshotRequest
+from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineRequest
+from src.agent.mcp.tools.get_macro_features import handle_get_macro_snapshot
+from src.agent.mcp.tools.run_signal_engine import handle_run_signal_engine
+from src.services.macro_service import MacroService
+from src.services.signal_service import SignalService
 
 
 @pytest.mark.asyncio
@@ -112,8 +112,8 @@ class TestTypedFailureCategories:
                 requested_count=5,
             )
         )
-        from mcp.schemas.get_macro_features import GetMacroFeaturesRequest
-        from mcp.tools.get_macro_features import handle_get_macro_features
+        from src.agent.mcp.schemas.get_macro_features import GetMacroFeaturesRequest
+        from src.agent.mcp.tools.get_macro_features import handle_get_macro_features
 
         req = GetMacroFeaturesRequest(
             request_id="typed-req-005",

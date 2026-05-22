@@ -24,12 +24,13 @@ from __future__ import annotations
 import asyncio
 import time
 
-from core.exceptions.base import ProviderError, StaleDataError
-from core.exceptions.failure_category import FailureCategory
-from core.logging.logger import get_logger
-from core.logging.timing import timed_operation
-from core.tracing import get_tracer
-from core.tracing.span_attributes import (
+from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineRequest, RunSignalEngineResponse
+from src.core.exceptions.base import ProviderError, StaleDataError
+from src.core.exceptions.failure_category import FailureCategory
+from src.core.logging.logger import get_logger
+from src.core.logging.timing import timed_operation
+from src.core.tracing import get_tracer
+from src.core.tracing.span_attributes import (
     COUNTRY,
     ENGINE_RUN_ID,
     MCP_TOOL,
@@ -37,10 +38,9 @@ from core.tracing.span_attributes import (
     RESULT_SUCCESS,
     SIGNAL_COUNT,
 )
-from domain.signals.enums import SignalType
-from domain.signals.registry import SignalRegistry, default_registry
-from mcp.schemas.run_signal_engine import RunSignalEngineRequest, RunSignalEngineResponse
-from services.interfaces import MacroServiceInterface, SignalServiceInterface
+from src.domain.signals.enums import SignalType
+from src.domain.signals.registry import SignalRegistry, default_registry
+from src.services.interfaces import MacroServiceInterface, SignalServiceInterface
 
 _log = get_logger(__name__)
 _tracer = get_tracer(__name__)
@@ -48,7 +48,11 @@ _tracer = get_tracer(__name__)
 
 def _provider_error_to_category(exc: ProviderError) -> FailureCategory:
     """Map a ProviderError subclass to the appropriate FailureCategory."""
-    from core.exceptions.base import ProviderHTTPError, ProviderNetworkError, ProviderTimeoutError
+    from src.core.exceptions.base import (
+        ProviderHTTPError,
+        ProviderNetworkError,
+        ProviderTimeoutError,
+    )
 
     if isinstance(exc, ProviderTimeoutError):
         return FailureCategory.PROVIDER_TIMEOUT

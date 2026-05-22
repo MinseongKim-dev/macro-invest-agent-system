@@ -17,8 +17,8 @@ Design notes
 
 from __future__ import annotations
 
-from core.contracts.feature_store_repository import FeatureStoreRepositoryContract
-from pipelines.ingestion.models import (
+from src.core.contracts.feature_store_repository import FeatureStoreRepositoryContract
+from src.pipelines.ingestion.models import (
     FeatureSnapshot,
     IngestionRunRecord,
     NormalizedMacroObservation,

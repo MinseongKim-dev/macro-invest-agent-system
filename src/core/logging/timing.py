@@ -8,8 +8,8 @@ never altered.
 
 Usage::
 
-    from core.logging.timing import timed_operation
-    from core.logging.logger import get_logger
+    from src.core.logging.timing import timed_operation
+    from src.core.logging.logger import get_logger
 
     log = get_logger(__name__)
 

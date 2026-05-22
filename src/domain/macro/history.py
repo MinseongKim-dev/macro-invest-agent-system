@@ -36,7 +36,7 @@ from datetime import date, datetime
 
 from pydantic import BaseModel, Field
 
-from domain.macro.regime import MacroRegime
+from src.domain.macro.regime import MacroRegime
 
 
 class HistoricalRegimeRecord(BaseModel, extra="forbid"):

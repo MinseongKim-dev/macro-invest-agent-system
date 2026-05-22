@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from domain.macro.enums import DataFrequency, MacroIndicatorType
-from pipelines.ingestion.indicator_catalog import PRIORITY_INDICATORS
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType
+from src.pipelines.ingestion.indicator_catalog import PRIORITY_INDICATORS
 
 
 class IngestionJob(BaseModel, extra="forbid"):

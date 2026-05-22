@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from agent.context.models import ConversationContext
+from src.agent.context.models import ConversationContext
 
 _DEFAULT_MAX_TURNS = 10
 

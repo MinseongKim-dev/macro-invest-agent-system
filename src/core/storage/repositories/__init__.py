@@ -1,5 +1,5 @@
 """Storage repository interfaces."""
 
-from storage.repositories.explanation_repository import ExplanationRepositoryInterface
+from src.core.storage.repositories.explanation_repository import ExplanationRepositoryInterface
 
 __all__ = ["ExplanationRepositoryInterface"]

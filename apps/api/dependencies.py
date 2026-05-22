@@ -23,22 +23,22 @@ from functools import lru_cache
 
 from fastapi import Depends
 
-from adapters.repositories.in_memory_alert_store import InMemoryAlertStore
-from adapters.repositories.in_memory_event_store import InMemoryEventStore
-from adapters.repositories.in_memory_explanation_store import InMemoryExplanationStore
-from adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
-from adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
-from services.interfaces import (
+from src.agent.adapters.repositories.in_memory_alert_store import InMemoryAlertStore
+from src.agent.adapters.repositories.in_memory_event_store import InMemoryEventStore
+from src.agent.adapters.repositories.in_memory_explanation_store import InMemoryExplanationStore
+from src.agent.adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
+from src.agent.adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
+from src.services.interfaces import (
     MacroServiceInterface,
     RegimeServiceInterface,
     SignalServiceInterface,
 )
-from services.macro_regime_service import MacroRegimeService
-from services.macro_service import MacroService
-from services.signal_service import SignalService
-from storage.repositories.alert_repository import AlertRepositoryInterface
-from storage.repositories.event_repository import EventRepositoryInterface
-from storage.repositories.explanation_repository import ExplanationRepositoryInterface
+from src.services.macro_regime_service import MacroRegimeService
+from src.services.macro_service import MacroService
+from src.services.signal_service import SignalService
+from src.core.storage.repositories.alert_repository import AlertRepositoryInterface
+from src.core.storage.repositories.event_repository import EventRepositoryInterface
+from src.core.storage.repositories.explanation_repository import ExplanationRepositoryInterface
 
 
 @lru_cache(maxsize=1)

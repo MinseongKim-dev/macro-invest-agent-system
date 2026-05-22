@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from domain.events.enums import ExternalEventType
+from src.domain.events.enums import ExternalEventType
 
 
 class ExternalEventImpactRouting(BaseModel, extra="forbid"):

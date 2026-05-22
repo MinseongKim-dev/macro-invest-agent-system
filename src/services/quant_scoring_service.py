@@ -11,9 +11,9 @@ time-series delta scoring, or calibration adjustments here.
 
 from __future__ import annotations
 
-from domain.macro.snapshot import MacroSnapshotState
-from domain.quant.models import QuantScoreBundle
-from domain.quant.scoring import score_snapshot
+from src.domain.macro.snapshot import MacroSnapshotState
+from src.domain.quant.models import QuantScoreBundle
+from src.domain.quant.scoring import score_snapshot
 
 
 class QuantScoringService:

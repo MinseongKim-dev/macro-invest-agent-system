@@ -43,17 +43,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from domain.attribution.enums import AttributionConfidence, AttributionMatchStatus
-from domain.attribution.models import (
+from src.domain.attribution.enums import AttributionConfidence, AttributionMatchStatus
+from src.domain.attribution.models import (
     AttributionRule,
     AttributionRunResult,
     CandidateEventContext,
     CatalystContext,
     ChangeAttribution,
 )
-from domain.events.enums import SourceReliabilityTier
-from domain.events.models import NormalizedExternalEvent
-from domain.macro.comparison import FeatureDelta
+from src.domain.events.enums import SourceReliabilityTier
+from src.domain.events.models import NormalizedExternalEvent
+from src.domain.macro.comparison import FeatureDelta
 
 # ---------------------------------------------------------------------------
 # Heuristic fallback map

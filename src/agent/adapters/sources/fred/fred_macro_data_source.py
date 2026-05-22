@@ -24,14 +24,14 @@ import urllib.parse
 import urllib.request
 from datetime import UTC, datetime
 
-from adapters.sources.fred.normalizer import normalize_fred_observation
-from adapters.sources.fred.series_map import FRED_SERIES_MAP
-from core.contracts.macro_data_source import MacroDataSourceContract, SourceMetadata
-from core.exceptions.base import ProviderHTTPError, ProviderNetworkError, ProviderTimeoutError
-from core.logging.logger import get_logger
-from core.metrics import PROVIDER_FETCH_DURATION, PROVIDER_FETCH_TOTAL
-from domain.macro.enums import MacroIndicatorType
-from domain.macro.models import MacroFeature
+from src.agent.adapters.sources.fred.normalizer import normalize_fred_observation
+from src.agent.adapters.sources.fred.series_map import FRED_SERIES_MAP
+from src.core.contracts.macro_data_source import MacroDataSourceContract, SourceMetadata
+from src.core.exceptions.base import ProviderHTTPError, ProviderNetworkError, ProviderTimeoutError
+from src.core.logging.logger import get_logger
+from src.core.metrics import PROVIDER_FETCH_DURATION, PROVIDER_FETCH_TOTAL
+from src.domain.macro.enums import MacroIndicatorType
+from src.domain.macro.models import MacroFeature
 
 _log = get_logger(__name__)
 
@@ -50,7 +50,7 @@ class FredMacroDataSource(MacroDataSourceContract):
 
     Example::
 
-        from adapters.sources.fred import FredMacroDataSource
+        from src.agent.adapters.sources.fred import FredMacroDataSource
 
         source = FredMacroDataSource(api_key="your_key_here")
         features = await source.fetch_raw("US", ["gdp", "inflation"])

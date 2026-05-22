@@ -7,6 +7,6 @@ Public API
 * :mod:`span_attributes` — canonical span attribute name constants.
 """
 
-from core.tracing.tracer import configure_tracing, get_tracer
+from src.core.tracing.tracer import configure_tracing, get_tracer
 
 __all__ = ["configure_tracing", "get_tracer"]

@@ -16,25 +16,25 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from agent.mcp_adapter import MCPAdapter
-from agent.prompts.templates import (
+from src.agent.mcp_adapter import MCPAdapter
+from src.agent.prompts.templates import (
     SNAPSHOT_COMPARISON_PROMPT,
     render_snapshot_comparison_summary,
 )
-from agent.runtime.agent_runtime import AgentOperation, AgentRuntime, AgentRuntimeResult
-from agent.runtime.langchain_runtime import LangChainAgentRuntime
-from agent.runtime.output_validation import (
+from src.agent.runtime.agent_runtime import AgentOperation, AgentRuntime, AgentRuntimeResult
+from src.agent.runtime.langchain_runtime import LangChainAgentRuntime
+from src.agent.runtime.output_validation import (
     OutputValidationError,
     validate_snapshot_comparison_response,
 )
-from agent.schemas import (
+from src.agent.schemas import (
     PriorFeatureInput,
     SnapshotComparisonRequest,
     SnapshotComparisonResponse,
 )
-from agent.service import AgentService
-from services.macro_service import MacroService
-from services.signal_service import SignalService
+from src.agent.service import AgentService
+from src.services.macro_service import MacroService
+from src.services.signal_service import SignalService
 
 # ---------------------------------------------------------------------------
 # Helpers

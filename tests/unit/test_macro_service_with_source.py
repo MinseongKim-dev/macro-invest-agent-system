@@ -6,11 +6,11 @@ from datetime import UTC, datetime
 
 import pytest
 
-from adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
-from core.contracts.macro_data_source import MacroDataSourceContract, SourceMetadata
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature, MacroSnapshot
-from services.macro_service import MacroService
+from src.agent.adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
+from src.core.contracts.macro_data_source import MacroDataSourceContract, SourceMetadata
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature, MacroSnapshot
+from src.services.macro_service import MacroService
 
 
 def _make_feature(indicator: MacroIndicatorType, value: float = 1.0) -> MacroFeature:

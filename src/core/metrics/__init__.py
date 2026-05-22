@@ -4,16 +4,16 @@ Usage
 -----
 Application startup::
 
-    from core.metrics import configure_metrics
+    from src.core.metrics import configure_metrics
     configure_metrics()  # reads Settings automatically
 
 Any instrumented module::
 
-    from core.metrics.registry import AGENT_REQUEST_DURATION, AGENT_REQUESTS_TOTAL
+    from src.core.metrics.registry import AGENT_REQUEST_DURATION, AGENT_REQUESTS_TOTAL
     # record observations via the metric objects directly
 """
 
-from core.metrics.registry import (
+from src.core.metrics.registry import (
     AGENT_REQUEST_DURATION,
     AGENT_REQUESTS_TOTAL,
     DEGRADED_RESPONSES_TOTAL,

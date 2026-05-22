@@ -5,7 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import date
 
-from domain.macro.regime import MacroRegime
+from src.domain.macro.regime import MacroRegime
 
 
 class MacroRegimeRepositoryContract(ABC):

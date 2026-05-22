@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
-from domain.events.enums import (
+from src.domain.events.enums import (
     ExternalEventFreshness,
     ExternalEventStatus,
     ExternalEventType,
     SourceReliabilityTier,
 )
-from domain.events.models import NormalizedExternalEvent
-from domain.events.normalizer import (
+from src.domain.events.models import NormalizedExternalEvent
+from src.domain.events.normalizer import (
     assess_event_quality,
     infer_reliability_tier,
     normalize_external_event,

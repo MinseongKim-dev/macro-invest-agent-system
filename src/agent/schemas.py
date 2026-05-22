@@ -25,7 +25,7 @@ from datetime import UTC, datetime
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from domain.macro.comparison import PriorFeatureInput
+from src.domain.macro.comparison import PriorFeatureInput
 
 # ---------------------------------------------------------------------------
 # Request schemas

@@ -11,10 +11,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from adapters.repositories.in_memory_feature_store import InMemoryFeatureStore
-from adapters.sources.fred import FredMacroDataSource
-from core.exceptions.base import ProviderError, ProviderHTTPError
-from pipelines.ingestion.macro_ingestion_service import MacroIngestionService
+from src.agent.adapters.repositories.in_memory_feature_store import InMemoryFeatureStore
+from src.agent.adapters.sources.fred import FredMacroDataSource
+from src.core.exceptions.base import ProviderError, ProviderHTTPError
+from src.pipelines.ingestion.macro_ingestion_service import MacroIngestionService
 
 
 @pytest.mark.asyncio

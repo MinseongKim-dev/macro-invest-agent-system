@@ -14,7 +14,7 @@ References
 
 from __future__ import annotations
 
-from domain.macro.enums import MacroIndicatorType
+from src.domain.macro.enums import MacroIndicatorType
 
 # Maps each supported MacroIndicatorType to the corresponding FRED series ID.
 FRED_SERIES_MAP: dict[MacroIndicatorType, str] = {

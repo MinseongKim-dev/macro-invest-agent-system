@@ -19,7 +19,7 @@ from typing import Any
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from agent.mcp_adapter import MCPAdapter
+from src.agent.mcp_adapter import MCPAdapter
 
 # ---------------------------------------------------------------------------
 # Tool input schemas

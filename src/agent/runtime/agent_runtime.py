@@ -28,7 +28,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from agent.schemas import (
+from src.agent.schemas import (
     AgentResponse,
     MacroSnapshotSummaryRequest,
     MacroSnapshotSummaryResponse,
@@ -37,12 +37,12 @@ from agent.schemas import (
     SnapshotComparisonRequest,
     SnapshotComparisonResponse,
 )
-from agent.service import AgentService
-from core.logging.logger import bind_request_context, get_logger, set_trace_id
-from core.logging.timing import timed_operation
-from core.metrics import AGENT_REQUEST_DURATION, AGENT_REQUESTS_TOTAL
-from core.tracing import get_tracer
-from core.tracing.span_attributes import (
+from src.agent.service import AgentService
+from src.core.logging.logger import bind_request_context, get_logger, set_trace_id
+from src.core.logging.timing import timed_operation
+from src.core.metrics import AGENT_REQUEST_DURATION, AGENT_REQUESTS_TOTAL
+from src.core.tracing import get_tracer
+from src.core.tracing.span_attributes import (
     AGENT_OPERATION,
     REQUEST_ID,
     RESULT_SUCCESS,
@@ -130,11 +130,11 @@ class AgentRuntime:
 
     Example::
 
-        from agent.runtime.agent_runtime import AgentRuntime, AgentOperation
-        from agent.schemas import SignalReviewRequest
-        from agent.service import AgentService
-        from services.macro_service import MacroService
-        from services.signal_service import SignalService
+        from src.agent.runtime.agent_runtime import AgentRuntime, AgentOperation
+        from src.agent.schemas import SignalReviewRequest
+        from src.agent.service import AgentService
+        from src.services.macro_service import MacroService
+        from src.services.signal_service import SignalService
 
         runtime = AgentRuntime(AgentService(MacroService(), SignalService()))
         result = await runtime.invoke(

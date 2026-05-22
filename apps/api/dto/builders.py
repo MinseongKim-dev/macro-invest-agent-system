@@ -16,10 +16,10 @@ from apps.api.dto.explanations import (
 from apps.api.dto.signals import SignalSummaryDTO
 from apps.api.dto.snapshots import FeatureDeltaDTO, FeatureDTO
 from apps.api.dto.trust import DataAvailability, FreshnessStatus, SourceAttribution, TrustMetadata
-from domain.macro.comparison import FeatureDelta, SnapshotComparison
-from domain.macro.models import MacroFeature, MacroSnapshot
-from domain.macro.narrative_builder import RegimeNarrative
-from domain.signals.models import SignalOutput, SignalResult
+from src.domain.macro.comparison import FeatureDelta, SnapshotComparison
+from src.domain.macro.models import MacroFeature, MacroSnapshot
+from src.domain.macro.narrative_builder import RegimeNarrative
+from src.domain.signals.models import SignalOutput, SignalResult
 
 # ---------------------------------------------------------------------------
 # Label helpers

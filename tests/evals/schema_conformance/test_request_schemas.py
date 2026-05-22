@@ -12,7 +12,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from agent.schemas import (
+from src.agent.schemas import (
     MacroSnapshotSummaryRequest,
     PriorFeatureInput,
     SignalReviewRequest,

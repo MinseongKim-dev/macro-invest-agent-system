@@ -12,8 +12,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature
 
 
 class FeatureSnapshot(BaseModel):

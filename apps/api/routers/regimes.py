@@ -14,15 +14,15 @@ from apps.api.dto.regimes import (
     RegimeLatestResponse,
     RegimeTransitionDTO,
 )
-from domain.macro.change_detection import RegimeDelta, detect_regime_change
-from domain.macro.history import (
+from src.domain.macro.change_detection import RegimeDelta, detect_regime_change
+from src.domain.macro.history import (
     HistoricalRegimeRecord,
     build_regime_history_bundle,
 )
-from domain.macro.regime import MacroRegime, RegimeConfidence, RegimeLabel
-from domain.macro.snapshot import DegradedStatus
-from pipelines.ingestion.models import FreshnessStatus
-from services.interfaces import RegimeServiceInterface
+from src.domain.macro.regime import MacroRegime, RegimeConfidence, RegimeLabel
+from src.domain.macro.snapshot import DegradedStatus
+from src.pipelines.ingestion.models import FreshnessStatus
+from src.services.interfaces import RegimeServiceInterface
 
 router = APIRouter(prefix="/api/regimes", tags=["regimes"])
 

@@ -18,14 +18,14 @@ from __future__ import annotations
 
 from pydantic import ValidationError
 
-from agent.runtime.agent_runtime import AgentRuntimeResult
-from agent.schemas import (
+from src.agent.runtime.agent_runtime import AgentRuntimeResult
+from src.agent.schemas import (
     AgentResponse,
     MacroSnapshotSummaryResponse,
     SignalReviewResponse,
     SnapshotComparisonResponse,
 )
-from core.metrics import SCHEMA_VALIDATION_FAILURES_TOTAL
+from src.core.metrics import SCHEMA_VALIDATION_FAILURES_TOTAL
 
 
 class OutputValidationError(Exception):

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from core.contracts.macro_snapshot_repository import MacroSnapshotRepositoryContract
-from domain.macro.snapshot import MacroSnapshotState
+from src.core.contracts.macro_snapshot_repository import MacroSnapshotRepositoryContract
+from src.domain.macro.snapshot import MacroSnapshotState
 
 
 class InMemoryMacroSnapshotStore(MacroSnapshotRepositoryContract):

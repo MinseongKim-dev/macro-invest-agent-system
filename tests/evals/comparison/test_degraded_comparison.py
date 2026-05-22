@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import pytest
 
-from agent.mcp_adapter import MCPAdapter
-from agent.runtime.agent_runtime import AgentOperation
-from agent.runtime.langchain_runtime import LangChainAgentRuntime
-from agent.schemas import PriorFeatureInput, SnapshotComparisonRequest, SnapshotComparisonResponse
-from agent.service import AgentService
-from services.macro_service import MacroService
-from services.signal_service import SignalService
+from src.agent.mcp_adapter import MCPAdapter
+from src.agent.runtime.agent_runtime import AgentOperation
+from src.agent.runtime.langchain_runtime import LangChainAgentRuntime
+from src.agent.schemas import PriorFeatureInput, SnapshotComparisonRequest, SnapshotComparisonResponse
+from src.agent.service import AgentService
+from src.services.macro_service import MacroService
+from src.services.signal_service import SignalService
 
 
 def _make_runtime() -> LangChainAgentRuntime:

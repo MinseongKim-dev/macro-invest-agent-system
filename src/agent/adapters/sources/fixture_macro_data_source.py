@@ -17,9 +17,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from core.contracts.macro_data_source import MacroDataSourceContract, SourceMetadata
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature
+from src.core.contracts.macro_data_source import MacroDataSourceContract, SourceMetadata
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature
 
 # Fixed reference timestamp so fixture output is fully deterministic
 _FIXTURE_TIMESTAMP = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)

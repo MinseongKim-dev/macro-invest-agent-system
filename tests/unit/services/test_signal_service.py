@@ -4,11 +4,11 @@ from datetime import datetime
 
 import pytest
 
-from domain.macro.enums import MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature, MacroSnapshot
-from domain.signals.enums import SignalType
-from domain.signals.models import SignalDefinition, SignalRule
-from services.signal_service import SignalService
+from src.domain.macro.enums import MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature, MacroSnapshot
+from src.domain.signals.enums import SignalType
+from src.domain.signals.models import SignalDefinition, SignalRule
+from src.services.signal_service import SignalService
 
 
 @pytest.mark.asyncio

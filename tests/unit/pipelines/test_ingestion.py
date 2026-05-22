@@ -15,13 +15,13 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from adapters.repositories.in_memory_feature_store import InMemoryFeatureStore
-from adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
-from adapters.sources.in_memory_macro_data_source import InMemoryMacroDataSource
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
-from domain.macro.models import MacroFeature
-from pipelines.ingestion.macro_ingestion_service import DEFAULT_INDICATORS, MacroIngestionService
-from pipelines.ingestion.models import FeatureSnapshot
+from src.agent.adapters.repositories.in_memory_feature_store import InMemoryFeatureStore
+from src.agent.adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
+from src.agent.adapters.sources.in_memory_macro_data_source import InMemoryMacroDataSource
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.models import MacroFeature
+from src.pipelines.ingestion.macro_ingestion_service import DEFAULT_INDICATORS, MacroIngestionService
+from src.pipelines.ingestion.models import FeatureSnapshot
 
 # ---------------------------------------------------------------------------
 # Helpers

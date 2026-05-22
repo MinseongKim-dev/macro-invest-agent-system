@@ -16,7 +16,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from datetime import datetime
 
-from domain.alerts.models import (
+from src.domain.alerts.models import (
     AlertAcknowledgementState,
     AlertEvent,
     AlertSeverity,

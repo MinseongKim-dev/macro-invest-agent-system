@@ -46,8 +46,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from domain.macro.regime import RegimeLabel
-from domain.signals.enums import SignalStrength, SignalType, TrendDirection
+from src.domain.macro.regime import RegimeLabel
+from src.domain.signals.enums import SignalStrength, SignalType, TrendDirection
 
 
 @dataclass(frozen=True)

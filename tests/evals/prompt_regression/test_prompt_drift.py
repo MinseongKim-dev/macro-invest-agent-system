@@ -22,7 +22,7 @@ import json
 from pathlib import Path
 from typing import cast
 
-from agent.prompts.templates import (
+from src.agent.prompts.templates import (
     render_signal_review_summary,
     render_snapshot_comparison_summary,
     render_snapshot_summary,

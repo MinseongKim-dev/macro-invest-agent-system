@@ -8,8 +8,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from domain.macro.enums import MacroIndicatorType
-from pipelines.ingestion.models import FreshnessStatus, NormalizedMacroObservation
+from src.domain.macro.enums import MacroIndicatorType
+from src.pipelines.ingestion.models import FreshnessStatus, NormalizedMacroObservation
 
 
 class GrowthState(StrEnum):

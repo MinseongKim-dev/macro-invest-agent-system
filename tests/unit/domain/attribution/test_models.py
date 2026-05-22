@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from domain.attribution.enums import AttributionConfidence, AttributionMatchStatus
-from domain.attribution.models import (
+from src.domain.attribution.enums import AttributionConfidence, AttributionMatchStatus
+from src.domain.attribution.models import (
     AttributionRule,
     AttributionRunResult,
     CandidateEventContext,

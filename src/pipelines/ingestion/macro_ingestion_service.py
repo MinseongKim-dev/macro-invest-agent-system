@@ -24,21 +24,25 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from core.contracts.feature_store_repository import FeatureStoreRepositoryContract
-from core.contracts.macro_data_source import MacroDataSourceContract
-from core.exceptions.base import ProviderError
-from core.logging.logger import get_logger
-from core.metrics import INGESTION_OBSERVATIONS_TOTAL, PIPELINE_RUN_DURATION, PIPELINE_RUNS_TOTAL
-from core.tracing import get_tracer
-from core.tracing.span_attributes import (
+from src.core.contracts.feature_store_repository import FeatureStoreRepositoryContract
+from src.core.contracts.macro_data_source import MacroDataSourceContract
+from src.core.exceptions.base import ProviderError
+from src.core.logging.logger import get_logger
+from src.core.metrics import (
+    INGESTION_OBSERVATIONS_TOTAL,
+    PIPELINE_RUN_DURATION,
+    PIPELINE_RUNS_TOTAL,
+)
+from src.core.tracing import get_tracer
+from src.core.tracing.span_attributes import (
     COUNTRY,
     FEATURES_COUNT,
     INDICATOR_COUNT,
     PIPELINE_RUN_ID,
     SOURCE_ID,
 )
-from pipelines.ingestion.indicator_catalog import PRIORITY_INDICATORS
-from pipelines.ingestion.models import (
+from src.pipelines.ingestion.indicator_catalog import PRIORITY_INDICATORS
+from src.pipelines.ingestion.models import (
     FeatureSnapshot,
     IngestionRunRecord,
     RawFeatureRecord,
@@ -67,9 +71,9 @@ class MacroIngestionService:
 
     Example::
 
-        from adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
-        from adapters.repositories.in_memory_feature_store import InMemoryFeatureStore
-        from pipelines.ingestion.macro_ingestion_service import MacroIngestionService
+        from src.agent.adapters.sources.fixture_macro_data_source import FixtureMacroDataSource
+        from src.agent.adapters.repositories.in_memory_feature_store import InMemoryFeatureStore
+        from src.pipelines.ingestion.macro_ingestion_service import MacroIngestionService
 
         service = MacroIngestionService(
             source=FixtureMacroDataSource(),

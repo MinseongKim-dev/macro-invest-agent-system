@@ -4,7 +4,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field, field_validator
 
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
 
 
 class MacroFeature(BaseModel):

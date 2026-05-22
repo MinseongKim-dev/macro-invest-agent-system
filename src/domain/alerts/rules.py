@@ -49,7 +49,7 @@ import uuid
 
 from pydantic import BaseModel, Field
 
-from domain.alerts.models import AlertSeverity, AlertTriggerType
+from src.domain.alerts.models import AlertSeverity, AlertTriggerType
 
 
 class AlertRule(BaseModel, extra="forbid"):

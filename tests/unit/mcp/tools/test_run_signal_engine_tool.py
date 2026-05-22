@@ -6,11 +6,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from domain.signals.registry import SignalRegistry, default_registry
-from mcp.schemas.run_signal_engine import RunSignalEngineRequest
-from mcp.tools.run_signal_engine import handle_run_signal_engine
-from services.macro_service import MacroService
-from services.signal_service import SignalService
+from src.domain.signals.registry import SignalRegistry, default_registry
+from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineRequest
+from src.agent.mcp.tools.run_signal_engine import handle_run_signal_engine
+from src.services.macro_service import MacroService
+from src.services.signal_service import SignalService
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -153,8 +153,8 @@ class TestHandleRunSignalEngine:
 
     async def test_custom_registry_overrides_default(self) -> None:
         """A custom registry with different signal IDs is respected."""
-        from domain.signals.enums import SignalType
-        from domain.signals.models import SignalDefinition, SignalRule
+        from src.domain.signals.enums import SignalType
+        from src.domain.signals.models import SignalDefinition, SignalRule
 
         custom_def = SignalDefinition(
             signal_id="custom_signal",

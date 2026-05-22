@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime
 import pytest
 from pydantic import ValidationError
 
-from domain.macro.regime import (
+from src.domain.macro.regime import (
     REGIME_LABEL_FAMILY_MAP,
     MacroRegime,
     RegimeConfidence,

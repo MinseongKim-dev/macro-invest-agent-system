@@ -65,7 +65,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from domain.macro.regime import (
+from src.domain.macro.regime import (
     MacroRegime,
     RegimeConfidence,
     RegimeLabel,

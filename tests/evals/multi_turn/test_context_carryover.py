@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import pytest
 
-from agent.runtime.langchain_runtime import LangChainAgentRuntime
-from agent.schemas import MacroSnapshotSummaryRequest
+from src.agent.runtime.langchain_runtime import LangChainAgentRuntime
+from src.agent.schemas import MacroSnapshotSummaryRequest
 
 
 @pytest.mark.asyncio

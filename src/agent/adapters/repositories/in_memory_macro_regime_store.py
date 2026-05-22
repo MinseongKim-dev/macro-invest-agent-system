@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from core.contracts.macro_regime_repository import MacroRegimeRepositoryContract
-from domain.macro.regime import MacroRegime
+from src.core.contracts.macro_regime_repository import MacroRegimeRepositoryContract
+from src.domain.macro.regime import MacroRegime
 
 
 class InMemoryMacroRegimeStore(MacroRegimeRepositoryContract):

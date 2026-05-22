@@ -15,8 +15,8 @@ Design notes
 
 from __future__ import annotations
 
-from mcp.schemas.get_macro_features import GetMacroSnapshotResponse
-from mcp.schemas.run_signal_engine import RunSignalEngineResponse
+from src.agent.mcp.schemas.get_macro_features import GetMacroSnapshotResponse
+from src.agent.mcp.schemas.run_signal_engine import RunSignalEngineResponse
 
 
 def dominant_signal_type(response: RunSignalEngineResponse) -> str:

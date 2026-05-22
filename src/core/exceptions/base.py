@@ -27,8 +27,8 @@ Data-quality failures::
 
 Usage::
 
-    from core.exceptions.base import NotFoundError, ValidationError
-    from core.exceptions.base import ProviderHTTPError, StaleDataError
+    from src.core.exceptions.base import NotFoundError, ValidationError
+    from src.core.exceptions.base import ProviderHTTPError, StaleDataError
 
     raise NotFoundError(
         message="Signal result not found.",

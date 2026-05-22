@@ -19,7 +19,7 @@ Design notes
 
 from __future__ import annotations
 
-from agent.context.models import ConversationTurn
+from src.agent.context.models import ConversationTurn
 
 
 def trim_to_max_turns(

@@ -17,25 +17,25 @@ from __future__ import annotations
 
 import asyncio
 
-from core.exceptions.base import PartialDataError, ProviderError, StaleDataError
-from core.exceptions.failure_category import FailureCategory
-from core.logging.logger import get_logger
-from core.logging.timing import timed_operation
-from core.tracing import get_tracer
-from core.tracing.span_attributes import (
+from src.agent.mcp.schemas.get_macro_features import (
+    GetMacroFeaturesRequest,
+    GetMacroFeaturesResponse,
+    GetMacroSnapshotRequest,
+    GetMacroSnapshotResponse,
+)
+from src.core.exceptions.base import PartialDataError, ProviderError, StaleDataError
+from src.core.exceptions.failure_category import FailureCategory
+from src.core.logging.logger import get_logger
+from src.core.logging.timing import timed_operation
+from src.core.tracing import get_tracer
+from src.core.tracing.span_attributes import (
     COUNTRY,
     FEATURES_COUNT,
     MCP_TOOL,
     REQUEST_ID,
     RESULT_SUCCESS,
 )
-from mcp.schemas.get_macro_features import (
-    GetMacroFeaturesRequest,
-    GetMacroFeaturesResponse,
-    GetMacroSnapshotRequest,
-    GetMacroSnapshotResponse,
-)
-from services.interfaces import MacroServiceInterface
+from src.services.interfaces import MacroServiceInterface
 
 _log = get_logger(__name__)
 _tracer = get_tracer(__name__)
@@ -43,7 +43,11 @@ _tracer = get_tracer(__name__)
 
 def _provider_error_to_category(exc: ProviderError) -> FailureCategory:
     """Map a ProviderError subclass to the appropriate FailureCategory."""
-    from core.exceptions.base import ProviderHTTPError, ProviderNetworkError, ProviderTimeoutError
+    from src.core.exceptions.base import (
+        ProviderHTTPError,
+        ProviderNetworkError,
+        ProviderTimeoutError,
+    )
 
     if isinstance(exc, ProviderTimeoutError):
         return FailureCategory.PROVIDER_TIMEOUT

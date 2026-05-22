@@ -6,16 +6,16 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi.testclient import TestClient
 
-from adapters.repositories.in_memory_event_store import InMemoryEventStore
+from src.agent.adapters.repositories.in_memory_event_store import InMemoryEventStore
 from apps.api.dependencies import get_event_repository
 from apps.api.main import app
-from domain.events.enums import (
+from src.domain.events.enums import (
     ExternalEventFreshness,
     ExternalEventStatus,
     ExternalEventType,
     SourceReliabilityTier,
 )
-from domain.events.models import NormalizedExternalEvent
+from src.domain.events.models import NormalizedExternalEvent
 
 
 def _make_event(

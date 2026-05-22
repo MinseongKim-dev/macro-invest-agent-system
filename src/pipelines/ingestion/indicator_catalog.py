@@ -6,7 +6,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from domain.macro.enums import DataFrequency, MacroIndicatorType
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType
 
 
 class IndicatorCategory(StrEnum):

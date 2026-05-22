@@ -15,8 +15,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from adapters.sources.fred.normalizer import normalize_fred_observation
-from domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.agent.adapters.sources.fred.normalizer import normalize_fred_observation
+from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
 
 # Shared fixture timestamp
 _TS = datetime(2026, 1, 1, tzinfo=UTC)

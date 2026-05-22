@@ -20,12 +20,12 @@ Usage
 -----
 Application startup (e.g. ``apps/api/main.py`` or ``apps/cli/main.py``)::
 
-    from core.tracing.tracer import configure_tracing
+    from src.core.tracing.tracer import configure_tracing
     configure_tracing()  # reads Settings automatically
 
 Any module::
 
-    from core.tracing.tracer import get_tracer
+    from src.core.tracing.tracer import get_tracer
 
     _tracer = get_tracer(__name__)
 
@@ -44,7 +44,7 @@ from opentelemetry import trace
 from opentelemetry.trace import NonRecordingSpan, Span, Tracer
 
 if TYPE_CHECKING:
-    from core.config.settings import Settings
+    from src.core.config.settings import Settings
 
 _log = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ def configure_tracing(settings: Settings | None = None) -> None:
         return
 
     if settings is None:
-        from core.config.settings import get_settings
+        from src.core.config.settings import get_settings
 
         settings = get_settings()
 

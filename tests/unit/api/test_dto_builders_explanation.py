@@ -16,8 +16,8 @@ from apps.api.dto.builders import (
     build_what_changed,
 )
 from apps.api.dto.explanations import REASONING_STEP_KEYS
-from domain.macro.narrative_builder import build_regime_narrative
-from domain.macro.regime import (
+from src.domain.macro.narrative_builder import build_regime_narrative
+from src.domain.macro.regime import (
     REGIME_LABEL_FAMILY_MAP,
     MacroRegime,
     RegimeConfidence,
@@ -25,8 +25,8 @@ from domain.macro.regime import (
     RegimeTransition,
     RegimeTransitionType,
 )
-from domain.macro.snapshot import DegradedStatus
-from pipelines.ingestion.models import FreshnessStatus
+from src.domain.macro.snapshot import DegradedStatus
+from src.pipelines.ingestion.models import FreshnessStatus
 
 # ---------------------------------------------------------------------------
 # Fixture helpers

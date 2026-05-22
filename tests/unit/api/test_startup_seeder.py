@@ -6,16 +6,16 @@ from datetime import date
 
 import pytest
 
-from adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
-from adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
+from src.agent.adapters.repositories.in_memory_macro_regime_store import InMemoryMacroRegimeStore
+from src.agent.adapters.repositories.in_memory_macro_snapshot_store import InMemoryMacroSnapshotStore
 from apps.api.startup_seeder import (
     SEEDER_METADATA,
     SeedStatus,
     seed_regime_from_synthetic_observations,
 )
-from domain.macro.regime import RegimeLabel
-from services.macro_regime_service import MacroRegimeService
-from services.macro_snapshot_service import MacroSnapshotService
+from src.domain.macro.regime import RegimeLabel
+from src.services.macro_regime_service import MacroRegimeService
+from src.services.macro_snapshot_service import MacroSnapshotService
 
 
 @pytest.fixture()

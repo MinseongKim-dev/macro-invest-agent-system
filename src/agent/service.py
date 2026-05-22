@@ -20,10 +20,10 @@ Design principles
 
 Usage example::
 
-    from services.macro_service import MacroService
-    from services.signal_service import SignalService
-    from agent.service import AgentService
-    from agent.schemas import SignalReviewRequest
+    from src.services.macro_service import MacroService
+    from src.services.signal_service import SignalService
+    from src.agent.service import AgentService
+    from src.agent.schemas import SignalReviewRequest
 
     service = AgentService(MacroService(), SignalService())
     response = await service.review_signals(
@@ -35,15 +35,15 @@ Usage example::
 
 from __future__ import annotations
 
-from agent.formatting.comparison import (
+from src.agent.formatting.comparison import (
     format_comparison_error,
     format_comparison_summary,
     format_prior_missing_error,
 )
-from agent.formatting.errors import format_signal_review_error, format_snapshot_summary_error
-from agent.formatting.summaries import format_signal_review_summary, format_snapshot_summary
-from agent.mcp_adapter import MCPAdapter, MCPToolError
-from agent.schemas import (
+from src.agent.formatting.errors import format_signal_review_error, format_snapshot_summary_error
+from src.agent.formatting.summaries import format_signal_review_summary, format_snapshot_summary
+from src.agent.mcp_adapter import MCPAdapter, MCPToolError
+from src.agent.schemas import (
     MacroSnapshotSummaryRequest,
     MacroSnapshotSummaryResponse,
     SignalReviewRequest,
@@ -51,11 +51,11 @@ from agent.schemas import (
     SnapshotComparisonRequest,
     SnapshotComparisonResponse,
 )
-from core.logging.logger import get_logger
-from core.logging.timing import timed_operation
-from domain.macro.comparison import compare_snapshots as domain_compare_snapshots
-from domain.signals.registry import SignalRegistry
-from services.interfaces import MacroServiceInterface, SignalServiceInterface
+from src.core.logging.logger import get_logger
+from src.core.logging.timing import timed_operation
+from src.domain.macro.comparison import compare_snapshots as domain_compare_snapshots
+from src.domain.signals.registry import SignalRegistry
+from src.services.interfaces import MacroServiceInterface, SignalServiceInterface
 
 _log = get_logger(__name__)
 

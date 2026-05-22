@@ -30,42 +30,42 @@ EXCLUDE_DIRS = {
 # The old_pattern_prefix is matched at the start of import lines.
 REPLACEMENTS: list[tuple[str, str]] = [
     # alembic -> src.core.alembic (before core to avoid double-replace)
-    (r"^(from\s+)alembic(\b)", r"\1src.core.alembic\2"),
-    (r"^(import\s+)alembic(\b)", r"\1src.core.alembic\2"),
+    (r"^(\s*from\s+)alembic(\b)", r"\1src.core.alembic\2"),
+    (r"^(\s*import\s+)alembic(\b)", r"\1src.core.alembic\2"),
 
     # storage -> src.core.storage
-    (r"^(from\s+)storage(\b)", r"\1src.core.storage\2"),
-    (r"^(import\s+)storage(\b)", r"\1src.core.storage\2"),
+    (r"^(\s*from\s+)storage(\b)", r"\1src.core.storage\2"),
+    (r"^(\s*import\s+)storage(\b)", r"\1src.core.storage\2"),
 
     # core -> src.core
-    (r"^(from\s+)core(\b)", r"\1src.core\2"),
-    (r"^(import\s+)core(\b)", r"\1src.core\2"),
+    (r"^(\s*from\s+)core(\b)", r"\1src.core\2"),
+    (r"^(\s*import\s+)core(\b)", r"\1src.core\2"),
 
     # mcp.schemas / mcp.tools -> src.agent.mcp.schemas / src.agent.mcp.tools
     # (project-local mcp, not the external mcp SDK — external SDK uses `from mcp import X`
     #  not `from mcp.schemas` / `from mcp.tools`)
-    (r"^(from\s+)mcp\.(schemas|tools)(\b)", r"\1src.agent.mcp.\2\3"),
-    (r"^(import\s+)mcp\.(schemas|tools)(\b)", r"\1src.agent.mcp.\2\3"),
+    (r"^(\s*from\s+)mcp\.(schemas|tools)(\b)", r"\1src.agent.mcp.\2\3"),
+    (r"^(\s*import\s+)mcp\.(schemas|tools)(\b)", r"\1src.agent.mcp.\2\3"),
 
     # adapters -> src.agent.adapters
-    (r"^(from\s+)adapters(\b)", r"\1src.agent.adapters\2"),
-    (r"^(import\s+)adapters(\b)", r"\1src.agent.adapters\2"),
+    (r"^(\s*from\s+)adapters(\b)", r"\1src.agent.adapters\2"),
+    (r"^(\s*import\s+)adapters(\b)", r"\1src.agent.adapters\2"),
 
     # agent -> src.agent
-    (r"^(from\s+)agent(\b)", r"\1src.agent\2"),
-    (r"^(import\s+)agent(\b)", r"\1src.agent\2"),
+    (r"^(\s*from\s+)agent(\b)", r"\1src.agent\2"),
+    (r"^(\s*import\s+)agent(\b)", r"\1src.agent\2"),
 
     # domain -> src.domain
-    (r"^(from\s+)domain(\b)", r"\1src.domain\2"),
-    (r"^(import\s+)domain(\b)", r"\1src.domain\2"),
+    (r"^(\s*from\s+)domain(\b)", r"\1src.domain\2"),
+    (r"^(\s*import\s+)domain(\b)", r"\1src.domain\2"),
 
     # pipelines -> src.pipelines
-    (r"^(from\s+)pipelines(\b)", r"\1src.pipelines\2"),
-    (r"^(import\s+)pipelines(\b)", r"\1src.pipelines\2"),
+    (r"^(\s*from\s+)pipelines(\b)", r"\1src.pipelines\2"),
+    (r"^(\s*import\s+)pipelines(\b)", r"\1src.pipelines\2"),
 
     # services -> src.services
-    (r"^(from\s+)services(\b)", r"\1src.services\2"),
-    (r"^(import\s+)services(\b)", r"\1src.services\2"),
+    (r"^(\s*from\s+)services(\b)", r"\1src.services\2"),
+    (r"^(\s*import\s+)services(\b)", r"\1src.services\2"),
 ]
 
 # Guard: if a line already starts with src.<something>, skip it
