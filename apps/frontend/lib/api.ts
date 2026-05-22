@@ -1,0 +1,19 @@
+/**
+ * SWR-compatible fetch helper. Throws on non-2xx so SWR surfaces errors correctly.
+ * All endpoints proxy through Next.js rewrites → FastAPI at /api/*
+ */
+export async function fetchJson<T>(url: string): Promise<T> {
+  const res = await fetch(url, { cache: 'no-store' })
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${url}`)
+  }
+  return res.json() as Promise<T>
+}
+
+export const endpoints = {
+  regime:        '/api/regimes/latest',
+  regimeCompare: '/api/regimes/compare',
+  signals:       (country = 'US') => `/api/signals/latest?country=${country}`,
+  events:        (limit = 20)     => `/api/events/recent?limit=${limit}`,
+  alerts:        (limit = 10)     => `/api/alerts/recent?limit=${limit}`,
+} as const
