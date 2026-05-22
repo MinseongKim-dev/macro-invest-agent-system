@@ -128,5 +128,6 @@ Frontend UI card → backend source mapping:
 | Phase 2.2 | Polymorphic multi-engine upgrade + real DB price data wiring (SMA golden/dead cross, weighted sentiment lexicon, per-persona thresholds; market_ticks → engines → SSE payload) | [X] |
 | Phase 2.3 | Legendary investor formula injection (engines.py only): Ray Dalio Volatility Targeting · James Simons Regime Switching · Warren Buffett Margin of Safety; SSE macro_regime sync in main.py | [X] |
 | Phase 2.4 | Aleph-One hyper-futuristic UI prototype (apps/frontend/public/aleph-one/): glassmorphism command center, Three.js 3D sphere, SVG risk matrix, world map heatmap, OMNI terminal | [X] |
+| Phase 2.5 | yfinance live pipeline: LIVE_TICKERS domain map, fetch_live_market_data() (DELETE+COPY upsert, ×3 retry), fetch_live_news() → SentimentEngine, asyncio background collector in SSE stream (60s cycle, auto-cancel on disconnect) | [X] |
 | Phase 3.1 | LLM / LangChain orchestration for OMNI command terminal | [ ] |
 | Phase 3.2 | Milvus vector store wiring (news embeddings, semantic search) | [ ] |

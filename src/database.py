@@ -1,12 +1,16 @@
-"""Aleph-One database layer — connection pool, schema init, mock data seeding.
+"""Aleph-One database layer — connection pool, schema init, mock data seeding,
+live market data fetch via yfinance.
 
 Tri-File Architecture — this file owns:
-  - DatabaseConfig        : env-var backed config dataclass
-  - _PoolManager          : thread-safe connection pool singleton
-  - get_pool()            : pool accessor
-  - get_connection()      : context manager (lease → auto-return)
-  - init_db()             : DDL — market_ticks hypertable + macro_regimes
-  - seed_mock_data()      : pandas GBM OHLCV + dummy regimes via COPY (bulk)
+  - DatabaseConfig          : env-var backed config dataclass
+  - _PoolManager            : thread-safe connection pool singleton
+  - get_pool()              : pool accessor
+  - get_connection()        : context manager (lease → auto-return)
+  - init_db()               : DDL — market_ticks hypertable + macro_regimes
+  - seed_mock_data()        : pandas GBM OHLCV + dummy regimes via COPY (bulk)
+  - LIVE_TICKERS            : yfinance symbol → internal ticker ID mapping
+  - fetch_live_market_data(): yfinance OHLCV → market_ticks (DELETE + COPY, retried)
+  - fetch_live_news()       : yfinance .news → headline strings per ticker (retried)
 
 Run standalone::
 
@@ -18,7 +22,8 @@ from __future__ import annotations
 import logging
 import os
 import threading
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, timedelta
@@ -28,6 +33,7 @@ import numpy as np
 import pandas as pd
 import psycopg
 import psycopg_pool
+import yfinance as yf
 from psycopg.rows import TupleRow
 
 logger = logging.getLogger(__name__)
@@ -278,6 +284,212 @@ def seed_mock_data(config: DatabaseConfig | None = None, n_days: int = 30) -> No
     except Exception as exc:
         logger.error("seed_mock_data_failed", extra={"error": str(exc)})
         raise
+
+
+# ── Live Data Domain Map ──────────────────────────────────────────────────────
+
+# Maps Aleph-One internal ticker IDs to Yahoo Finance symbols.
+# Internal IDs match market_ticks.ticker and engines.TICKERS exactly.
+LIVE_TICKERS: dict[str, str] = {
+    "AAPL":   "AAPL",
+    "MSFT":   "MSFT",
+    "TSLA":   "TSLA",
+    "005930": "005930.KS",   # 삼성전자 — KRX listed on Yahoo Finance
+    "000660": "000660.KS",   # SK하이닉스 — KRX listed on Yahoo Finance
+}
+
+# ── Retry Helper ──────────────────────────────────────────────────────────────
+
+
+def _retry[T](
+    fn: Callable[[], T],
+    max_attempts: int = 3,
+    base_delay: float = 2.0,
+    label: str = "",
+) -> T:
+    """Call *fn* up to *max_attempts* times with exponential back-off on failure.
+
+    Raises the last exception when all attempts are exhausted.
+    Uses blocking ``time.sleep`` — safe to call from a thread pool (asyncio.to_thread).
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_attempts):
+        try:
+            return fn()
+        except Exception as exc:
+            last_exc = exc
+            if attempt < max_attempts - 1:
+                delay = base_delay * (2.0 ** attempt)
+                logger.warning(
+                    "retry_backoff",
+                    extra={
+                        "label":   label,
+                        "attempt": attempt + 1,
+                        "delay_s": delay,
+                        "error":   str(exc),
+                    },
+                )
+                time.sleep(delay)
+    raise last_exc  # type: ignore[misc]  # exhausted — last_exc is always set
+
+
+# ── yfinance Helpers ──────────────────────────────────────────────────────────
+
+
+def _extract_news_title(item: dict[str, Any]) -> str:
+    """Extract headline string from a yfinance news item dict.
+
+    Handles both the flat format (yfinance < 0.2.50) and the nested
+    ``content`` dict format introduced in later releases.
+    """
+    title: str = str(item.get("title") or "")
+    if not title:
+        content = item.get("content")
+        if isinstance(content, dict):
+            title = str(content.get("title") or "")
+    return title.strip()
+
+
+def _fetch_ticker_ohlcv(internal_id: str, yf_symbol: str) -> list[tuple[Any, ...]]:
+    """Download the last 5 trading days of daily OHLCV from Yahoo Finance.
+
+    Returns a list of DB row tuples ready for COPY:
+        (timestamp_utc, internal_id, open, high, low, close, volume)
+    """
+    ticker_obj = yf.Ticker(yf_symbol)
+    hist: pd.DataFrame = ticker_obj.history(
+        period="5d",
+        interval="1d",
+        auto_adjust=True,
+        raise_errors=False,
+    )
+
+    if hist.empty:
+        logger.warning("yf_history_empty", extra={"ticker": internal_id, "symbol": yf_symbol})
+        return []
+
+    hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
+
+    rows: list[tuple[Any, ...]] = []
+    for idx, row in hist.iterrows():
+        ts = pd.Timestamp(idx)
+        ts_utc = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+        rows.append((
+            ts_utc.to_pydatetime(),
+            internal_id,
+            float(row["Open"]),
+            float(row["High"]),
+            float(row["Low"]),
+            float(row["Close"]),
+            int(row["Volume"]),
+        ))
+    return rows
+
+
+# ── Live Data Fetchers ────────────────────────────────────────────────────────
+
+
+def fetch_live_market_data(config: DatabaseConfig | None = None) -> int:
+    """Fetch latest OHLCV for all 5 tickers from Yahoo Finance and upsert into
+    market_ticks.
+
+    Pipeline:
+    1. Download last 5 trading days per ticker (retried up to 3× with 2s/4s back-off).
+    2. DELETE existing rows in that date window for the affected tickers.
+    3. Bulk-insert fresh rows via PostgreSQL COPY (maximum throughput).
+
+    Returns the total number of rows inserted.
+    """
+    logger.info("live_market_fetch_start", extra={"tickers": list(LIVE_TICKERS.keys())})
+
+    all_rows: list[tuple[Any, ...]] = []
+
+    for internal_id, yf_symbol in LIVE_TICKERS.items():
+        try:
+            rows = _retry(
+                lambda tid=internal_id, sym=yf_symbol: _fetch_ticker_ohlcv(tid, sym),  # type: ignore[misc]
+                max_attempts=3,
+                base_delay=2.0,
+                label=f"ohlcv:{internal_id}",
+            )
+            all_rows.extend(rows)
+            logger.debug("live_ohlcv_fetched", extra={"ticker": internal_id, "rows": len(rows)})
+        except Exception as exc:
+            logger.error(
+                "live_ohlcv_fetch_failed",
+                extra={"ticker": internal_id, "error": str(exc)},
+            )
+
+    if not all_rows:
+        logger.warning("live_market_fetch_no_data")
+        return 0
+
+    min_ts          = min(r[0] for r in all_rows)
+    tickers_fetched = list({str(r[1]) for r in all_rows})
+
+    try:
+        with get_connection(config) as conn:
+            conn.execute(
+                "DELETE FROM market_ticks WHERE ticker = ANY(%s) AND timestamp >= %s",
+                (tickers_fetched, min_ts),
+            )
+            with conn.cursor() as cur, cur.copy(
+                "COPY market_ticks "
+                "(timestamp, ticker, open_price, high_price, low_price, close_price, volume) "
+                "FROM STDIN"
+            ) as copy:
+                for r in all_rows:
+                    copy.write_row(r)
+            conn.commit()
+
+        logger.info("live_market_upsert_done", extra={"rows": len(all_rows)})
+        return len(all_rows)
+
+    except Exception as exc:
+        logger.error("live_market_upsert_failed", extra={"error": str(exc)})
+        raise
+
+
+def fetch_live_news() -> dict[str, list[str]]:
+    """Fetch latest news headlines from Yahoo Finance for each ticker.
+
+    Uses ``yf.Ticker.news`` (JSON feed, no API key required).
+    Each ticker is retried up to 3 times with 1-second base back-off.
+
+    Returns a dict mapping internal ticker IDs to lists of headline strings.
+    Output is immediately consumable by SentimentEngine (Simons regime-switch
+    keyword detection and Buffett margin-of-safety RSI paths).
+    """
+    logger.info("live_news_fetch_start")
+    news_map: dict[str, list[str]] = {}
+
+    for internal_id, yf_symbol in LIVE_TICKERS.items():
+        def _fetch_headlines(sym: str = yf_symbol) -> list[str]:
+            raw: list[dict[str, Any]] = yf.Ticker(sym).news or []
+            headlines = [_extract_news_title(item) for item in raw[:10]]
+            return [h for h in headlines if h]
+
+        try:
+            headlines = _retry(
+                _fetch_headlines,
+                max_attempts=3,
+                base_delay=1.0,
+                label=f"news:{internal_id}",
+            )
+            news_map[internal_id] = headlines
+            logger.debug(
+                "live_news_fetched",
+                extra={"ticker": internal_id, "count": len(headlines)},
+            )
+        except Exception as exc:
+            logger.warning(
+                "live_news_fetch_failed",
+                extra={"ticker": internal_id, "error": str(exc)},
+            )
+            news_map[internal_id] = []
+
+    logger.info("live_news_fetch_done", extra={"tickers": list(news_map.keys())})
+    return news_map
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
