@@ -205,6 +205,10 @@ export interface AlephRiskRow {
   rates:     WatchStatus
   sentiment: WatchStatus
   sig_score: StreamSignal
+  // Continuous numeric scores exposed by engines.py (optional — absent in legacy payloads)
+  quant_score?:     number   // 0–1  SMA momentum score
+  sentiment_score?: number   // −1–+1 weighted lexicon score
+  sig_confidence?:  number   // 0–1  PersonaAdapter composite confidence
 }
 
 export interface AlephStreamData {

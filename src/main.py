@@ -727,10 +727,23 @@ async def _run_agent_async(query: str, persona: PersonaProfile) -> dict[str, Any
         _AGENT_EXECUTOR.invoke,
         {"messages": [{"role": "user", "content": query}]},
     )
-    # LangChain 1.x returns {"messages": [...]}; last message is the AI response
+    # LangChain 1.x returns {"messages": [...]}; walk backwards to find the last
+    # AIMessage (not a ToolMessage which has tool_call_id and no synthesis content).
     messages: list[Any] = agent_result.get("messages", [])
-    last_msg = messages[-1] if messages else None
-    briefing: str = str(getattr(last_msg, "content", None) or "Analysis complete.")
+    logger.info(
+        "agent_pipeline_trace",
+        extra={
+            "message_count": len(messages),
+            "message_types":  [type(m).__name__ for m in messages],
+        },
+    )
+    briefing: str = "Analysis complete."
+    for msg in reversed(messages):
+        content      = getattr(msg, "content", None)
+        tool_call_id = getattr(msg, "tool_call_id", None)
+        if content and not tool_call_id:
+            briefing = str(content)
+            break
 
     # Rebuild risk_matrix from the live engine pipeline for this cycle
     rng = random.Random()

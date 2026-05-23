@@ -13,7 +13,12 @@ import { useEffect, useRef } from 'react'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { fetchJson } from '@/lib/api'
 
-const TICKERS   = ['AAPL', 'MSFT', 'GOOGL', 'TSLA', 'NVDA']
+// Tickers must match backend TICKERS constant in src/engines.py
+const TICKERS   = ['AAPL', 'MSFT', 'TSLA', '005930', '000660']
+const DISPLAY: Record<string, string> = {
+  '005930': '삼성전자',
+  '000660': 'SK하이닉스',
+}
 const CHART_W   = 140
 const CHART_H   = 32
 const SEED_PTS  = 60
@@ -129,8 +134,8 @@ export default function LiveChart({ className = '' }: { className?: string }) {
           return (
             <div key={ticker} className="flex items-center gap-2 py-1.5">
               {/* Ticker */}
-              <span className="w-11 text-[9px] font-bold text-[rgba(232,240,254,0.65)] shrink-0 tracking-widest">
-                {ticker}
+              <span className="w-14 text-[9px] font-bold text-[rgba(232,240,254,0.65)] shrink-0 tracking-widest truncate">
+                {DISPLAY[ticker] ?? ticker}
               </span>
 
               {/* Price */}

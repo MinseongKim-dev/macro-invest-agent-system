@@ -4,8 +4,8 @@ import * as THREE from 'three'
 import { useSignals } from '@/hooks/useAlephData'
 import type { SignalsLatestResponse } from '@/lib/types'
 
-// Portfolio nodes distributed on sphere via Fibonacci lattice
-const NODE_LABELS = ['AAPL', 'MSFT', 'GOOGL', 'TSLA', 'NVDA']
+// Tickers must match backend TICKERS constant in src/engines.py
+const NODE_LABELS = ['AAPL', 'MSFT', 'TSLA', '005930', '000660']
 
 function fibonacciSphere(n: number, r: number): THREE.Vector3[] {
   return Array.from({ length: n }, (_, i) => {

@@ -639,6 +639,21 @@ def build_intelligence_row(
     sent_watch   = sent_dict.get("sentiment_score", 0.0) < -0.1
     sent_status: MarketStatus = "WATCH" if (sent_watch or regime_switch) else "STABLE"
 
+    # Continuous numeric scores — exposed in public SSE payload for dynamic UI rendering.
+    # quant_score:     0–1  (SMA momentum score from QuantEngine)
+    # sentiment_score: −1–+1 (weighted lexicon score from SentimentEngine)
+    # sig_confidence:  0–1  (PersonaAdapterEngine composite confidence)
+    logger.debug(
+        "build_intelligence_row",
+        extra={
+            "ticker":         ticker,
+            "momentum":       momentum_status,
+            "sentiment_raw":  round(float(sent_dict.get("sentiment_score", 0.0)), 3),
+            "quant_raw":      round(float(quant_dict.get("momentum_score", 0.5)), 3),
+            "confidence":     round(float(result.get("confidence", 0.5)), 3),
+            "signal":         result["signal"],
+        },
+    )
     return {
         "ticker":      DISPLAY_NAMES.get(ticker, ticker),
         "momentum":    momentum_status,
@@ -646,6 +661,10 @@ def build_intelligence_row(
         "rates":       rate_status,
         "sentiment":   sent_status,
         "sig_score":   result["signal"],
+        # Numeric scores for dynamic frontend display (survive _build_payload cleaning)
+        "quant_score":     round(float(quant_dict.get("momentum_score", 0.5)), 3),
+        "sentiment_score": round(float(sent_dict.get("sentiment_score", 0.0)), 3),
+        "sig_confidence":  round(float(result.get("confidence", 0.5)), 3),
         # ── Internal fields (stripped from public payload in main.py) ─────────
         "_confidence":            result["confidence"],
         "_regime_switch":         regime_switch,
