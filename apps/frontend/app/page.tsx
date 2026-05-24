@@ -81,7 +81,7 @@ export default function Home() {
           </div>
 
           {/* Phase 2: Live price chart (SSE stream) */}
-          <LiveChart />
+          <LiveChart riskMatrix={streamData?.intelligence_synthesis.risk_matrix ?? null} />
 
         </main>
       </div>
