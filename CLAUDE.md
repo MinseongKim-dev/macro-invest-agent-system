@@ -373,3 +373,77 @@ The goal is not to sound smart.
 The goal is to produce correct, minimal, traceable, maintainable work.
 
 Small, explicit, verifiable progress is preferred over large speculative output.
+
+---
+
+## Release Milestones
+
+### v0.1.0-RELEASE (Stable) — 2026-05-24
+
+**Status: FROZEN ✓**  
+Git tag: `v0.1.0`  
+HEAD commit: `0762ff0`
+
+#### Completed Tasks
+
+**① 폴더 구조 개편 (Monorepo layout)**
+- [X] `apps/api/` — FastAPI 백엔드 격리
+- [X] `apps/frontend/` — Next.js 15 프론트엔드 격리
+- [X] `src/` — Tri-File Architecture 백엔드 코어 (`database.py`, `engines.py`, `main.py`)
+- [X] `docker-compose.yml` 멀티 서비스 구성 (`aleph-api`, `aleph-frontend`)
+- [X] `.dockerignore` 최적화 (빌드 컨텍스트 최소화, `uv.lock` 보호)
+- [X] `apps/api/Dockerfile` 레이어 분리 캐싱 (`uv sync --frozen`)
+- [X] `apps/frontend/Dockerfile` `--legacy-peer-deps` 호환성 처리
+
+**② 무과금 오픈소스 AI 전환**
+- [X] LangChain `create_react_agent` 기반 RAG 에이전트 파이프라인 구성
+- [X] `_run_agent_async` 메시지 역순 탐색 — 최종 AIMessage 정확 추출
+- [X] ESLint `^9.27.0` 다운그레이드 (`eslint-config-next` 호환)
+- [X] `uv.lock` 커밋 추가 (`.gitignore` 제외 해제)
+
+**③ Milvus RAG 연동**
+- [X] `search_news_database` LangChain 툴 — Milvus 뉴스 임베딩 시맨틱 검색
+- [X] Milvus 불가 시 in-memory 폴백 자동 전환
+- [X] RAG 결과 → `AlephStreamData.briefing` 필드로 SSE 방출
+
+**④ 프론트엔드 UI/UX 싱크 및 레이아웃 버그 픽스**
+- [X] 자산 리스트 통일 — `GOOGL`/`NVDA` → `005930`(삼성전자) / `000660`(SK하이닉스)
+- [X] `NetworkCanvas.tsx` 노드 레이블 한국 종목으로 교체
+- [X] `RiskMatrix.tsx` 연속 스코어 적용 (`quant_score`, `sentiment_score`, `sig_confidence`)
+- [X] SIG SCORE 셀 레이아웃 수정 — 텍스트 + 스파크라인 분리 (`CH=52`)
+- [X] `AlephRiskRow` 타입에 선택적 수치 필드 추가 (`lib/types.ts`)
+- [X] `LiveChart.tsx` JARVIS 호버 인터랙션 — 네온 글로우 + 슬라이드 패널
+- [X] Framer Motion `AnimatePresence` / `motion.div` 패널 애니메이션 적용
+- [X] `page.tsx` → `<LiveChart riskMatrix={...} />` SSE 스트림 연결
+- [X] `formatPrice()` 한국 주식 ₩ 통화 포맷
+- [X] `volScore()` 롤링 표준편차 기반 단기 변동성 지수
+
+#### Core Files Locked at v0.1.0
+
+| 레이어 | 파일 | 역할 |
+|--------|------|------|
+| Backend core | `src/database.py` | SQLite 스냅샷 스토어 |
+| Backend core | `src/engines.py` | Quant / Sentiment / PersonaAdapter 엔진 |
+| Backend core | `src/main.py` | FastAPI SSE + LangChain RAG 오케스트레이션 |
+| Frontend | `apps/frontend/app/page.tsx` | 루트 레이아웃 + SSE 훅 연결 |
+| Frontend | `apps/frontend/components/panels/LiveChart.tsx` | 실시간 포트폴리오 차트 + JARVIS 패널 |
+| Frontend | `apps/frontend/components/panels/RiskMatrix.tsx` | 리스크/기회 매트릭스 SVG |
+| Frontend | `apps/frontend/components/panels/NetworkCanvas.tsx` | Three.js 3D 네트워크 구체 |
+| Frontend | `apps/frontend/lib/types.ts` | 백엔드 DTO 타입 계약 |
+| Infra | `docker-compose.yml` | 멀티 서비스 오케스트레이션 |
+| Infra | `apps/api/Dockerfile` | API 빌드 (uv 레이어 캐싱) |
+| Infra | `apps/frontend/Dockerfile` | Next.js 빌드 |
+| Infra | `.dockerignore` | 빌드 컨텍스트 최적화 |
+| Deps | `uv.lock` | Python 의존성 잠금 파일 |
+| Deps | `apps/frontend/package.json` | Node 의존성 (framer-motion 포함) |
+
+---
+
+### Next Milestone: v0.1.1 — 자산군 확장 및 장문 처리 정밀화
+
+**Status: PENDING**
+
+#### Queued Tasks
+
+- [ ] **장문 AI 레포트 수신 통신 버퍼 확장** — SSE 응답 스트림에서 LangChain RAG가 반환하는 장문 분석 텍스트가 잘리는 현상 방지. `uvicorn` 응답 버퍼 및 `EventSourceResponse` 청크 크기 상한을 조정하고, 프론트엔드 `CommandTerminal` 수신 버퍼 처리 로직을 개선.
+
