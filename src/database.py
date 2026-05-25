@@ -29,21 +29,20 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
-
-import pytz
-
-_KST = pytz.timezone("Asia/Seoul")
 
 import numpy as np
 import pandas as pd
 import psycopg
 import psycopg_pool
+import pytz
 import yfinance as yf
 from psycopg.rows import TupleRow
 
 logger = logging.getLogger(__name__)
+
+_KST = pytz.timezone("Asia/Seoul")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -309,20 +308,20 @@ LIVE_TICKERS: dict[str, str] = {
 }
 
 
-def _to_kst(ts: Any) -> datetime:
+def _to_kst(ts: int | float | pd.Timestamp | datetime | str) -> datetime:
     """Convert any timestamp to KST (Asia/Seoul) aware datetime."""
     if isinstance(ts, (int, float)):
-        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+        dt = datetime.fromtimestamp(ts, tz=UTC)
     elif isinstance(ts, pd.Timestamp):
         dt = ts.to_pydatetime()
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
     elif isinstance(ts, datetime):
-        dt = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+        dt = ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
     else:
         dt = datetime.fromisoformat(str(ts))
         if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=timezone.utc)
+            dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(_KST)
 
 # ── Milvus Vector Store ───────────────────────────────────────────────────────

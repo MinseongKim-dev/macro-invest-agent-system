@@ -21,15 +21,12 @@ import random
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
-
-import pytz
-
-_KST = pytz.timezone("Asia/Seoul")
 
 import numpy as np
 import pandas as pd
+import pytz
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -59,6 +56,8 @@ from src.engines import (
 )
 
 logger = logging.getLogger(__name__)
+
+_KST = pytz.timezone("Asia/Seoul")
 
 # ── In-memory live state ──────────────────────────────────────────────────────
 
