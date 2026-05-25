@@ -24,6 +24,10 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from typing import Any
 
+import pytz
+
+_KST = pytz.timezone("Asia/Seoul")
+
 import numpy as np
 import pandas as pd
 import uvicorn
@@ -59,11 +63,14 @@ logger = logging.getLogger(__name__)
 # ── In-memory live state ──────────────────────────────────────────────────────
 
 _BASELINE_PRICES: dict[str, float] = {
-    "AAPL":  195.0,
-    "MSFT":  415.0,
-    "TSLA":  245.0,
+    "AAPL":   195.0,
+    "MSFT":   415.0,
+    "TSLA":   245.0,
     "005930": 72_000.0,
     "000660": 195_000.0,
+    "QQQ":    490.0,
+    "BND":     73.0,
+    "GLD":    240.0,
 }
 
 # Rolling price history buffer — populated on startup, updated each tick
@@ -100,6 +107,18 @@ _TICKER_NEWS: dict[str, list[str]] = {
     "000660": [
         "SK Hynix DRAM bullish surge; HBM3E outperforms expectations, profit growth",
         "Memory chip recovery expansion strong; AI-driven demand exceeds bearish forecasts",
+    ],
+    "QQQ": [
+        "Nasdaq 100 ETF bullish momentum; mega-cap tech earnings beat expectations broadly",
+        "QQQ inflows surge as institutional investors rotate into growth technology assets",
+    ],
+    "BND": [
+        "Bond market stabilizes; Fed signals rate pause supporting fixed-income recovery",
+        "BND yield curve normalization; defensive allocation demand grows amid uncertainty",
+    ],
+    "GLD": [
+        "Gold ETF surges on dollar weakness; safe-haven demand bullish amid macro uncertainty",
+        "GLD holdings expand as central banks increase reserve gold allocation globally",
     ],
 }
 
@@ -364,7 +383,7 @@ def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -
     ]
 
     return {
-        "timestamp": datetime.now(tz=UTC).isoformat(),
+        "timestamp": datetime.now(tz=_KST).isoformat(),
         "status":    "LIVE",
         "portfolio_health": {
             "score":  health_score,
@@ -794,7 +813,7 @@ async def _run_agent_async(query: str, persona: PersonaProfile) -> dict[str, Any
 
     logger.info("agent_response_assembled", extra={"health": health_score})
     return {
-        "timestamp": datetime.now(tz=UTC).isoformat(),
+        "timestamp": datetime.now(tz=_KST).isoformat(),
         "status":    "ANALYZED",
         "portfolio_health": {
             "score":  health_score,
@@ -960,7 +979,7 @@ async def intelligence_command(body: CommandRequest) -> dict[str, Any]:
     scenario, twisted_nodes = _match_scenario(body.query)
     matched = twisted_nodes is not None
     fallback: dict[str, Any] = {
-        "timestamp": datetime.now(tz=UTC).isoformat(),
+        "timestamp": datetime.now(tz=_KST).isoformat(),
         "status":    "ANALYZED" if matched else "SYNCING",
         "portfolio_health": {
             "score":  75.0,

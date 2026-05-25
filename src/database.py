@@ -29,8 +29,12 @@ import time
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
+
+import pytz
+
+_KST = pytz.timezone("Asia/Seoul")
 
 import numpy as np
 import pandas as pd
@@ -299,7 +303,27 @@ LIVE_TICKERS: dict[str, str] = {
     "TSLA":   "TSLA",
     "005930": "005930.KS",   # 삼성전자 — KRX listed on Yahoo Finance
     "000660": "000660.KS",   # SK하이닉스 — KRX listed on Yahoo Finance
+    "QQQ":    "QQQ",         # Invesco QQQ Trust (Nasdaq 100 ETF)
+    "BND":    "BND",         # Vanguard Total Bond Market ETF
+    "GLD":    "GLD",         # SPDR Gold Shares ETF
 }
+
+
+def _to_kst(ts: Any) -> datetime:
+    """Convert any timestamp to KST (Asia/Seoul) aware datetime."""
+    if isinstance(ts, (int, float)):
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+    elif isinstance(ts, pd.Timestamp):
+        dt = ts.to_pydatetime()
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    elif isinstance(ts, datetime):
+        dt = ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+    else:
+        dt = datetime.fromisoformat(str(ts))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(_KST)
 
 # ── Milvus Vector Store ───────────────────────────────────────────────────────
 
@@ -590,9 +614,9 @@ def _fetch_ticker_ohlcv(internal_id: str, yf_symbol: str) -> list[tuple[Any, ...
     rows: list[tuple[Any, ...]] = []
     for idx, row in hist.iterrows():
         ts = pd.Timestamp(idx)
-        ts_utc = ts.tz_localize("UTC") if ts.tzinfo is None else ts.tz_convert("UTC")
+        ts_kst = _to_kst(ts)   # normalise to KST before DB insert
         rows.append((
-            ts_utc.to_pydatetime(),
+            ts_kst,
             internal_id,
             float(row["Open"]),
             float(row["High"]),

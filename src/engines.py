@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 # ── Domain constants ──────────────────────────────────────────────────────────
 
-TICKERS: list[str] = ["AAPL", "MSFT", "TSLA", "005930", "000660"]
+TICKERS: list[str] = ["AAPL", "MSFT", "TSLA", "005930", "000660", "QQQ", "BND", "GLD"]
 
 DISPLAY_NAMES: dict[str, str] = {
     "AAPL":   "AAPL",
@@ -38,6 +38,9 @@ DISPLAY_NAMES: dict[str, str] = {
     "TSLA":   "TSLA",
     "005930": "삼성전자",
     "000660": "SK하이닉스",
+    "QQQ":    "QQQ ETF",
+    "BND":    "BND ETF",
+    "GLD":    "GLD ETF",
 }
 
 TICKER_GROUPS: dict[str, str] = {
@@ -46,6 +49,9 @@ TICKER_GROUPS: dict[str, str] = {
     "TSLA":   "TECH",
     "005930": "KR_TECH",
     "000660": "KR_TECH",
+    "QQQ":    "ETF_TECH",
+    "BND":    "ETF_BOND",
+    "GLD":    "ETF_COMMODITY",
 }
 
 # ── Domain types ──────────────────────────────────────────────────────────────

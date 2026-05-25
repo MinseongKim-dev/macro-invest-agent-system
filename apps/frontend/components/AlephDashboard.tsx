@@ -5,9 +5,10 @@ import {
 } from 'recharts'
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
+import { useNewsStream } from '@/hooks/useNewsStream'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.1.1-alpha'
+export const APP_VERSION = 'v0.1.2'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -69,28 +70,25 @@ interface RespState {
   widgets:    Widget[]
 }
 
-interface NewsItem { s: 'POS' | 'NEG' | 'NEU'; txt: string; age: string }
 interface Sector   { n: string; c: number }
 interface Particle { l: number; d: number; dur: number; s: number }
 
 // ─── Static config ────────────────────────────────────────────────────────────
 
 // Metadata stays static; prices come from the market stream
-const TICKER_META: Record<string, { n: string; t: string; col: string }> = {
-  'AAPL':   { n: 'AAPL',      t: 'AAPL US',   col: '#ff9800' },
-  'MSFT':   { n: 'MSFT',      t: 'MSFT US',   col: '#00ff88' },
-  'TSLA':   { n: 'TESLA',     t: 'TSLA US',   col: '#ffaa00' },
-  '005930': { n: '삼성전자',   t: '005930 KS', col: '#00e5ff' },
-  '000660': { n: 'SK하이닉스', t: '000660 KS', col: '#a855f7' },
+const TICKER_META: Record<string, { n: string; t: string; col: string; group: 'STOCK' | 'ETF' }> = {
+  'AAPL':   { n: 'AAPL',      t: 'AAPL US',   col: '#ff9800', group: 'STOCK' },
+  'MSFT':   { n: 'MSFT',      t: 'MSFT US',   col: '#00ff88', group: 'STOCK' },
+  'TSLA':   { n: 'TESLA',     t: 'TSLA US',   col: '#ffaa00', group: 'STOCK' },
+  '005930': { n: '삼성전자',   t: '005930 KS', col: '#00e5ff', group: 'STOCK' },
+  '000660': { n: 'SK하이닉스', t: '000660 KS', col: '#a855f7', group: 'STOCK' },
+  'QQQ':    { n: 'QQQ ETF',   t: 'QQQ US',    col: '#22d3ee', group: 'ETF'   },
+  'BND':    { n: 'BND ETF',   t: 'BND US',    col: '#86efac', group: 'ETF'   },
+  'GLD':    { n: 'GLD ETF',   t: 'GLD US',    col: '#fcd34d', group: 'ETF'   },
 }
-const TICKER_ORDER = ['AAPL', 'MSFT', 'TSLA', '005930', '000660']
+const TICKER_ORDER = ['AAPL', 'MSFT', 'TSLA', '005930', '000660', 'QQQ', 'BND', 'GLD']
+const ETF_TICKERS  = ['QQQ', 'BND', 'GLD']
 
-const NEWS: NewsItem[] = [
-  { s: 'POS', txt: 'Samsung Electronics dramatically boosts semiconductor forecasts; analysts revise targets upward.', age: '2m' },
-  { s: 'NEG', txt: 'Dividends are fading and pending regulatory changes threaten company margins across Seoul bourse.', age: '7m' },
-  { s: 'NEU', txt: 'KRX announces enhanced circuit-breaker thresholds; market structure reform expected Q2.', age: '14m' },
-  { s: 'POS', txt: 'NVDA data-center revenue surges 182% YoY; AI chip demand continues to outpace fab supply.', age: '21m' },
-]
 
 const SECTORS: Sector[] = [
   { n: 'SEMI', c: +4.5 }, { n: 'ENERGY', c: -3.9 }, { n: 'TELECOM', c: +2.1 },
@@ -282,10 +280,11 @@ const AIWidget = ({ w, idx }: { w: Widget; idx: number }) => (
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function AlephDashboard() {
-  const [now,    setNow]    = useState(new Date())
-  const [query,  setQuery]  = useState('')
-  const [busy,   setBusy]   = useState(false)
-  const [resp,   setResp]   = useState<RespState | null>(null)
+  const [now,      setNow]      = useState(new Date())
+  const [query,    setQuery]    = useState('')
+  const [busy,     setBusy]     = useState(false)
+  const [resp,     setResp]     = useState<RespState | null>(null)
+  const [assetTab, setAssetTab] = useState<'ALL' | 'STOCKS' | 'ETFS'>('ALL')
 
   // Index display — GBM simulation (KOSPI/S&P500/USD-KRW not in backend feed)
   const [kospi,  setKospi]  = useState(2540.23)
@@ -295,6 +294,7 @@ export default function AlephDashboard() {
   // ── Real backend data ──────────────────────────────────────────────────────
   const { data: streamData }                          = useAlephStream()
   const { data: marketTick, connected, priceHistory } = useMarketStream()
+  const liveNews                                      = useNewsStream(15)
 
   // Portfolio value rolling history → drives the KRX chart
   const [chartData, setChartData] = useState<Array<{ t: number; v: number }>>([])
@@ -309,8 +309,15 @@ export default function AlephDashboard() {
     console.debug('[AlephDashboard] portfolio_value tick', marketTick.portfolio_value.toFixed(2))
   }, [marketTick?.portfolio_value])
 
-  // Live holdings derived from market stream
-  const holdings = useMemo(() => TICKER_ORDER.map(ticker => {
+  // Asset-tab filtered ticker list
+  const filteredOrder = useMemo(() => {
+    if (assetTab === 'STOCKS') return TICKER_ORDER.filter(t => !ETF_TICKERS.includes(t))
+    if (assetTab === 'ETFS')   return ETF_TICKERS
+    return TICKER_ORDER
+  }, [assetTab])
+
+  // Live holdings derived from market stream — filtered by active tab
+  const holdings = useMemo(() => filteredOrder.map(ticker => {
     const meta    = TICKER_META[ticker]
     const prices  = priceHistory[ticker] ?? []
     const current = marketTick?.prices[ticker] ?? prices[prices.length - 1] ?? null
@@ -324,7 +331,7 @@ export default function AlephDashboard() {
       prices,
       current,
     }
-  }), [marketTick, priceHistory])
+  }), [filteredOrder, marketTick, priceHistory])
 
   // Live algorithmic signals from SSE stream
   const liveSignals = useMemo(() => {
@@ -496,15 +503,35 @@ export default function AlephDashboard() {
               <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.22)', marginLeft: 'auto', letterSpacing: '1px' }}>HEADLINES | SENTIMENT</span>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 220, overflowY: 'auto' }}>
-              {NEWS.map((item, i) => (
-                <div key={i} className="news-hover" style={{ display: 'flex', gap: 7, padding: '5px 4px' }}>
-                  <SBadge type={item.s} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.72)', lineHeight: 1.45, fontFamily: "'Rajdhani',sans-serif", overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.txt}</div>
-                  </div>
-                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.2)', flexShrink: 0 }}>{item.age}</div>
-                </div>
-              ))}
+              {liveNews.length > 0
+                ? liveNews.map((item, i) => {
+                    const s: 'POS' | 'NEG' | 'NEU' = item.metadata?.sentiment === 'positive' ? 'POS'
+                      : item.metadata?.sentiment === 'negative' ? 'NEG' : 'NEU'
+                    const age = item.published_at
+                      ? new Date(item.published_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
+                      : '—'
+                    return (
+                      <div key={item.event_id ?? i} className="news-hover" style={{ display: 'flex', gap: 7, padding: '5px 4px' }}>
+                        <SBadge type={s} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.72)', lineHeight: 1.45, fontFamily: "'Rajdhani',sans-serif", overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.title}</div>
+                        </div>
+                        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.2)', flexShrink: 0 }}>{age}</div>
+                      </div>
+                    )
+                  })
+                : /* 백엔드 이벤트 없을 때 placeholder */
+                  [
+                    { s: 'NEU' as const, txt: 'Connecting to live event stream…', age: '' },
+                  ].map((item, i) => (
+                    <div key={i} className="news-hover" style={{ display: 'flex', gap: 7, padding: '5px 4px' }}>
+                      <SBadge type={item.s} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.35)', lineHeight: 1.45, fontFamily: "'Rajdhani',sans-serif" }}>{item.txt}</div>
+                      </div>
+                    </div>
+                  ))
+              }
             </div>
           </div>
 
@@ -655,9 +682,30 @@ export default function AlephDashboard() {
               )}
               <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)' }}>USER: KIM MIN-HO</span>
             </div>
+            {/* Asset class tab filter */}
+            <div style={{ display: 'flex', gap: 5, marginBottom: 9 }}>
+              {(['ALL', 'STOCKS', 'ETFS'] as const).map(tab => (
+                <button
+                  key={tab}
+                  onClick={() => setAssetTab(tab)}
+                  style={{
+                    fontFamily: "'JetBrains Mono',monospace",
+                    fontSize: 7.5,
+                    letterSpacing: '1.5px',
+                    padding: '3px 8px',
+                    borderRadius: 4,
+                    border: assetTab === tab ? '1px solid rgba(0,229,255,.7)' : '1px solid rgba(255,255,255,.12)',
+                    background: assetTab === tab ? 'rgba(0,229,255,.1)' : 'transparent',
+                    color: assetTab === tab ? '#00e5ff' : 'rgba(255,255,255,.35)',
+                    cursor: 'pointer',
+                    transition: 'all .15s',
+                  }}
+                >{tab}</button>
+              ))}
+            </div>
             <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '2px', color: 'rgba(255,255,255,.28)', marginBottom: 7, textTransform: 'uppercase' }}>Holdings · Live</div>
             {/* Scrollable holdings — live prices from useMarketStream */}
-            <div style={{ maxHeight: 220, overflowY: 'auto', paddingRight: 2 }}>
+            <div style={{ maxHeight: 'calc(100vh - 420px)', overflowY: 'auto', paddingRight: 2 }}>
               {holdings.map((h, i) => (
                 <div key={h.ticker} className="row-hover" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 5px', borderBottom: i < holdings.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
                   <div style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, background: `${h.col}18`, border: `1px solid ${h.col}38`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Orbitron',sans-serif", fontSize: 6.5, color: h.col }}>
