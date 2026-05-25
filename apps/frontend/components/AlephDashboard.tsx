@@ -284,7 +284,7 @@ export default function AlephDashboard() {
   const [query,    setQuery]    = useState('')
   const [busy,     setBusy]     = useState(false)
   const [resp,     setResp]     = useState<RespState | null>(null)
-  const [assetTab, setAssetTab] = useState<'ALL' | 'STOCKS' | 'ETFS'>('ALL')
+  const [assetTab, setAssetTab] = useState<'ALL' | 'STOCKS' | 'ETFS' | 'FUNDS'>('ALL')
 
   // Index display — GBM simulation (KOSPI/S&P500/USD-KRW not in backend feed)
   const [kospi,  setKospi]  = useState(2540.23)
@@ -309,10 +309,11 @@ export default function AlephDashboard() {
     console.debug('[AlephDashboard] portfolio_value tick', marketTick.portfolio_value.toFixed(2))
   }, [marketTick?.portfolio_value])
 
-  // Asset-tab filtered ticker list
+  // Asset-tab filtered ticker list (FUNDS tab deferred — no feed yet)
   const filteredOrder = useMemo(() => {
     if (assetTab === 'STOCKS') return TICKER_ORDER.filter(t => !ETF_TICKERS.includes(t))
     if (assetTab === 'ETFS')   return ETF_TICKERS
+    if (assetTab === 'FUNDS')  return []   // pipeline not yet open
     return TICKER_ORDER
   }, [assetTab])
 
@@ -684,44 +685,66 @@ export default function AlephDashboard() {
             </div>
             {/* Asset class tab filter */}
             <div style={{ display: 'flex', gap: 5, marginBottom: 9 }}>
-              {(['ALL', 'STOCKS', 'ETFS'] as const).map(tab => (
-                <button
-                  key={tab}
-                  onClick={() => setAssetTab(tab)}
-                  style={{
-                    fontFamily: "'JetBrains Mono',monospace",
-                    fontSize: 7.5,
-                    letterSpacing: '1.5px',
-                    padding: '3px 8px',
-                    borderRadius: 4,
-                    border: assetTab === tab ? '1px solid rgba(0,229,255,.7)' : '1px solid rgba(255,255,255,.12)',
-                    background: assetTab === tab ? 'rgba(0,229,255,.1)' : 'transparent',
-                    color: assetTab === tab ? '#00e5ff' : 'rgba(255,255,255,.35)',
-                    cursor: 'pointer',
-                    transition: 'all .15s',
-                  }}
-                >{tab}</button>
-              ))}
+              {(['ALL', 'STOCKS', 'ETFS', 'FUNDS'] as const).map(tab => {
+                const isFunds = tab === 'FUNDS'
+                return (
+                  <button
+                    key={tab}
+                    onClick={() => setAssetTab(tab)}
+                    title={isFunds ? 'Fund NAV pipeline — v0.3.0' : undefined}
+                    style={{
+                      fontFamily: "'JetBrains Mono',monospace",
+                      fontSize: 7.5,
+                      letterSpacing: '1.5px',
+                      padding: '3px 8px',
+                      borderRadius: 4,
+                      border: assetTab === tab
+                        ? isFunds ? '1px solid rgba(191,0,255,.5)' : '1px solid rgba(0,229,255,.7)'
+                        : '1px solid rgba(255,255,255,.12)',
+                      background: assetTab === tab
+                        ? isFunds ? 'rgba(191,0,255,.08)' : 'rgba(0,229,255,.1)'
+                        : 'transparent',
+                      color: assetTab === tab
+                        ? isFunds ? '#bf00ff' : '#00e5ff'
+                        : isFunds ? 'rgba(191,0,255,.4)' : 'rgba(255,255,255,.35)',
+                      cursor: 'pointer',
+                      transition: 'all .15s',
+                      opacity: isFunds ? 0.75 : 1,
+                    }}
+                  >{tab}{isFunds ? ' ·' : ''}</button>
+                )
+              })}
             </div>
             <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '2px', color: 'rgba(255,255,255,.28)', marginBottom: 7, textTransform: 'uppercase' }}>Holdings · Live</div>
-            {/* Scrollable holdings — live prices from useMarketStream */}
-            <div style={{ maxHeight: 'calc(100vh - 420px)', overflowY: 'auto', paddingRight: 2 }}>
-              {holdings.map((h, i) => (
-                <div key={h.ticker} className="row-hover" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 5px', borderBottom: i < holdings.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
-                  <div style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, background: `${h.col}18`, border: `1px solid ${h.col}38`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Orbitron',sans-serif", fontSize: 6.5, color: h.col }}>
-                    {h.n.slice(0, 2)}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.88)', letterSpacing: '1px' }}>{h.n}</div>
-                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.28)' }}>
-                      {h.current != null ? (h.ticker.startsWith('0') ? `₩${Math.round(h.current).toLocaleString('ko-KR')}` : `$${h.current.toFixed(2)}`) : h.t}
-                    </div>
-                  </div>
-                  <MiniSpark up={h.dir > 0} prices={h.prices} />
-                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, flexShrink: 0, color: h.dir > 0 ? '#00ff88' : '#ff4d6d', textShadow: h.dir > 0 ? '0 0 6px rgba(0,255,136,.4)' : '0 0 6px rgba(255,77,109,.4)' }}>{h.chg}</div>
+            {/* FUNDS tab: pipeline not yet open */}
+            {assetTab === 'FUNDS' && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 12px', gap: 8 }}>
+                <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, color: 'rgba(191,0,255,.6)', letterSpacing: '2px' }}>AWAITING FEEDS</div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.2)', textAlign: 'center', lineHeight: 1.6 }}>
+                  Fund NAV pipeline<br />scheduled for v0.3.0<br />(KOFIA OpenAPI)
                 </div>
-              ))}
-            </div>
+              </div>
+            )}
+            {/* Scrollable holdings — live prices from useMarketStream */}
+            {assetTab !== 'FUNDS' && (
+              <div style={{ maxHeight: 'calc(100vh - 420px)', overflowY: 'auto', paddingRight: 2 }}>
+                {holdings.map((h, i) => (
+                  <div key={h.ticker} className="row-hover" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 5px', borderBottom: i < holdings.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
+                    <div style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, background: `${h.col}18`, border: `1px solid ${h.col}38`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Orbitron',sans-serif", fontSize: 6.5, color: h.col }}>
+                      {h.n.slice(0, 2)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.88)', letterSpacing: '1px' }}>{h.n}</div>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.28)' }}>
+                        {h.current != null ? (h.ticker.startsWith('0') ? `₩${Math.round(h.current).toLocaleString('ko-KR')}` : `$${h.current.toFixed(2)}`) : h.t}
+                      </div>
+                    </div>
+                    <MiniSpark up={h.dir > 0} prices={h.prices} />
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, flexShrink: 0, color: h.dir > 0 ? '#00ff88' : '#ff4d6d', textShadow: h.dir > 0 ? '0 0 6px rgba(0,255,136,.4)' : '0 0 6px rgba(255,77,109,.4)' }}>{h.chg}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Performance */}

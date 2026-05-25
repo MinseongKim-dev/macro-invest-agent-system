@@ -139,6 +139,14 @@ _RECENT_VOL_WINDOW: int   = 5   # short window for spike detection
 
 _NORM_FACTOR:   float = 5.0    # SMA spread-ratio → score: ±20 % spread saturates [0, 1]
 
+# ETF-specific parameters — lower thresholds because diversified baskets are inherently
+# less volatile than single stocks; ATR(14) used instead of raw std-dev for smoother signal.
+_ETF_TICKERS:         frozenset[str] = frozenset({"QQQ", "BND", "GLD"})
+_ETF_VOL_THRESHOLD:   float = 0.025  # 2.5 % (tighter — ETFs smooth idiosyncratic risk)
+_ETF_VOL_SPIKE_RATIO: float = 1.3    # 1.3× ATR spike triggers WATCH (vs 1.5× for stocks)
+_ETF_SPIKE_PENALTY:   float = 0.10   # softer penalty (diversification cushions spike impact)
+_ATR_WINDOW:          int   = 14     # Average True Range window
+
 
 class QuantEngine(BaseEngine):
     """5/20 SMA golden-cross + 20-day std-dev volatility → momentum_score.
@@ -233,20 +241,30 @@ class QuantEngine(BaseEngine):
         mean_price   = float(tail_20.mean())
         vol_ratio    = volatility / max(mean_price, 1e-8)
 
-        # ── Ray Dalio — Volatility Targeting ─────────────────────────────────
-        # recent_vol: 5-day std; baseline_vol: full 20-day std
-        # Spike detected when recent activity is 1.5× more turbulent than baseline.
-        baseline_vol  = volatility  # 20-day σ (already computed)
-        recent_tail   = close.tail(_RECENT_VOL_WINDOW)
-        recent_vol    = float(recent_tail.std()) if len(recent_tail) >= 2 else baseline_vol
-        vol_spike     = recent_vol > _VOL_SPIKE_RATIO * max(baseline_vol, 1e-10)
+        # ── Volatility Targeting — stock vs ETF branch ───────────────────────
+        if ticker in _ETF_TICKERS:
+            # ETF path: ATR(14)-based spike detection (smoother than raw std-dev)
+            # ATR proxy via close-to-close returns when high/low not available
+            returns          = close.pct_change().dropna()
+            atr_series       = returns.abs().rolling(window=_ATR_WINDOW, min_periods=2).mean()
+            baseline_atr     = float(atr_series.iloc[-_ATR_WINDOW:].mean()) if len(atr_series) >= _ATR_WINDOW else float(atr_series.mean())
+            recent_atr       = float(atr_series.tail(_RECENT_VOL_WINDOW).mean()) if len(atr_series) >= _RECENT_VOL_WINDOW else baseline_atr
+            vol_spike        = recent_atr > _ETF_VOL_SPIKE_RATIO * max(baseline_atr, 1e-10)
+            vol_spike_penalty = _ETF_SPIKE_PENALTY if vol_spike else 0.0
+            effective_threshold = _ETF_VOL_THRESHOLD
+        else:
+            # Stock path: Ray Dalio std-dev spike (original logic)
+            baseline_vol     = volatility
+            recent_tail      = close.tail(_RECENT_VOL_WINDOW)
+            recent_vol       = float(recent_tail.std()) if len(recent_tail) >= 2 else baseline_vol
+            vol_spike        = recent_vol > _VOL_SPIKE_RATIO * max(baseline_vol, 1e-10)
+            vol_spike_penalty = _VOL_SPIKE_PENALTY if vol_spike else 0.0
+            effective_threshold = _VOL_THRESHOLD
 
-        # Apply penalty: momentum_score discounted even on bullish bar
-        vol_spike_penalty = _VOL_SPIKE_PENALTY if vol_spike else 0.0
-        momentum_score    = float(np.clip(raw_momentum - vol_spike_penalty, 0.0, 1.0))
+        momentum_score = float(np.clip(raw_momentum - vol_spike_penalty, 0.0, 1.0))
 
         # ── Status ───────────────────────────────────────────────────────────
-        status: MarketStatus = "WATCH" if (vol_ratio > _VOL_THRESHOLD or vol_spike) else "STABLE"
+        status: MarketStatus = "WATCH" if (vol_ratio > effective_threshold or vol_spike) else "STABLE"
 
         return QuantResult(
             ticker=ticker,

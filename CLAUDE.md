@@ -439,11 +439,30 @@ HEAD commit: `0762ff0`
 
 ---
 
-### Next Milestone: v0.1.1 — 자산군 확장 및 장문 처리 정밀화
+### v0.1.1 + v0.1.2 — ETF 공급망 + KST 시간축 + 탭 UI
+
+**Status: RELEASED ✓**
+Git tag: `v0.1.2` (HEAD)
+
+#### Completed Tasks
+
+- [X] **ETF 3종 수집 타깃 추가** — `src/engines.py` TICKERS + `src/database.py` LIVE_TICKERS에 QQQ/BND/GLD 추가. SSE `risk_matrix` 8행으로 확장.
+- [X] **ETF 전용 변동성 알고리즘 분기** — `src/engines.py` QuantEngine에 `if ticker in _ETF_TICKERS:` 분기 신설. ATR(14) 기반 spike detection (threshold 2.5%, spike_ratio 1.3×, penalty 0.10) 적용.
+- [X] **KST 시간축 표준화** — `src/database.py` `_to_kst()` 헬퍼 + `_fetch_ticker_ohlcv()`에서 UTC→KST 변환 후 DB 적재. SSE `timestamp` 필드 KST(`+09:00`) ISO-8601 방출.
+- [X] **뉴스 피드 실시간 교체** — `hooks/useNewsStream.ts` SWR 30초 폴링 (`/api/events/recent`). `AlephDashboard.tsx` 정적 `NEWS` 배열 완전 제거.
+- [X] **[ALL][STOCKS][ETFS][FUNDS] 네온 탭 UI** — `AlephDashboard.tsx` `assetTab` 상태 + `filteredOrder` useMemo. FUNDS 탭은 "AWAITING FEEDS" 마스킹 (v0.3.0 예정).
+- [X] **Holdings 스크롤 프레임 락** — `maxHeight: calc(100vh-420px)` 대형 자산 대응.
+
+---
+
+### Next Milestone: v0.2.0 — 국내 시장 정밀 타격 + 글로벌 지수 차트
 
 **Status: PENDING**
 
 #### Queued Tasks
 
-- [ ] **장문 AI 레포트 수신 통신 버퍼 확장** — SSE 응답 스트림에서 LangChain RAG가 반환하는 장문 분석 텍스트가 잘리는 현상 방지. `uvicorn` 응답 버퍼 및 `EventSourceResponse` 청크 크기 상한을 조정하고, 프론트엔드 `CommandTerminal` 수신 버퍼 처리 로직을 개선.
+- [ ] **국장 대형주 라인업 확장** — NAVER(035420), LG화학(051910), 삼성SDI(006400), KODEX 레버리지(122630) 수집 타깃 추가.
+- [ ] **글로벌 지수 `index_ticks` 하이퍼테이블** — KOSPI(^KS11), KOSDAQ(^KQ11), S&P(^GSPC), NASDAQ(^IXIC), USD/KRW(KRW=X) 별도 테이블 신설.
+- [ ] **중앙 차트 지수 원터치 토글** — `[KOSPI][S&P][KRW]` 버튼 → 선택 지수 실시간 차트 표시.
+- [ ] **장문 AI 레포트 수신 버퍼 확장** — SSE 응답 스트림에서 LangChain RAG가 반환하는 장문 분석 텍스트가 잘리는 현상 방지.
 
