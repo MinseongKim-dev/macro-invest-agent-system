@@ -1,9 +1,10 @@
 'use client'
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { useAlephStream } from '@/hooks/useAlephStream'
+import { useMarketStream } from '@/hooks/useMarketStream'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
 export const APP_VERSION = 'v0.1.1-alpha'
@@ -64,27 +65,25 @@ interface RespState {
   insight:    string
   action:     string
   confidence: number
-  report?:    string   // long-form markdown/plain report text from backend
+  report?:    string
   widgets:    Widget[]
 }
 
 interface NewsItem { s: 'POS' | 'NEG' | 'NEU'; txt: string; age: string }
 interface Sector   { n: string; c: number }
-interface Holding  { n: string; t: string; chg: string; dir: number; col: string }
 interface Particle { l: number; d: number; dur: number; s: number }
 
-// ─── Static / seed data ───────────────────────────────────────────────────────
+// ─── Static config ────────────────────────────────────────────────────────────
 
-const makeKRX = (): Array<{ t: number; v: number }> => {
-  const d: Array<{ t: number; v: number }> = []
-  let p = 2478
-  for (let i = 0; i < 60; i++) {
-    p += Math.sin(i * 0.28) * 9 + (Math.random() - 0.46) * 14
-    p = Math.max(2290, Math.min(2690, p))
-    d.push({ t: i, v: +p.toFixed(1) })
-  }
-  return d
+// Metadata stays static; prices come from the market stream
+const TICKER_META: Record<string, { n: string; t: string; col: string }> = {
+  'AAPL':   { n: 'AAPL',      t: 'AAPL US',   col: '#ff9800' },
+  'MSFT':   { n: 'MSFT',      t: 'MSFT US',   col: '#00ff88' },
+  'TSLA':   { n: 'TESLA',     t: 'TSLA US',   col: '#ffaa00' },
+  '005930': { n: '삼성전자',   t: '005930 KS', col: '#00e5ff' },
+  '000660': { n: 'SK하이닉스', t: '000660 KS', col: '#a855f7' },
 }
+const TICKER_ORDER = ['AAPL', 'MSFT', 'TSLA', '005930', '000660']
 
 const NEWS: NewsItem[] = [
   { s: 'POS', txt: 'Samsung Electronics dramatically boosts semiconductor forecasts; analysts revise targets upward.', age: '2m' },
@@ -99,14 +98,6 @@ const SECTORS: Sector[] = [
   { n: 'MATERIALS', c: -2.1 }, { n: 'IT', c: +5.7 }, { n: 'UTILITIES', c: -0.8 },
 ]
 
-const HOLDINGS: Holding[] = [
-  { n: '삼성전자', t: '005930 KS', chg: '+2.14%', dir: 1,  col: '#00e5ff' },
-  { n: 'TESLA',    t: 'TSLA US',  chg: '+5.31%', dir: 1,  col: '#ffaa00' },
-  { n: 'SK하이닉스', t: '000660 KS', chg: '-1.82%', dir: -1, col: '#a855f7' },
-  { n: 'MSFT',     t: 'MSFT US',  chg: '+1.20%', dir: 1,  col: '#00ff88' },
-  { n: 'AAPL',     t: 'AAPL US',  chg: '-0.44%', dir: -1, col: '#ff9800' },
-]
-
 const PARTICLES: Particle[] = [
   { l: 8,  d: 0,   dur: 18, s: 1.5 }, { l: 18, d: 3.2, dur: 22, s: 1 },
   { l: 32, d: 1.1, dur: 17, s: 2   }, { l: 47, d: 5.5, dur: 20, s: 1 },
@@ -114,6 +105,30 @@ const PARTICLES: Particle[] = [
   { l: 82, d: 4.1, dur: 23, s: 1   }, { l: 91, d: 1.8, dur: 16, s: 1.5 },
   { l: 24, d: 6.2, dur: 21, s: 1   }, { l: 65, d: 3.7, dur: 24, s: 2   },
 ]
+
+const CHART_MAX_PTS = 120  // 2 min rolling window for portfolio chart
+
+// ─── Typewriter hook ──────────────────────────────────────────────────────────
+
+function useTypingText(text: string | undefined, speed = 12): string {
+  const [displayed, setDisplayed] = useState('')
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  useEffect(() => {
+    if (timerRef.current) clearInterval(timerRef.current)
+    if (!text) { setDisplayed(''); return }
+    setDisplayed('')
+    let i = 0
+    timerRef.current = setInterval(() => {
+      i++
+      setDisplayed(text.slice(0, i))
+      if (i >= text.length && timerRef.current) clearInterval(timerRef.current)
+    }, speed)
+    return () => { if (timerRef.current) clearInterval(timerRef.current) }
+  }, [text, speed])
+
+  return displayed
+}
 
 // ─── Small sub-components ─────────────────────────────────────────────────────
 
@@ -130,8 +145,16 @@ const SBadge = ({ type }: { type: 'POS' | 'NEG' | 'NEU' }) => {
   )
 }
 
-const MiniSpark = ({ up = true }: { up?: boolean }) => {
+// MiniSpark uses real price history when provided, random fallback when not
+const MiniSpark = ({ up = true, prices }: { up?: boolean; prices?: number[] }) => {
   const data = useMemo(() => {
+    if (prices && prices.length >= 2) {
+      const slice = prices.slice(-18)
+      const min = Math.min(...slice)
+      const max = Math.max(...slice)
+      const range = max - min || 1
+      return slice.map(v => ({ v: ((v - min) / range) * 70 + 15 }))
+    }
     const d: Array<{ v: number }> = []
     let v = 50
     for (let i = 0; i < 18; i++) {
@@ -140,7 +163,8 @@ const MiniSpark = ({ up = true }: { up?: boolean }) => {
       d.push({ v })
     }
     return d
-  }, [up])
+  }, [prices, up])
+
   return (
     <div style={{ width: 56, height: 22, flexShrink: 0 }}>
       <ResponsiveContainer width="100%" height="100%">
@@ -262,16 +286,65 @@ export default function AlephDashboard() {
   const [query,  setQuery]  = useState('')
   const [busy,   setBusy]   = useState(false)
   const [resp,   setResp]   = useState<RespState | null>(null)
+
+  // Index display — GBM simulation (KOSPI/S&P500/USD-KRW not in backend feed)
   const [kospi,  setKospi]  = useState(2540.23)
   const [sp500,  setSp500]  = useState(4816.11)
   const [usdkrw, setUsdkrw] = useState(1310.5)
 
-  const krx = useMemo(makeKRX, [])
+  // ── Real backend data ──────────────────────────────────────────────────────
+  const { data: streamData }                          = useAlephStream()
+  const { data: marketTick, connected, priceHistory } = useMarketStream()
 
-  // Pull live regime label and portfolio health from SSE stream
-  const { data: streamData } = useAlephStream()
-  const regimeLabel   = streamData?.macro_regime?.regime_name    ?? null
-  const portfolioHealth = streamData?.portfolio_health?.score    ?? null
+  // Portfolio value rolling history → drives the KRX chart
+  const [chartData, setChartData] = useState<Array<{ t: number; v: number }>>([])
+  const chartIdxRef = useRef(0)
+
+  useEffect(() => {
+    if (marketTick?.portfolio_value == null) return
+    setChartData(prev => {
+      const next = [...prev, { t: chartIdxRef.current++, v: marketTick.portfolio_value }]
+      return next.length > CHART_MAX_PTS ? next.slice(-CHART_MAX_PTS) : next
+    })
+    console.debug('[AlephDashboard] portfolio_value tick', marketTick.portfolio_value.toFixed(2))
+  }, [marketTick?.portfolio_value])
+
+  // Live holdings derived from market stream
+  const holdings = useMemo(() => TICKER_ORDER.map(ticker => {
+    const meta    = TICKER_META[ticker]
+    const prices  = priceHistory[ticker] ?? []
+    const current = marketTick?.prices[ticker] ?? prices[prices.length - 1] ?? null
+    const first   = prices[0] ?? null
+    const pct     = first && current ? ((current - first) / first) * 100 : 0
+    return {
+      ...meta,
+      ticker,
+      chg:    current ? `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%` : '···',
+      dir:    pct >= 0 ? 1 : -1,
+      prices,
+      current,
+    }
+  }), [marketTick, priceHistory])
+
+  // Live algorithmic signals from SSE stream
+  const liveSignals = useMemo(() => {
+    const sigs = streamData?.active_signals ?? []
+    if (sigs.length === 0) return null
+    return sigs.slice(0, 3).map((s, i) => ({
+      sig:   s.action as string,
+      asset: ['KOSPI 200', 'USD / KRW', 'ENERGY XTF'][i] ?? `SIGNAL-${i}`,
+      conf:  Math.round(s.probability * 100),
+      desc:  s.strategy,
+    }))
+  }, [streamData?.active_signals])
+
+  // Derived values from SSE stream
+  const regimeLabel     = streamData?.macro_regime?.regime_name    ?? null
+  const portfolioHealth = streamData?.portfolio_health?.score      ?? null
+
+  // ── Typewriter for OMNI insight + report ──────────────────────────────────
+  const typedInsight = useTypingText(resp?.insight, 14)
+  const typedReport  = useTypingText(resp?.report,  8)
 
   // Inject global styles once
   useEffect(() => {
@@ -281,7 +354,7 @@ export default function AlephDashboard() {
     return () => { document.head.removeChild(el) }
   }, [])
 
-  // Live ticks — GBM simulation for index display
+  // Clock + GBM index simulation
   useEffect(() => {
     const id = setInterval(() => {
       setNow(new Date())
@@ -295,21 +368,20 @@ export default function AlephDashboard() {
   const pad = (n: number) => String(n).padStart(2, '0')
   const ts  = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
 
-  // ── OMNI-COMMAND: backend call (no direct Anthropic key exposure) ──────────
+  // ── OMNI-COMMAND — backend call + typewriter display ──────────────────────
   const exec = async () => {
     if (!query.trim() || busy) return
     setBusy(true)
     setResp(null)
     try {
       const r = await fetch('/api/v1/intelligence/command', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, persona: 'AGGRESSIVE' }),
+        body:    JSON.stringify({ query, persona: 'AGGRESSIVE' }),
       })
       if (!r.ok) throw new Error(`HTTP ${r.status}`)
       const data = await r.json()
 
-      // Map backend response → widget format
       const sig    = data.active_signals?.[0]
       const regime = data.macro_regime ?? {}
       const health = data.portfolio_health ?? {}
@@ -334,11 +406,16 @@ export default function AlephDashboard() {
         })
       }
 
+      const insight = sig?.strategy ?? regime.regime_name ?? 'Analysis complete.'
+      const report  = data.omni_report ?? data.briefing ?? ''
+
+      console.info('[OMNI] response received', { insight: insight.slice(0, 60), reportLen: report.length })
+
       setResp({
-        insight:    sig?.strategy ?? regime.regime_name ?? 'Analysis complete.',
-        action:     sig?.action   ?? '',
+        insight,
+        action:     sig?.action ?? '',
         confidence: Math.round((sig?.probability ?? 0.5) * 100),
-        report:     data.omni_report ?? data.briefing ?? '',
+        report,
         widgets,
       })
     } catch (e: unknown) {
@@ -360,78 +437,45 @@ export default function AlephDashboard() {
         backgroundImage: 'linear-gradient(rgba(0,229,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(0,229,255,.025) 1px,transparent 1px)',
         backgroundSize: '44px 44px',
       }} />
-      {/* Ambient glow */}
-      <div style={{
-        position: 'absolute', top: -160, left: '18%', right: '18%', height: 380,
-        background: 'radial-gradient(ellipse,rgba(0,40,130,.22) 0%,transparent 70%)',
-        zIndex: 0, pointerEvents: 'none',
-      }} />
-      {/* Scanlines */}
-      <div style={{
-        position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none',
-        background: 'repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.025) 2px,rgba(0,0,0,.025) 4px)',
-      }} />
-      {/* Floating particles */}
+      <div style={{ position: 'absolute', top: -160, left: '18%', right: '18%', height: 380, background: 'radial-gradient(ellipse,rgba(0,40,130,.22) 0%,transparent 70%)', zIndex: 0, pointerEvents: 'none' }} />
+      <div style={{ position: 'absolute', inset: 0, zIndex: 1, pointerEvents: 'none', background: 'repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,.025) 2px,rgba(0,0,0,.025) 4px)' }} />
       {PARTICLES.map((p, i) => (
-        <div key={i} style={{
-          position: 'absolute', left: `${p.l}%`, bottom: 0, zIndex: 2, pointerEvents: 'none',
-          width: p.s, height: p.s, borderRadius: '50%',
-          background: 'rgba(0,229,255,.5)', boxShadow: '0 0 4px rgba(0,229,255,.4)',
-          animation: `float-pt ${p.dur}s ${p.d}s linear infinite`,
-        }} />
+        <div key={i} style={{ position: 'absolute', left: `${p.l}%`, bottom: 0, zIndex: 2, pointerEvents: 'none', width: p.s, height: p.s, borderRadius: '50%', background: 'rgba(0,229,255,.5)', boxShadow: '0 0 4px rgba(0,229,255,.4)', animation: `float-pt ${p.dur}s ${p.d}s linear infinite` }} />
       ))}
 
       {/* ══ TOP HEADER ══════════════════════════════════════════════════════════ */}
-      <div style={{
-        zIndex: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '7px 18px',
-        borderBottom: '1px solid rgba(0,229,255,.09)',
-        background: 'rgba(2,8,20,.93)', backdropFilter: 'blur(12px)',
-      }}>
-        {/* Brand */}
+      <div style={{ zIndex: 10, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '7px 18px', borderBottom: '1px solid rgba(0,229,255,.09)', background: 'rgba(2,8,20,.93)', backdropFilter: 'blur(12px)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <div style={{
-              width: 7, height: 7, borderRadius: '50%', background: '#00e5ff',
-              boxShadow: '0 0 8px #00e5ff', animation: 'glow-pulse 2s ease-in-out infinite',
-            }} />
+            <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#00e5ff', boxShadow: '0 0 8px #00e5ff', animation: 'glow-pulse 2s ease-in-out infinite' }} />
             <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 13, fontWeight: 900, color: '#00e5ff', letterSpacing: '3.5px', textShadow: '0 0 18px rgba(0,229,255,.7)' }}>ALEPH-ONE</span>
             <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '2px', color: 'rgba(0,229,255,.35)', marginLeft: 3 }}>CORE {APP_VERSION}</span>
           </div>
-          {/* Regime badge from live SSE stream */}
+          {/* Live regime badge from SSE */}
           {regimeLabel && (
-            <div style={{
-              padding: '2px 8px', borderRadius: 4,
-              background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.22)',
-              fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1.5px',
-              color: '#00e5ff', textTransform: 'uppercase',
-            }}>
+            <div style={{ padding: '2px 8px', borderRadius: 4, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.22)', fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1.5px', color: '#00e5ff', textTransform: 'uppercase' }}>
               {regimeLabel}
             </div>
           )}
-          {/* Live index tickers */}
+          {/* Index tickers — GBM simulation (market indices not in backend feed) */}
           <div style={{ display: 'flex', gap: 18, marginLeft: 12 }}>
-            {([['KOSPI', kospi.toFixed(2), 'up'], ['S&P 500', sp500.toFixed(2), 'up'], ['USD/KRW', usdkrw.toFixed(1), 'neutral']] as const).map(([l, v, d]) => (
+            {([['KOSPI', kospi.toFixed(2)], ['S&P 500', sp500.toFixed(2)], ['USD/KRW', usdkrw.toFixed(1)]] as const).map(([l, v]) => (
               <div key={l} style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                 <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1px', color: 'rgba(255,255,255,.32)' }}>{l}</span>
-                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 500, color: d === 'up' ? '#00e5ff' : '#ff4d6d' }}>{v}</span>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 500, color: '#00e5ff' }}>{v}</span>
               </div>
             ))}
           </div>
         </div>
-        {/* Right side */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          {/* Stream status dot */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 6px #00ff88', animation: 'blink 1.2s step-end infinite' }} />
-            <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(0,255,136,.7)' }}>LIVE</span>
+            <div style={{ width: 5, height: 5, borderRadius: '50%', background: connected ? '#00ff88' : '#ff4d6d', boxShadow: connected ? '0 0 6px #00ff88' : 'none', animation: connected ? 'blink 1.2s step-end infinite' : 'none' }} />
+            <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: connected ? 'rgba(0,255,136,.7)' : 'rgba(255,77,109,.7)' }}>{connected ? 'LIVE' : 'RECONNECTING'}</span>
           </div>
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: 'rgba(0,229,255,.65)', letterSpacing: '1px' }}>{ts}</span>
           <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(255,255,255,.22)' }}>KST UTC+9</span>
-          <div style={{
-            display: 'flex', alignItems: 'center', gap: 6,
-            padding: '3px 10px', borderRadius: 20,
-            background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)',
-          }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)' }}>
             <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 5px #00ff88' }} />
             <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, color: '#00e5ff', letterSpacing: '1px' }}>KIM MIN-HO</span>
           </div>
@@ -442,32 +486,21 @@ export default function AlephDashboard() {
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', zIndex: 5, minHeight: 0 }}>
 
         {/* ── LEFT PANEL ─────────────────────────────────────────────────────── */}
-        <div style={{
-          width: 272, flexShrink: 0,
-          display: 'flex', flexDirection: 'column', gap: 7,
-          padding: '9px 8px 9px 12px',
-          borderRight: '1px solid rgba(0,229,255,.07)',
-          overflowY: 'auto',   // scrolls when content exceeds viewport
-        }}>
-          {/* NEWS FEED — flex-scroll so 20+ items never overflow the card */}
+        <div style={{ width: 272, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7, padding: '9px 8px 9px 12px', borderRight: '1px solid rgba(0,229,255,.07)', overflowY: 'auto' }}>
+
+          {/* NEWS FEED */}
           <div className="glass" style={{ padding: 12, display: 'flex', flexDirection: 'column' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 9 }}>
               <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 5px #00ff88', animation: 'blink 1.2s step-end infinite' }} />
               <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff' }}>NEWS FEED</span>
               <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.22)', marginLeft: 'auto', letterSpacing: '1px' }}>HEADLINES | SENTIMENT</span>
             </div>
-            {/* Scrollable news list — cap at ~4 items, extend gracefully */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7, maxHeight: 220, overflowY: 'auto' }}>
               {NEWS.map((item, i) => (
                 <div key={i} className="news-hover" style={{ display: 'flex', gap: 7, padding: '5px 4px' }}>
                   <SBadge type={item.s} />
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{
-                      fontSize: 10.5, color: 'rgba(255,255,255,.72)', lineHeight: 1.45,
-                      fontFamily: "'Rajdhani',sans-serif",
-                      overflow: 'hidden', textOverflow: 'ellipsis',
-                      display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-                    }}>{item.txt}</div>
+                    <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.72)', lineHeight: 1.45, fontFamily: "'Rajdhani',sans-serif", overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.txt}</div>
                   </div>
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.2)', flexShrink: 0 }}>{item.age}</div>
                 </div>
@@ -479,9 +512,10 @@ export default function AlephDashboard() {
           <div className="glass" style={{ padding: 12 }}>
             <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff', marginBottom: 2 }}>ALTERNATIVE DATA</div>
             <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.25)', letterSpacing: '1px', marginBottom: 8 }}>COMMODITY PRICES | SHIPPING DATA</div>
+            {/* Mini chart uses portfolio history when available */}
             <div style={{ height: 48, marginBottom: 8 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={krx.slice(20, 40)} margin={{ top: 1, right: 1, left: 1, bottom: 1 }}>
+                <AreaChart data={chartData.slice(-20)} margin={{ top: 1, right: 1, left: 1, bottom: 1 }}>
                   <Area type="monotone" dataKey="v" stroke="rgba(0,229,255,.5)" fill="rgba(0,229,255,.05)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -497,19 +531,19 @@ export default function AlephDashboard() {
             ))}
           </div>
 
-          {/* ALGORITHMIC SIGNALS */}
+          {/* ALGORITHMIC SIGNALS — live from SSE stream */}
           <div className="glass" style={{ padding: 12, flex: 1 }}>
             <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff', marginBottom: 10 }}>ALGORITHMIC SIGNALS</div>
-            {[
+            {(liveSignals ?? [
               { sig: 'BUY',  asset: 'KOSPI 200',  conf: 78, desc: 'Momentum breakout confirmed — trend continuation pattern.' },
               { sig: 'HOLD', asset: 'USD / KRW',  conf: 53, desc: 'Algorithmic consensus: consolidation phase, range-bound.' },
               { sig: 'SELL', asset: 'ENERGY XTF', conf: 66, desc: 'Bearish divergence detected; sector rotation underway.' },
-            ].map((s, i) => {
-              const col = s.sig === 'BUY' ? '#00ff88' : s.sig === 'SELL' ? '#ff4d6d' : '#fbbf24'
+            ]).map((s, i) => {
+              const col = s.sig === 'BUY' || s.sig === 'buy' ? '#00ff88' : s.sig === 'SELL' || s.sig === 'sell' ? '#ff4d6d' : '#fbbf24'
               return (
                 <div key={i} style={{ marginBottom: 8, padding: '8px 10px', background: 'rgba(0,229,255,.03)', border: '1px solid rgba(0,229,255,.09)', borderRadius: 8 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                    <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '1px', color: col, background: `${col}18`, border: `1px solid ${col}44`, padding: '2px 6px', borderRadius: 4 }}>{s.sig}</span>
+                    <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '1px', color: col, background: `${col}18`, border: `1px solid ${col}44`, padding: '2px 6px', borderRadius: 4 }}>{s.sig.toUpperCase()}</span>
                     <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: '#00e5ff' }}>{s.asset}</span>
                     <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(255,255,255,.28)', marginLeft: 'auto' }}>{s.conf}%</span>
                   </div>
@@ -530,7 +564,6 @@ export default function AlephDashboard() {
           <div className="glass" style={{ padding: 14, flexShrink: 0 }}>
             <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: '2px', color: '#00e5ff', marginBottom: 12 }}>GLOBAL MACRO &amp; MARKET OVERVIEW</div>
             <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
-              {/* Macro stats */}
               <div style={{ width: 96, flexShrink: 0 }}>
                 <MacroStat lbl="GDP" val="37.3%" col="#00ff88" />
                 <MacroStat lbl="INFLATION" val="+1.65%" col="#00e5ff" />
@@ -544,11 +577,9 @@ export default function AlephDashboard() {
                   ))}
                 </div>
               </div>
-              {/* Globe */}
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: '0 8px' }}>
                 <Globe />
               </div>
-              {/* Sector Heatmap */}
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '2px', color: 'rgba(255,255,255,.25)', marginBottom: 6 }}>MARKET SENTIMENT HEATMAP</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 4, height: 116 }}>
@@ -558,11 +589,17 @@ export default function AlephDashboard() {
             </div>
           </div>
 
-          {/* KRX Chart */}
+          {/* KRX Chart — portfolio_value live history */}
           <div className="glass" style={{ flex: 1, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10, flexShrink: 0 }}>
-              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, letterSpacing: '2px', color: '#00e5ff', fontWeight: 700 }}>KRX INDEX</span>
-              <div style={{ display: 'flex', gap: 14 }}>
+              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, letterSpacing: '2px', color: '#00e5ff', fontWeight: 700 }}>PORTFOLIO VALUE</span>
+              {/* Show live portfolio value in chart header */}
+              {marketTick?.portfolio_value != null && (
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13, color: '#00e5ff', fontWeight: 700, textShadow: '0 0 8px rgba(0,229,255,.5)' }}>
+                  ${marketTick.portfolio_value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              )}
+              <div style={{ display: 'flex', gap: 14, marginLeft: 8 }}>
                 {([['KOSPI', kospi.toFixed(2)], ['S&P 500', sp500.toFixed(2)], ['USD/KRW', usdkrw.toFixed(1)]] as const).map(([l, v]) => (
                   <div key={l} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                     <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)', letterSpacing: '1px' }}>{l}</span>
@@ -572,76 +609,67 @@ export default function AlephDashboard() {
               </div>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 5 }}>
                 {(['1D', '1W', '1M', '3M'] as const).map((t, i) => (
-                  <button key={t} style={{
-                    fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1px',
-                    padding: '2px 7px', borderRadius: 4, cursor: 'pointer',
-                    background: i === 0 ? 'rgba(0,229,255,.14)' : 'transparent',
-                    border: `1px solid ${i === 0 ? 'rgba(0,229,255,.38)' : 'rgba(255,255,255,.07)'}`,
-                    color: i === 0 ? '#00e5ff' : 'rgba(255,255,255,.28)',
-                  }}>{t}</button>
+                  <button key={t} style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1px', padding: '2px 7px', borderRadius: 4, cursor: 'pointer', background: i === 0 ? 'rgba(0,229,255,.14)' : 'transparent', border: `1px solid ${i === 0 ? 'rgba(0,229,255,.38)' : 'rgba(255,255,255,.07)'}`, color: i === 0 ? '#00e5ff' : 'rgba(255,255,255,.28)' }}>{t}</button>
                 ))}
               </div>
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={krx} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="kg" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#00e5ff" stopOpacity={0.18} />
-                      <stop offset="95%" stopColor="#00e5ff" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <XAxis dataKey="t" tick={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fill: 'rgba(255,255,255,.18)' }} axisLine={false} tickLine={false} interval={9} />
-                  <YAxis tick={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fill: 'rgba(255,255,255,.18)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} width={44} />
-                  <Tooltip
-                    contentStyle={{ background: 'rgba(2,12,30,.96)', border: '1px solid rgba(0,229,255,.2)', borderRadius: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: '#00e5ff' }}
-                    itemStyle={{ color: '#00e5ff' }} labelStyle={{ color: 'rgba(255,255,255,.35)' }} />
-                  <Area type="monotone" dataKey="v" stroke="#00e5ff" strokeWidth={1.8} fill="url(#kg)" dot={false} activeDot={{ r: 4, fill: '#00e5ff', stroke: '#fff', strokeWidth: 1 }} />
-                </AreaChart>
-              </ResponsiveContainer>
+              {chartData.length >= 2 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="kg" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor="#00e5ff" stopOpacity={0.18} />
+                        <stop offset="95%" stopColor="#00e5ff" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="t" tick={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fill: 'rgba(255,255,255,.18)' }} axisLine={false} tickLine={false} interval={Math.floor(chartData.length / 6)} />
+                    <YAxis tick={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fill: 'rgba(255,255,255,.18)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} width={54} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip
+                      contentStyle={{ background: 'rgba(2,12,30,.96)', border: '1px solid rgba(0,229,255,.2)', borderRadius: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: '#00e5ff' }}
+                      itemStyle={{ color: '#00e5ff' }} labelStyle={{ color: 'rgba(255,255,255,.35)' }}
+                      formatter={(v) => [`$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Portfolio']} />
+                    <Area type="monotone" dataKey="v" stroke="#00e5ff" strokeWidth={1.8} fill="url(#kg)" dot={false} activeDot={{ r: 4, fill: '#00e5ff', stroke: '#fff', strokeWidth: 1 }} isAnimationActive={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(0,229,255,.3)', letterSpacing: '2px' }}>
+                  AWAITING STREAM DATA…
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         {/* ── RIGHT PANEL ─────────────────────────────────────────────────────── */}
-        <div style={{
-          width: 292, flexShrink: 0,
-          display: 'flex', flexDirection: 'column', gap: 7,
-          padding: '9px 12px 9px 8px',
-          borderLeft: '1px solid rgba(0,229,255,.07)',
-          overflowY: 'auto',   // scrolls when holdings list grows beyond viewport
-        }}>
-          {/* Portfolio header + holdings */}
+        <div style={{ width: 292, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7, padding: '9px 12px 9px 8px', borderLeft: '1px solid rgba(0,229,255,.07)', overflowY: 'auto' }}>
+
+          {/* Portfolio header + live holdings */}
           <div className="glass" style={{ padding: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
               <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff' }}>PORTFOLIO ALPHA</span>
-              {/* Live health score from SSE stream when available */}
               {portfolioHealth != null && (
-                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: portfolioHealth > 60 ? '#00ff88' : '#ff4d6d' }}>
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: portfolioHealth > 60 ? '#00ff88' : '#ff4d6d', textShadow: portfolioHealth > 60 ? '0 0 6px rgba(0,255,136,.4)' : '0 0 6px rgba(255,77,109,.4)' }}>
                   HEALTH {Math.round(portfolioHealth)}
                 </span>
               )}
               <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)' }}>USER: KIM MIN-HO</span>
             </div>
-            <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '2px', color: 'rgba(255,255,255,.28)', marginBottom: 7, textTransform: 'uppercase' }}>Holdings</div>
-            {/* Scrollable holdings list — handles 20+ assets without UI breakage */}
+            <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '2px', color: 'rgba(255,255,255,.28)', marginBottom: 7, textTransform: 'uppercase' }}>Holdings · Live</div>
+            {/* Scrollable holdings — live prices from useMarketStream */}
             <div style={{ maxHeight: 220, overflowY: 'auto', paddingRight: 2 }}>
-              {HOLDINGS.map((h, i) => (
-                <div key={i} className="row-hover" style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 5px',
-                  borderBottom: i < HOLDINGS.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none',
-                }}>
-                  <div style={{
-                    width: 26, height: 26, borderRadius: 6, flexShrink: 0,
-                    background: `${h.col}18`, border: `1px solid ${h.col}38`,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontFamily: "'Orbitron',sans-serif", fontSize: 6.5, color: h.col,
-                  }}>{h.n.slice(0, 2)}</div>
+              {holdings.map((h, i) => (
+                <div key={h.ticker} className="row-hover" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 5px', borderBottom: i < holdings.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
+                  <div style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, background: `${h.col}18`, border: `1px solid ${h.col}38`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Orbitron',sans-serif", fontSize: 6.5, color: h.col }}>
+                    {h.n.slice(0, 2)}
+                  </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.88)', letterSpacing: '1px' }}>{h.n}</div>
-                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.28)' }}>{h.t}</div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.28)' }}>
+                      {h.current != null ? (h.ticker.startsWith('0') ? `₩${Math.round(h.current).toLocaleString('ko-KR')}` : `$${h.current.toFixed(2)}`) : h.t}
+                    </div>
                   </div>
-                  <MiniSpark up={h.dir > 0} />
+                  <MiniSpark up={h.dir > 0} prices={h.prices} />
                   <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, flexShrink: 0, color: h.dir > 0 ? '#00ff88' : '#ff4d6d', textShadow: h.dir > 0 ? '0 0 6px rgba(0,255,136,.4)' : '0 0 6px rgba(255,77,109,.4)' }}>{h.chg}</div>
                 </div>
               ))}
@@ -674,9 +702,7 @@ export default function AlephDashboard() {
             <div style={{ padding: '10px 12px', marginBottom: 10, background: 'rgba(168,85,247,.09)', border: '1px solid rgba(168,85,247,.28)', borderRadius: 9 }}>
               <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 10, fontWeight: 700, color: '#a855f7', letterSpacing: '1px', lineHeight: 1.4, textShadow: '0 0 10px rgba(168,85,247,.4)' }}>AI REBALANCE<br />RECOMMENDED:</div>
               <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 13, fontWeight: 900, color: '#fff', marginTop: 4, letterSpacing: '1px' }}>DIVERSIFY TECH</div>
-              <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.42)', marginTop: 6, lineHeight: 1.5 }}>
-                Tech concentration at 73.2% exceeds optimal threshold. Consider rotating 15–20% into defensive sectors.
-              </div>
+              <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.42)', marginTop: 6, lineHeight: 1.5 }}>Tech concentration at 73.2% exceeds optimal threshold. Consider rotating 15–20% into defensive sectors.</div>
             </div>
             <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
               {([['SHARPE', '1.84', '#00ff88'], ['BETA', '0.92', '#fbbf24'], ['α', '2.3%', '#00e5ff']] as const).map(([l, v, c]) => (
@@ -700,18 +726,18 @@ export default function AlephDashboard() {
         {/* AI response widgets */}
         {resp && (
           <div style={{ padding: '10px 16px 0', display: 'flex', gap: 8, flexWrap: 'wrap', animation: 'slide-up .35s ease-out' }}>
-            {/* Insight */}
             <div className="ai-w glass" style={{ padding: '10px 14px', minWidth: 220, flex: 2 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
                 <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#a855f7', boxShadow: '0 0 5px #a855f7' }} />
                 <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, color: '#a855f7', letterSpacing: '2px' }}>AI NEURAL ANALYSIS</span>
               </div>
-              <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 12, color: 'rgba(255,255,255,.8)', lineHeight: 1.5 }}>{resp.insight}</div>
+              {/* Typewriter effect on insight text */}
+              <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 12, color: 'rgba(255,255,255,.8)', lineHeight: 1.5 }}>
+                {typedInsight}<span style={{ animation: 'blink 0.8s step-end infinite', color: '#a855f7' }}>▌</span>
+              </div>
               {resp.action && <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: '#00ff88', marginTop: 5, fontWeight: 600 }}>→ {resp.action}</div>}
             </div>
-            {/* Metric/alert widgets */}
             {resp.widgets.map((w, i) => <AIWidget key={i} w={w} idx={i + 1} />)}
-            {/* Confidence */}
             {resp.confidence > 0 && (
               <div className="ai-w glass" style={{ padding: '10px 14px', minWidth: 90, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', animationDelay: '.32s' }}>
                 <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)', letterSpacing: '1px', marginBottom: 4 }}>CONFIDENCE</div>
@@ -721,23 +747,12 @@ export default function AlephDashboard() {
           </div>
         )}
 
-        {/* Long-form research report — scrollable, sits between widgets and input bar */}
+        {/* Long-form report — typewriter streaming effect */}
         {resp?.report && resp.report.trim().length > 0 && (
-          <div className="report-scroll" style={{
-            margin: '8px 16px 0',
-            maxHeight: 110,
-            overflowY: 'auto',
-            padding: '8px 12px',
-            background: 'rgba(168,85,247,.06)',
-            border: '1px solid rgba(168,85,247,.22)',
-            borderRadius: 8,
-            animation: 'slide-up .3s ease-out',
-          }}>
-            <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(168,85,247,.55)', textTransform: 'uppercase', marginBottom: 5 }}>
-              ◈ INTELLIGENCE REPORT
-            </div>
+          <div className="report-scroll" style={{ margin: '8px 16px 0', maxHeight: 110, overflowY: 'auto', padding: '8px 12px', background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.22)', borderRadius: 8, animation: 'slide-up .3s ease-out' }}>
+            <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(168,85,247,.55)', textTransform: 'uppercase', marginBottom: 5 }}>◈ INTELLIGENCE REPORT</div>
             <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: 'rgba(255,255,255,.62)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
-              {resp.report}
+              {typedReport}<span style={{ animation: 'blink 0.8s step-end infinite', color: '#a855f7' }}>▌</span>
             </div>
           </div>
         )}
@@ -745,11 +760,7 @@ export default function AlephDashboard() {
         {/* Input row */}
         <div style={{ padding: '9px 16px', display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '2px', color: 'rgba(0,229,255,.42)', flexShrink: 0 }}>OMNI-COMMAND</span>
-          <div style={{
-            flex: 1, display: 'flex', alignItems: 'center', gap: 8,
-            background: 'rgba(0,229,255,.04)', border: '1px solid rgba(0,229,255,.18)',
-            borderRadius: 8, padding: '7px 13px',
-          }}>
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(0,229,255,.04)', border: '1px solid rgba(0,229,255,.18)', borderRadius: 8, padding: '7px 13px' }}>
             <span style={{ color: 'rgba(0,229,255,.4)', fontFamily: "'JetBrains Mono',monospace", fontSize: 13, flexShrink: 0 }}>›</span>
             <input
               className="omni-input"
@@ -767,36 +778,19 @@ export default function AlephDashboard() {
               </div>
             )}
           </div>
-          {/* AI status */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-            <div style={{
-              width: 5, height: 5, borderRadius: '50%', transition: 'all .3s',
-              background: busy ? '#a855f7' : 'rgba(255,255,255,.12)',
-              boxShadow: busy ? '0 0 7px #a855f7' : 'none',
-              animation: busy ? 'glow-pulse .7s ease-in-out infinite' : 'none',
-            }} />
+            <div style={{ width: 5, height: 5, borderRadius: '50%', transition: 'all .3s', background: busy ? '#a855f7' : 'rgba(255,255,255,.12)', boxShadow: busy ? '0 0 7px #a855f7' : 'none', animation: busy ? 'glow-pulse .7s ease-in-out infinite' : 'none' }} />
             <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8.5, letterSpacing: '1px', color: busy ? 'rgba(168,85,247,.7)' : 'rgba(255,255,255,.18)' }}>
               {busy ? 'AI THOUGHT PROCESS' : 'AI STANDBY'}
             </span>
           </div>
-          <button
-            onClick={exec}
-            disabled={busy || !query.trim()}
-            style={{
-              padding: '7px 14px', borderRadius: 7, cursor: busy || !query.trim() ? 'default' : 'pointer',
-              background: busy || !query.trim() ? 'rgba(0,229,255,.04)' : 'rgba(0,229,255,.13)',
-              border: `1px solid rgba(0,229,255,${busy || !query.trim() ? '.09' : '.36'})`,
-              fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '1px',
-              color: busy || !query.trim() ? 'rgba(0,229,255,.22)' : '#00e5ff',
-              transition: 'all .2s', flexShrink: 0,
-            }}
-          >EXECUTE</button>
+          <button onClick={exec} disabled={busy || !query.trim()} style={{ padding: '7px 14px', borderRadius: 7, cursor: busy || !query.trim() ? 'default' : 'pointer', background: busy || !query.trim() ? 'rgba(0,229,255,.04)' : 'rgba(0,229,255,.13)', border: `1px solid rgba(0,229,255,${busy || !query.trim() ? '.09' : '.36'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '1px', color: busy || !query.trim() ? 'rgba(0,229,255,.22)' : '#00e5ff', transition: 'all .2s', flexShrink: 0 }}>EXECUTE</button>
         </div>
 
         {/* Status bar */}
         <div style={{ padding: '2px 16px 6px', display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.13)' }}>
-            ALEPH-ONE CORE {APP_VERSION} · NEURAL ENGINE ACTIVE · MARKET DATA CONNECTED · 247 FEEDS INGESTED
+            ALEPH-ONE CORE {APP_VERSION} · NEURAL ENGINE ACTIVE · MARKET DATA {connected ? 'CONNECTED' : 'RECONNECTING'} · 247 FEEDS INGESTED
           </span>
           <span style={{ marginLeft: 'auto', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(0,229,255,.28)' }}>{ts} KST</span>
         </div>
