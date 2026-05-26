@@ -10,7 +10,9 @@ Hierarchy::
     └── PersonaAdapterEngine — persona weight-matrix blend → BUY/HOLD/SELL + confidence
                                + Warren Buffett Margin of Safety (RSI ≥ 70 → BUY Lock→HOLD)
 
-Target universe: AAPL · MSFT · TSLA · 삼성전자(005930) · SK하이닉스(000660)
+Target universe: AAPL · MSFT · TSLA · 삼성전자(005930) · SK하이닉스(000660) ·
+                 NAVER(035420) · LG화학(051910) · 삼성SDI(006400) · KODEX LEV(122630) ·
+                 QQQ · BND · GLD
 
 Helper::
     build_intelligence_row()  — full UI-contract risk_matrix row per ticker
@@ -30,7 +32,7 @@ logger = logging.getLogger(__name__)
 
 # ── Domain constants ──────────────────────────────────────────────────────────
 
-TICKERS: list[str] = ["AAPL", "MSFT", "TSLA", "005930", "000660", "QQQ", "BND", "GLD"]
+TICKERS: list[str] = ["AAPL", "MSFT", "TSLA", "005930", "000660", "035420", "051910", "006400", "122630", "QQQ", "BND", "GLD"]
 
 DISPLAY_NAMES: dict[str, str] = {
     "AAPL":   "AAPL",
@@ -38,6 +40,10 @@ DISPLAY_NAMES: dict[str, str] = {
     "TSLA":   "TSLA",
     "005930": "삼성전자",
     "000660": "SK하이닉스",
+    "035420": "NAVER",
+    "051910": "LG화학",
+    "006400": "삼성SDI",
+    "122630": "KODEX LEV",
     "QQQ":    "QQQ ETF",
     "BND":    "BND ETF",
     "GLD":    "GLD ETF",
@@ -49,6 +55,10 @@ TICKER_GROUPS: dict[str, str] = {
     "TSLA":   "TECH",
     "005930": "KR_TECH",
     "000660": "KR_TECH",
+    "035420": "KR_TECH",
+    "051910": "KR_CHEM",
+    "006400": "KR_CHEM",
+    "122630": "KR_ETF",
     "QQQ":    "ETF_TECH",
     "BND":    "ETF_BOND",
     "GLD":    "ETF_COMMODITY",

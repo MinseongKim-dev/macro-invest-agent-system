@@ -1,8 +1,18 @@
 # Aleph-One
 
-**v0.2.0** · Open-source, zero-cost financial intelligence terminal
+**v0.2.1** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.2.1
+
+- **KR large-cap expansion** — NAVER(035420), LG화학(051910), 삼성SDI(006400), KODEX LEV(122630) added to live collection. Risk matrix now 12 rows.
+- **Real index data** — KOSPI(^KS11), S&P 500(^GSPC), USD/KRW(KRW=X) fetched live via yfinance every cycle, replacing GBM simulation. `market_indices` field added to SSE payload.
+- **Index chart toggle** — `[PORTFOLIO][KOSPI][S&P][KRW]` neon buttons switch the central chart between portfolio value and live index history.
+- **KST hybrid scheduler** — `_get_collection_interval()` returns 10 s during KR (09:00–15:30 KST) and US (22:30–05:00 KST) trading sessions, 60 s off-hours.
+- **OMNI-COMMAND offline fallback** — command proxy returns HTTP 200 with a structured offline payload instead of propagating 502 when the backend is unreachable.
 
 ---
 

@@ -154,6 +154,23 @@ CREATE TABLE IF NOT EXISTS macro_regimes (
 );
 """
 
+_DDL_INDEX_TICKS = """
+CREATE TABLE IF NOT EXISTS index_ticks (
+    timestamp   TIMESTAMPTZ   NOT NULL,
+    index_id    VARCHAR(10)   NOT NULL,
+    close_value NUMERIC(15,4) NOT NULL
+);
+"""
+
+_DDL_INDEX_HYPERTABLE = """
+SELECT create_hypertable(
+    'index_ticks',
+    'timestamp',
+    chunk_time_interval => INTERVAL '7 days',
+    if_not_exists       => TRUE
+);
+"""
+
 
 def init_db(config: DatabaseConfig | None = None) -> None:
     """Create market_ticks (hypertable, 7-day chunks) and macro_regimes.
@@ -169,6 +186,9 @@ def init_db(config: DatabaseConfig | None = None) -> None:
             logger.debug("db_hypertable_ensured")
             conn.execute(_DDL_MACRO_REGIMES)
             logger.debug("db_table_ensured", extra={"table": "macro_regimes"})
+            conn.execute(_DDL_INDEX_TICKS)
+            conn.execute(_DDL_INDEX_HYPERTABLE)
+            logger.debug("db_table_ensured", extra={"table": "index_ticks"})
             conn.commit()
         logger.info("db_init_complete")
     except Exception as exc:
@@ -305,6 +325,17 @@ LIVE_TICKERS: dict[str, str] = {
     "QQQ":    "QQQ",         # Invesco QQQ Trust (Nasdaq 100 ETF)
     "BND":    "BND",         # Vanguard Total Bond Market ETF
     "GLD":    "GLD",         # SPDR Gold Shares ETF
+    "035420": "035420.KS",   # NAVER
+    "051910": "051910.KS",   # LG화학
+    "006400": "006400.KS",   # 삼성SDI
+    "122630": "122630.KS",   # KODEX 레버리지 ETF
+}
+
+# Market index symbols — used by the index collector (not stored in market_ticks)
+INDEX_TICKERS: dict[str, str] = {
+    "KOSPI":  "^KS11",
+    "SP500":  "^GSPC",
+    "USDKRW": "KRW=X",
 }
 
 
@@ -703,6 +734,23 @@ def fetch_live_news() -> dict[str, list[str]]:
         logger.info("live_news_milvus_sync", extra={"inserted": inserted})
 
     return news_map
+
+
+def fetch_live_index_data() -> dict[str, float]:
+    """Fetch the latest close price for each market index via yfinance.
+
+    Returns a dict mapping internal index_id (KOSPI / SP500 / USDKRW)
+    to the most recent close value.  Missing or errored indices are omitted.
+    """
+    results: dict[str, float] = {}
+    for index_id, yf_symbol in INDEX_TICKERS.items():
+        try:
+            df = yf.Ticker(yf_symbol).history(period="2d", interval="1d")
+            if not df.empty:
+                results[index_id] = round(float(df["Close"].iloc[-1]), 4)
+        except Exception as exc:
+            logger.warning("index_fetch_failed", extra={"index": index_id, "error": str(exc)})
+    return results
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

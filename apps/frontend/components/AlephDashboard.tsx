@@ -6,6 +6,7 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
+import type { AlephStreamData } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
 export const APP_VERSION = 'v0.1.2'
@@ -82,11 +83,15 @@ const TICKER_META: Record<string, { n: string; t: string; col: string; group: 'S
   'TSLA':   { n: 'TESLA',     t: 'TSLA US',   col: '#ffaa00', group: 'STOCK' },
   '005930': { n: '삼성전자',   t: '005930 KS', col: '#00e5ff', group: 'STOCK' },
   '000660': { n: 'SK하이닉스', t: '000660 KS', col: '#a855f7', group: 'STOCK' },
+  '035420': { n: 'NAVER',     t: '035420 KS', col: '#4ade80', group: 'STOCK' },
+  '051910': { n: 'LG화학',    t: '051910 KS', col: '#fb923c', group: 'STOCK' },
+  '006400': { n: '삼성SDI',   t: '006400 KS', col: '#f472b6', group: 'STOCK' },
+  '122630': { n: 'KODEX LEV', t: '122630 KS', col: '#a78bfa', group: 'ETF'   },
   'QQQ':    { n: 'QQQ ETF',   t: 'QQQ US',    col: '#22d3ee', group: 'ETF'   },
   'BND':    { n: 'BND ETF',   t: 'BND US',    col: '#86efac', group: 'ETF'   },
   'GLD':    { n: 'GLD ETF',   t: 'GLD US',    col: '#fcd34d', group: 'ETF'   },
 }
-const TICKER_ORDER = ['AAPL', 'MSFT', 'TSLA', '005930', '000660', 'QQQ', 'BND', 'GLD']
+const TICKER_ORDER = ['AAPL', 'MSFT', 'TSLA', '005930', '000660', '035420', '051910', '006400', '122630', 'QQQ', 'BND', 'GLD']
 const ETF_TICKERS  = ['QQQ', 'BND', 'GLD']
 
 
@@ -285,11 +290,9 @@ export default function AlephDashboard() {
   const [busy,     setBusy]     = useState(false)
   const [resp,     setResp]     = useState<RespState | null>(null)
   const [assetTab, setAssetTab] = useState<'ALL' | 'STOCKS' | 'ETFS' | 'FUNDS'>('ALL')
-
-  // Index display — GBM simulation (KOSPI/S&P500/USD-KRW not in backend feed)
-  const [kospi,  setKospi]  = useState(2540.23)
-  const [sp500,  setSp500]  = useState(4816.11)
-  const [usdkrw, setUsdkrw] = useState(1310.5)
+  const [activeIndex, setActiveIndex] = useState<'PORTFOLIO' | 'KOSPI' | 'SP500' | 'USDKRW'>('PORTFOLIO')
+  const [indexHistory, setIndexHistory] = useState<Record<string, Array<{t: number; v: number}>>>({})
+  const indexIdxRef = useRef(0)
 
   // ── Real backend data ──────────────────────────────────────────────────────
   const { data: streamData }                          = useAlephStream()
@@ -308,6 +311,20 @@ export default function AlephDashboard() {
     })
     console.debug('[AlephDashboard] portfolio_value tick', marketTick.portfolio_value.toFixed(2))
   }, [marketTick?.portfolio_value])
+
+  useEffect(() => {
+    const indices = (streamData as AlephStreamData & { market_indices?: Record<string, number> })?.market_indices
+    if (!indices) return
+    setIndexHistory(prev => {
+      const next = { ...prev }
+      Object.entries(indices).forEach(([id, val]) => {
+        const arr = [...(prev[id] ?? []), { t: indexIdxRef.current, v: val }]
+        next[id] = arr.length > CHART_MAX_PTS ? arr.slice(-CHART_MAX_PTS) : arr
+      })
+      indexIdxRef.current++
+      return next
+    })
+  }, [streamData])
 
   // Asset-tab filtered ticker list (FUNDS tab deferred — no feed yet)
   const filteredOrder = useMemo(() => {
@@ -350,6 +367,10 @@ export default function AlephDashboard() {
   const regimeLabel     = streamData?.macro_regime?.regime_name    ?? null
   const portfolioHealth = streamData?.portfolio_health?.score      ?? null
 
+  const kospi  = streamData?.market_indices?.KOSPI  ?? null
+  const sp500  = streamData?.market_indices?.SP500   ?? null
+  const usdkrw = streamData?.market_indices?.USDKRW  ?? null
+
   // ── Typewriter for OMNI insight + report ──────────────────────────────────
   const typedInsight = useTypingText(resp?.insight, 14)
   const typedReport  = useTypingText(resp?.report,  8)
@@ -362,14 +383,11 @@ export default function AlephDashboard() {
     return () => { document.head.removeChild(el) }
   }, [])
 
-  // Clock + GBM index simulation
+  // Clock
   useEffect(() => {
     const id = setInterval(() => {
       setNow(new Date())
-      setKospi(p => +(p + (Math.random() - 0.5) * 2.1).toFixed(2))
-      setSp500(p => +(p + (Math.random() - 0.5) * 3.4).toFixed(2))
-      setUsdkrw(p => +(p + (Math.random() - 0.5) * 0.4).toFixed(1))
-    }, 2800)
+    }, 1000)
     return () => clearInterval(id)
   }, [])
 
@@ -465,9 +483,9 @@ export default function AlephDashboard() {
               {regimeLabel}
             </div>
           )}
-          {/* Index tickers — GBM simulation (market indices not in backend feed) */}
+          {/* Index tickers — live from SSE stream market_indices */}
           <div style={{ display: 'flex', gap: 18, marginLeft: 12 }}>
-            {([['KOSPI', kospi.toFixed(2)], ['S&P 500', sp500.toFixed(2)], ['USD/KRW', usdkrw.toFixed(1)]] as const).map(([l, v]) => (
+            {([['KOSPI', kospi != null ? kospi.toLocaleString('en-US', {maximumFractionDigits: 2}) : '···'], ['S&P 500', sp500 != null ? sp500.toLocaleString('en-US', {maximumFractionDigits: 2}) : '···'], ['USD/KRW', usdkrw != null ? usdkrw.toFixed(1) : '···']] as [string, string][]).map(([l, v]) => (
               <div key={l} style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                 <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1px', color: 'rgba(255,255,255,.32)' }}>{l}</span>
                 <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 500, color: '#00e5ff' }}>{v}</span>
@@ -485,7 +503,7 @@ export default function AlephDashboard() {
           <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(255,255,255,.22)' }}>KST UTC+9</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)' }}>
             <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 5px #00ff88' }} />
-            <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, color: '#00e5ff', letterSpacing: '1px' }}>KIM MIN-HO</span>
+            <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, color: '#00e5ff', letterSpacing: '1px' }}>KIM MIN-SEONG</span>
           </div>
         </div>
       </div>
@@ -627,12 +645,20 @@ export default function AlephDashboard() {
                   ${marketTick.portfolio_value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               )}
-              <div style={{ display: 'flex', gap: 14, marginLeft: 8 }}>
-                {([['KOSPI', kospi.toFixed(2)], ['S&P 500', sp500.toFixed(2)], ['USD/KRW', usdkrw.toFixed(1)]] as const).map(([l, v]) => (
-                  <div key={l} style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                    <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)', letterSpacing: '1px' }}>{l}</span>
-                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, color: '#00e5ff' }}>{v}</span>
-                  </div>
+              <div style={{ display: 'flex', gap: 6, marginLeft: 8 }}>
+                {([['PORTFOLIO', 'PTF', null], ['KOSPI', 'KOSPI', kospi], ['SP500', 'S&P', sp500], ['USDKRW', 'KRW', usdkrw]] as [string, string, number | null][]).map(([id, lbl, val]) => (
+                  <button key={id} onClick={() => setActiveIndex(id as typeof activeIndex)} style={{
+                    fontFamily: "'JetBrains Mono',monospace", fontSize: 8, letterSpacing: '1px',
+                    padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
+                    background: activeIndex === id ? 'rgba(0,229,255,.14)' : 'transparent',
+                    border: `1px solid ${activeIndex === id ? 'rgba(0,229,255,.5)' : 'rgba(255,255,255,.1)'}`,
+                    color: activeIndex === id ? '#00e5ff' : 'rgba(255,255,255,.38)',
+                    transition: 'all .15s',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                  }}>
+                    <span>{lbl}</span>
+                    {val != null && <span style={{ fontSize: 7, opacity: 0.7 }}>{id === 'USDKRW' ? val.toFixed(1) : val.toLocaleString('en-US', {maximumFractionDigits: 0})}</span>}
+                  </button>
                 ))}
               </div>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 5 }}>
@@ -642,29 +668,47 @@ export default function AlephDashboard() {
               </div>
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
-              {chartData.length >= 2 ? (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="kg" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#00e5ff" stopOpacity={0.18} />
-                        <stop offset="95%" stopColor="#00e5ff" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis dataKey="t" tick={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fill: 'rgba(255,255,255,.18)' }} axisLine={false} tickLine={false} interval={Math.floor(chartData.length / 6)} />
-                    <YAxis tick={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fill: 'rgba(255,255,255,.18)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} width={54} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                    <Tooltip
-                      contentStyle={{ background: 'rgba(2,12,30,.96)', border: '1px solid rgba(0,229,255,.2)', borderRadius: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: '#00e5ff' }}
-                      itemStyle={{ color: '#00e5ff' }} labelStyle={{ color: 'rgba(255,255,255,.35)' }}
-                      formatter={(v) => [`$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Portfolio']} />
-                    <Area type="monotone" dataKey="v" stroke="#00e5ff" strokeWidth={1.8} fill="url(#kg)" dot={false} activeDot={{ r: 4, fill: '#00e5ff', stroke: '#fff', strokeWidth: 1 }} isAnimationActive={false} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(0,229,255,.3)', letterSpacing: '2px' }}>
-                  AWAITING STREAM DATA…
-                </div>
-              )}
+              {(() => {
+                const activeData = activeIndex === 'PORTFOLIO'
+                  ? chartData
+                  : (indexHistory[activeIndex] ?? [])
+                const hasData = activeData.length >= 2
+                const isKRW   = activeIndex === 'USDKRW'
+                const label   = activeIndex === 'PORTFOLIO' ? 'Portfolio' : activeIndex
+                const fmtY    = isKRW
+                  ? (v: number) => `₩${v.toFixed(0)}`
+                  : activeIndex === 'PORTFOLIO'
+                    ? (v: number) => `$${(v / 1000).toFixed(0)}k`
+                    : (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: 0 })
+                const fmtTip  = isKRW
+                  ? (v: number) => `₩${v.toFixed(1)}`
+                  : activeIndex === 'PORTFOLIO'
+                    ? (v: number) => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: 2 })
+                return hasData ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={activeData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="kg" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor="#00e5ff" stopOpacity={0.18} />
+                          <stop offset="95%" stopColor="#00e5ff" stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="t" tick={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fill: 'rgba(255,255,255,.18)' }} axisLine={false} tickLine={false} interval={Math.floor(activeData.length / 6)} />
+                      <YAxis tick={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fill: 'rgba(255,255,255,.18)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} width={54} tickFormatter={fmtY} />
+                      <Tooltip
+                        contentStyle={{ background: 'rgba(2,12,30,.96)', border: '1px solid rgba(0,229,255,.2)', borderRadius: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: '#00e5ff' }}
+                        itemStyle={{ color: '#00e5ff' }} labelStyle={{ color: 'rgba(255,255,255,.35)' }}
+                        formatter={(v) => [fmtTip(Number(v)), label]} />
+                      <Area type="monotone" dataKey="v" stroke="#00e5ff" strokeWidth={1.8} fill="url(#kg)" dot={false} activeDot={{ r: 4, fill: '#00e5ff', stroke: '#fff', strokeWidth: 1 }} isAnimationActive={false} />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(0,229,255,.3)', letterSpacing: '2px' }}>
+                    AWAITING STREAM DATA…
+                  </div>
+                )
+              })()}
             </div>
           </div>
         </div>
@@ -681,7 +725,7 @@ export default function AlephDashboard() {
                   HEALTH {Math.round(portfolioHealth)}
                 </span>
               )}
-              <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)' }}>USER: KIM MIN-HO</span>
+              <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)' }}>USER: KIM MIN-SEONG</span>
             </div>
             {/* Asset class tab filter */}
             <div style={{ display: 'flex', gap: 5, marginBottom: 9 }}>

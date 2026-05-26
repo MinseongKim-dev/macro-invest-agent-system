@@ -476,14 +476,30 @@ Git tag: `v0.2.0`
 
 ---
 
-### Next Milestone: v0.2.1 — 국내 시장 정밀 타격 + 글로벌 지수 차트
+### v0.2.1 — 국내 시장 정밀 타격 + 글로벌 지수 차트 + 하이브리드 스케줄러
+
+**Status: RELEASED ✓**
+Git tag: `v0.2.1`
+
+#### Completed Tasks
+
+- [X] **국장 대형주 라인업 확장** — `src/engines.py` TICKERS + `src/database.py` LIVE_TICKERS에 NAVER(035420) / LG화학(051910) / 삼성SDI(006400) / KODEX LEV(122630) 추가. Risk matrix 12행 확장.
+- [X] **글로벌 지수 `index_ticks` 하이퍼테이블 + 실시간 수집** — `src/database.py` `INDEX_TICKERS` / `fetch_live_index_data()` 신설. KOSPI(^KS11) / S&P 500(^GSPC) / USD-KRW(KRW=X) yfinance 실시간 수집.
+- [X] **`market_indices` SSE 페이로드 필드** — `src/main.py` `_INDEX_CACHE` + `_live_collector_loop()` 인덱스 fetch. `_build_payload()` → `market_indices` 필드 추가. `lib/types.ts` 타입 반영.
+- [X] **중앙 차트 지수 원터치 토글** — `AlephDashboard.tsx` `activeIndex` 상태 + `indexHistory` 버퍼. `[PORTFOLIO][KOSPI][S&P][KRW]` 네온 버튼 → 선택 지수 실시간 차트 표시.
+- [X] **KST 하이브리드 스케줄러** — `_get_collection_interval()` 헬퍼 신설. KR 장중(09:00–15:30 KST) / 미국 장중(22:30–05:00 KST) → 10초, 장 외 → 60초.
+- [X] **OMNI-COMMAND 502 → 오프라인 폴백** — `apps/frontend/app/api/v1/intelligence/command/route.ts` 백엔드 연결 실패 시 HTTP 200 + 구조화된 오프라인 응답 반환.
+- [X] **이름 수정** — UI `KIM MIN-HO` → `KIM MIN-SEONG` (AlephDashboard.tsx 2곳).
+
+---
+
+### Next Milestone: v0.3.0 — 공모 펀드 NAV 배치 + AI 리서치 패널
 
 **Status: PENDING**
 
 #### Queued Tasks
 
-- [ ] **국장 대형주 라인업 확장** — NAVER(035420), LG화학(051910), 삼성SDI(006400), KODEX 레버리지(122630) 수집 타깃 추가.
-- [ ] **글로벌 지수 `index_ticks` 하이퍼테이블** — KOSPI(^KS11), KOSDAQ(^KQ11), S&P(^GSPC), NASDAQ(^IXIC), USD/KRW(KRW=X) 별도 테이블 신설.
-- [ ] **중앙 차트 지수 원터치 토글** — `[KOSPI][S&P][KRW]` 버튼 → 선택 지수 실시간 차트 표시.
-- [ ] **장문 AI 레포트 수신 버퍼 확장** — SSE 응답 스트림에서 LangChain RAG가 반환하는 장문 분석 텍스트가 잘리는 현상 방지.
+- [ ] **공모 펀드 일일 NAV 적재** — KOFIA OpenAPI → `fund_nav_ticks` TimescaleDB 하이퍼테이블. `[FUNDS]` 탭 실데이터 연결.
+- [ ] **슬라이드 아웃 AI 리서치 패널** — `ResearchPanel.tsx` 신규. `react-markdown` 렌더링. Framer Motion 슬라이드 인/아웃.
+- [ ] **장문 AI 레포트 수신 버퍼 확장** — LangChain RAG 스트리밍 토큰 버퍼 개선.
 

@@ -37,6 +37,7 @@ from sse_starlette.sse import EventSourceResponse
 from src import config
 from src.database import (
     _PoolManager,
+    fetch_live_index_data,
     fetch_live_market_data,
     fetch_live_news,
     get_connection,
@@ -71,6 +72,10 @@ _BASELINE_PRICES: dict[str, float] = {
     "QQQ":    490.0,
     "BND":     73.0,
     "GLD":    240.0,
+    "035420": 230_000.0,
+    "051910": 340_000.0,
+    "006400": 380_000.0,
+    "122630":  18_000.0,
 }
 
 # Rolling price history buffer — populated on startup, updated each tick
@@ -120,6 +125,22 @@ _TICKER_NEWS: dict[str, list[str]] = {
         "Gold ETF surges on dollar weakness; safe-haven demand bullish amid macro uncertainty",
         "GLD holdings expand as central banks increase reserve gold allocation globally",
     ],
+    "035420": [
+        "NAVER Cloud AI growth accelerates; enterprise contracts expand across Southeast Asia",
+        "NAVER webtoon global expansion bullish; content monetization beats expectations",
+    ],
+    "051910": [
+        "LG화학 battery materials demand surge; EV supply chain recovery signals bullish",
+        "LG화학 NCMA cathode expansion drives record sales; margin improvement confirmed",
+    ],
+    "006400": [
+        "삼성SDI solid-state battery prototype milestone; EV maker partnerships expand",
+        "삼성SDI Q3 earnings beat; premium cylindrical cell demand remains strong",
+    ],
+    "122630": [
+        "KODEX 레버리지 volume surge as KOSPI 200 momentum accelerates bullish trend",
+        "Korean ETF inflows rise; institutional rotation into domestic equities confirmed",
+    ],
 }
 
 # ── DB price cache ────────────────────────────────────────────────────────────
@@ -133,6 +154,12 @@ _LIVE_NEWS_CACHE:     dict[str, list[str]]    = {}
 # Single shared background task — started on first SSE connect, cancelled on last disconnect.
 _LIVE_COLLECTOR_TASK: asyncio.Task[None] | None = None
 _SSE_CONNECTION_COUNT: int                      = 0
+# Latest market index values — updated by _live_collector_loop every 60 s
+_INDEX_CACHE: dict[str, float] = {
+    "KOSPI":  2540.0,
+    "SP500":  5000.0,
+    "USDKRW": 1360.0,
+}
 
 
 def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | None:
@@ -243,6 +270,21 @@ def _load_regime_from_db() -> None:
 
 # ── Live collector loop ───────────────────────────────────────────────────────
 
+_KST = pytz.timezone("Asia/Seoul")
+
+
+def _get_collection_interval() -> int:
+    """Return collection interval in seconds based on KST market hours.
+
+    10 s during KR session (09:00–15:30 KST) or US session (22:30–05:00 KST).
+    60 s otherwise.
+    """
+    now = datetime.now(_KST)
+    h, m = now.hour, now.minute
+    in_kr = (h == 9 and m >= 0) or (9 < h < 15) or (h == 15 and m <= 30)
+    in_us = h >= 22 or h < 5
+    return 10 if (in_kr or in_us) else 60
+
 
 async def _live_collector_loop() -> None:
     """Background task: fetch real OHLCV + news from Yahoo Finance every 60 s.
@@ -276,8 +318,19 @@ async def _live_collector_loop() -> None:
         except Exception as exc:
             logger.warning("live_collector_news_error", extra={"error": str(exc)})
 
+        # ── Market indices ────────────────────────────────────────────────────
         try:
-            await asyncio.sleep(60)
+            idx = await asyncio.to_thread(fetch_live_index_data)
+            _INDEX_CACHE.update(idx)
+            logger.info("live_collector_index_ok", extra={"indices": list(idx.keys())})
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("live_collector_index_error", extra={"error": str(exc)})
+
+        interval = _get_collection_interval()
+        try:
+            await asyncio.sleep(interval)
         except asyncio.CancelledError:
             logger.info("live_collector_stopped")
             raise
@@ -401,6 +454,7 @@ def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -
             "network_nodes": _perturb_nodes(_BASE_NODES, sigma=0.025, rng=rng),
             "risk_matrix":   clean_matrix,
         },
+        "market_indices": dict(_INDEX_CACHE),
     }
 
 
