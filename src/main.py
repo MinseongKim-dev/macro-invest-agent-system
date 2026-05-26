@@ -34,6 +34,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
+from src import config
 from src.database import (
     _PoolManager,
     fetch_live_market_data,
@@ -704,27 +705,24 @@ def search_news_database(query: str, ticker: str = "") -> str:
 
 
 def _build_lc_agent() -> Any:  # noqa: ANN401
-    """Construct a LangChain 1.x tool-calling agent (ChatGroq, free tier).
+    """Construct a LangChain 1.x tool-calling agent (provider from config).
 
-    Imports are deferred so the module loads even without langchain-groq
+    Imports are deferred so the module loads even without the provider packages
     installed. Raises RuntimeError (caught by intelligence_command → fallback)
     if required packages are absent.
     """
     try:
-        from langchain.agents import create_agent
-        from langchain_groq import ChatGroq
+        from langchain.agents import create_react_agent
     except ImportError as exc:
         raise RuntimeError(
             f"LangChain agent packages unavailable: {exc}. "
-            "Ensure langchain>=1.0.0 and langchain-groq>=0.3.0 are installed."
+            "Ensure langchain>=0.2.0 is installed."
         ) from exc
 
-    import os
-    model = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-    llm = ChatGroq(model=model, temperature=0.1)
+    llm = config.get_llm()
     tools = [search_news_database, get_quant_intelligence, get_sentiment_intelligence]
-    agent = create_agent(llm, tools, system_prompt=_AGENT_SYSTEM_PROMPT)
-    logger.info("lc_agent_built", extra={"model": model, "tools": len(tools)})
+    agent = create_react_agent(llm, tools, prompt=_AGENT_SYSTEM_PROMPT)
+    logger.info("lc_agent_built", extra={"tools": len(tools)})
     return agent
 
 
@@ -880,7 +878,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=config.CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -891,6 +889,27 @@ app.add_middleware(
 @app.get("/health", tags=["ops"])
 async def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+@app.get("/api/events/recent", tags=["intelligence"])
+async def events_recent(limit: int = 15) -> dict[str, Any]:
+    """Return the most recently cached news headlines from the live collector.
+
+    Consumed by the frontend ``useNewsStream`` hook (SWR 30-second polling).
+    Falls back to the static seed corpus when the live collector has not yet
+    populated the cache.
+    """
+    events: list[dict[str, Any]] = []
+    source = _LIVE_NEWS_CACHE if _LIVE_NEWS_CACHE else _TICKER_NEWS
+    for ticker, headlines in source.items():
+        for headline in headlines:
+            events.append({
+                "title":        headline,
+                "ticker":       ticker,
+                "published_at": datetime.now(tz=_KST).isoformat(),
+                "source":       "live" if _LIVE_NEWS_CACHE else "seed",
+            })
+    return {"events": events[:limit], "total": len(events)}
 
 
 @app.get("/api/v1/intelligence/stream", tags=["intelligence"])

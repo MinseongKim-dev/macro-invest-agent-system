@@ -455,7 +455,28 @@ Git tag: `v0.1.2` (HEAD)
 
 ---
 
-### Next Milestone: v0.2.0 — 국내 시장 정밀 타격 + 글로벌 지수 차트
+---
+
+### v0.2.0 — DigitalOcean 하이브리드 인프라 (Production Infra)
+
+**Status: RELEASED ✓**
+Git tag: `v0.2.0`
+
+#### Completed Tasks
+
+- [X] **`src/config.py` 신규** — `ENV_MODE=PRODUCTION` 시 Groq API 강제, `LOCAL` 시 Groq 우선/Ollama 폴백. `CORS_ORIGINS` 런타임 주입(`CORS_ALLOWED_ORIGINS` 환경변수).
+- [X] **Milvus Lite 마이그레이션** — `src/database.py` Docker Milvus(~1GB RAM) → `MilvusClient` 파일 기반 임베디드 스토어. `_MILVUS_LITE_PATH` 환경변수 설정.
+- [X] **`src/main.py` 프로덕션 배선** — `config.CORS_ORIGINS` CORSMiddleware 연결, `_build_lc_agent()` `config.get_llm()` 위임. `/api/events/recent` 엔드포인트 신설(SWR 뉴스 피드용).
+- [X] **`docker-compose.prod.yml` 신규** — FastAPI + TimescaleDB 전용, 컨테이너당 `memory: 800m` 제한, Milvus 컨테이너 제거.
+- [X] **프론트엔드 환경변수 정비** — `apps/frontend/app/api/stream/market/route.ts` `API_BASE_URL` → `ALEPH_API_URL` 교체. `/api/v1/intelligence/command` 프록시 라우트 신설. `/api/events/recent` 프록시 라우트 신설.
+- [X] **`.env.example` 업데이트** — `ENV_MODE`, `MILVUS_LITE_PATH`, `CORS_ALLOWED_ORIGINS` 문서화.
+- [X] **`apps/frontend/.env.local.example` 신규** — `ALEPH_API_URL`, `NEXT_PUBLIC_API_URL` 문서화.
+- [X] **`.github/workflows/backend-cd.yml` 신규** — Docker Hub 빌드/푸시 → SSH VPS 롤링 배포 CD 파이프라인.
+- [X] **`pyproject.toml` 의존성 갱신** — `pymilvus>=2.4.0`, `milvus-lite>=2.4.0`, `langchain-ollama>=0.2.0`, `pytz>=2024.1` 추가.
+
+---
+
+### Next Milestone: v0.2.1 — 국내 시장 정밀 타격 + 글로벌 지수 차트
 
 **Status: PENDING**
 
