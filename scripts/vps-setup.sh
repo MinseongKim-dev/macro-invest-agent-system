@@ -58,7 +58,12 @@ if [ -d "$DEPLOY_PATH/.git" ]; then
     git -C "$DEPLOY_PATH" fetch origin main
     git -C "$DEPLOY_PATH" reset --hard origin/main
 else
-    git clone "$REPO_URL" "$DEPLOY_PATH"
+    # 디렉터리가 비어있지 않아도 git init 방식으로 클론
+    git -C "$DEPLOY_PATH" init
+    git -C "$DEPLOY_PATH" remote add origin "$REPO_URL" 2>/dev/null || \
+        git -C "$DEPLOY_PATH" remote set-url origin "$REPO_URL"
+    git -C "$DEPLOY_PATH" fetch origin main --depth=1
+    git -C "$DEPLOY_PATH" checkout -B main origin/main
     info "저장소 클론 완료"
 fi
 
