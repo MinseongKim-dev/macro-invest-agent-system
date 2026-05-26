@@ -56,32 +56,35 @@ if [ -d "$DEPLOY_PATH/.git" ]; then
     git -C "$DEPLOY_PATH" fetch origin main
     git -C "$DEPLOY_PATH" reset --hard origin/main
 else
-    # .env와 data/ 백업 후 디렉터리 초기화 → 클론
+    # .env 백업 (있으면)
     ENV_BACKUP=""
-    DATA_BACKUP=""
-
     if [ -f "$DEPLOY_PATH/.env" ]; then
         ENV_BACKUP=$(cat "$DEPLOY_PATH/.env")
         warn ".env 백업 완료"
     fi
-    if [ -d "$DEPLOY_PATH/data" ] && [ "$(ls -A "$DEPLOY_PATH/data" 2>/dev/null)" ]; then
-        DATA_BACKUP="$DEPLOY_PATH/../aleph-data-backup"
+
+    # data/ 백업 (내용 있으면)
+    DATA_BACKUP="/tmp/aleph-data-backup-$$"
+    if [ -d "$DEPLOY_PATH/data" ] && [ -n "$(ls -A "$DEPLOY_PATH/data" 2>/dev/null)" ]; then
         cp -r "$DEPLOY_PATH/data" "$DATA_BACKUP"
         warn "data/ 백업 완료 → $DATA_BACKUP"
     fi
 
+    # 디렉터리 완전 제거 후 새로 클론
     rm -rf "$DEPLOY_PATH"
     git clone --depth=1 "$REPO_URL" "$DEPLOY_PATH"
     info "저장소 클론 완료"
 
     # 백업 복원
+    mkdir -p "$DEPLOY_PATH/data" "$DEPLOY_PATH/logs"
     if [ -n "$ENV_BACKUP" ]; then
-        echo "$ENV_BACKUP" > "$DEPLOY_PATH/.env"
+        printf '%s' "$ENV_BACKUP" > "$DEPLOY_PATH/.env"
         chmod 600 "$DEPLOY_PATH/.env"
         info ".env 복원 완료"
     fi
-    if [ -n "$DATA_BACKUP" ]; then
-        cp -r "$DATA_BACKUP" "$DEPLOY_PATH/data"
+    if [ -d "$DATA_BACKUP" ]; then
+        cp -r "$DATA_BACKUP/." "$DEPLOY_PATH/data/"
+        rm -rf "$DATA_BACKUP"
         info "data/ 복원 완료"
     fi
 fi
