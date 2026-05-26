@@ -50,22 +50,43 @@ info "방화벽 설정 완료 (SSH:22, API:8001)"
 # ── 4. 배포 디렉터리 구성 ──────────────────────────────────────────────────────
 info "4/7  배포 디렉터리 구성..."
 mkdir -p "$DEPLOY_PATH"
-mkdir -p "$DEPLOY_PATH/data"   # Milvus Lite DB 저장
-mkdir -p "$DEPLOY_PATH/logs"
 
 if [ -d "$DEPLOY_PATH/.git" ]; then
-    warn "저장소 이미 존재함, git pull 실행..."
+    warn "저장소 이미 존재함, 최신 코드로 업데이트..."
     git -C "$DEPLOY_PATH" fetch origin main
     git -C "$DEPLOY_PATH" reset --hard origin/main
 else
-    # 디렉터리가 비어있지 않아도 git init 방식으로 클론
-    git -C "$DEPLOY_PATH" init
-    git -C "$DEPLOY_PATH" remote add origin "$REPO_URL" 2>/dev/null || \
-        git -C "$DEPLOY_PATH" remote set-url origin "$REPO_URL"
-    git -C "$DEPLOY_PATH" fetch origin main --depth=1
-    git -C "$DEPLOY_PATH" checkout -B main origin/main
+    # .env와 data/ 백업 후 디렉터리 초기화 → 클론
+    ENV_BACKUP=""
+    DATA_BACKUP=""
+
+    if [ -f "$DEPLOY_PATH/.env" ]; then
+        ENV_BACKUP=$(cat "$DEPLOY_PATH/.env")
+        warn ".env 백업 완료"
+    fi
+    if [ -d "$DEPLOY_PATH/data" ] && [ "$(ls -A "$DEPLOY_PATH/data" 2>/dev/null)" ]; then
+        DATA_BACKUP="$DEPLOY_PATH/../aleph-data-backup"
+        cp -r "$DEPLOY_PATH/data" "$DATA_BACKUP"
+        warn "data/ 백업 완료 → $DATA_BACKUP"
+    fi
+
+    rm -rf "$DEPLOY_PATH"
+    git clone --depth=1 "$REPO_URL" "$DEPLOY_PATH"
     info "저장소 클론 완료"
+
+    # 백업 복원
+    if [ -n "$ENV_BACKUP" ]; then
+        echo "$ENV_BACKUP" > "$DEPLOY_PATH/.env"
+        chmod 600 "$DEPLOY_PATH/.env"
+        info ".env 복원 완료"
+    fi
+    if [ -n "$DATA_BACKUP" ]; then
+        cp -r "$DATA_BACKUP" "$DEPLOY_PATH/data"
+        info "data/ 복원 완료"
+    fi
 fi
+
+mkdir -p "$DEPLOY_PATH/data" "$DEPLOY_PATH/logs"
 
 # ── 5. .env 파일 생성 ──────────────────────────────────────────────────────────
 info "5/7  .env 파일 설정..."
