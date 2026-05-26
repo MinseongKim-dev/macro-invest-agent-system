@@ -712,11 +712,11 @@ def _build_lc_agent() -> Any:  # noqa: ANN401
     if required packages are absent.
     """
     try:
-        from langchain.agents import create_react_agent
+        from langgraph.prebuilt import create_react_agent
     except ImportError as exc:
         raise RuntimeError(
-            f"LangChain agent packages unavailable: {exc}. "
-            "Ensure langchain>=0.2.0 is installed."
+            f"LangGraph packages unavailable: {exc}. "
+            "Ensure langgraph>=0.2.0 is installed."
         ) from exc
 
     llm = config.get_llm()

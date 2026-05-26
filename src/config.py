@@ -62,7 +62,8 @@ def get_llm() -> Any:  # noqa: ANN401
         except ImportError as exc:
             raise RuntimeError("langchain-groq not installed") from exc
         logger.info("llm_provider", extra={"provider": "groq_production", "model": GROQ_MODEL})
-        return ChatGroq(model=GROQ_MODEL, temperature=0.1, api_key=GROQ_API_KEY)
+        from pydantic import SecretStr
+        return ChatGroq(model=GROQ_MODEL, temperature=0.1, api_key=SecretStr(GROQ_API_KEY))
 
     # LOCAL: Groq preferred when key present
     if GROQ_API_KEY:
