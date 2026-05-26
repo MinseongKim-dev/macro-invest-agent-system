@@ -611,14 +611,14 @@ export default function AlephDashboard() {
             <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: '2px', color: '#00e5ff', marginBottom: 12 }}>GLOBAL MACRO &amp; MARKET OVERVIEW</div>
             <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
               <div style={{ width: 96, flexShrink: 0 }}>
-                <MacroStat lbl="GDP" val="37.3%" col="#00ff88" />
-                <MacroStat lbl="INFLATION" val="+1.65%" col="#00e5ff" />
+                <MacroStat lbl="VIX" val={streamData?.macro_indicators?.VIX != null ? streamData.macro_indicators.VIX.toFixed(2) : '···'} col={streamData?.macro_indicators?.VIX != null && streamData.macro_indicators.VIX > 25 ? '#ff4444' : '#00ff88'} />
+                <MacroStat lbl="T10Y" val={streamData?.macro_indicators?.T10Y != null ? streamData.macro_indicators.T10Y.toFixed(2) + '%' : '···'} col="#00e5ff" />
                 <div>
                   <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(0,229,255,.45)', textTransform: 'uppercase', marginBottom: 4 }}>INTEREST RATES</div>
-                  {([['KR', '3.50%'], ['US', '5.25%'], ['CN', '3.85%']] as const).map(([c, v]) => (
+                  {([['FED', streamData?.macro_indicators?.FED_RATE, streamData?.macro_indicators?.T3M], ['T10Y', streamData?.macro_indicators?.T10Y, null]] as [string, number|undefined, number|undefined][]).map(([c, v]) => (
                     <div key={c} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
                       <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.38)' }}>{c}</span>
-                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: '#00e5ff' }}>{v}</span>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: '#00e5ff' }}>{v != null ? v.toFixed(2) + '%' : '···'}</span>
                     </div>
                   ))}
                 </div>

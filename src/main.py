@@ -40,6 +40,7 @@ from src.database import (
     fetch_live_index_data,
     fetch_live_market_data,
     fetch_live_news,
+    fetch_macro_indicators,
     get_connection,
     init_db,
     init_milvus,
@@ -154,12 +155,21 @@ _LIVE_NEWS_CACHE:     dict[str, list[str]]    = {}
 # Single shared background task — started on first SSE connect, cancelled on last disconnect.
 _LIVE_COLLECTOR_TASK: asyncio.Task[None] | None = None
 _SSE_CONNECTION_COUNT: int                      = 0
-# Latest market index values — updated by _live_collector_loop every 60 s
+# Latest market index values — updated by _live_collector_loop every cycle
 _INDEX_CACHE: dict[str, float] = {
     "KOSPI":  2540.0,
     "SP500":  5000.0,
     "USDKRW": 1360.0,
 }
+# Macro economic indicators — updated by _macro_collector_loop every hour
+_MACRO_CACHE: dict[str, float] = {
+    "T10Y":    4.35,   # 10-year Treasury yield (%)
+    "T3M":     5.28,   # 3-month T-bill (%)
+    "VIX":     18.5,   # CBOE VIX
+    "FED_RATE": 5.33,  # Fed funds rate (%)
+}
+# Hourly macro collector task (lifecycle: startup → shutdown)
+_MACRO_COLLECTOR_TASK: asyncio.Task[None] | None = None
 
 
 def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | None:
@@ -454,7 +464,8 @@ def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -
             "network_nodes": _perturb_nodes(_BASE_NODES, sigma=0.025, rng=rng),
             "risk_matrix":   clean_matrix,
         },
-        "market_indices": dict(_INDEX_CACHE),
+        "market_indices":    dict(_INDEX_CACHE),
+        "macro_indicators":  dict(_MACRO_CACHE),
     }
 
 
@@ -888,9 +899,37 @@ async def _run_agent_async(query: str, persona: PersonaProfile) -> dict[str, Any
 
 # ── FastAPI application ───────────────────────────────────────────────────────
 
+async def _macro_collector_loop() -> None:
+    """Hourly background task: fetch FRED/yfinance macro indicators → _MACRO_CACHE.
+
+    Runs once immediately at startup (so the cache is warm on first SSE request),
+    then every 3600 seconds thereafter.  Errors are logged and swallowed so the
+    loop never crashes the server.
+    """
+    logger.info("macro_collector_started")
+    while True:
+        try:
+            data = await asyncio.to_thread(fetch_macro_indicators)
+            if data:
+                _MACRO_CACHE.update(data)
+                logger.info("macro_cache_updated", extra={"keys": list(data.keys())})
+        except asyncio.CancelledError:
+            logger.info("macro_collector_stopped")
+            raise
+        except Exception as exc:
+            logger.warning("macro_collector_error", extra={"error": str(exc)})
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            logger.info("macro_collector_stopped")
+            raise
+
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     """Startup: DB init → seed → load history → cache regime. Shutdown: close pool."""
+    global _MACRO_COLLECTOR_TASK
+
     logger.info("aleph_one_startup")
     try:
         await asyncio.to_thread(init_db)
@@ -911,9 +950,14 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     except Exception as exc:
         logger.warning("milvus_startup_skipped", extra={"error": str(exc)})
 
+    # Start hourly macro indicator collector (runs independently of SSE connections)
+    _MACRO_COLLECTOR_TASK = asyncio.create_task(_macro_collector_loop())
+
     logger.info("aleph_one_ready")
     yield
 
+    if _MACRO_COLLECTOR_TASK is not None:
+        _MACRO_COLLECTOR_TASK.cancel()
     _PoolManager.close()
     logger.info("aleph_one_shutdown")
 

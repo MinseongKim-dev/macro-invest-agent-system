@@ -493,13 +493,30 @@ Git tag: `v0.2.1`
 
 ---
 
-### Next Milestone: v0.3.0 — 공모 펀드 NAV 배치 + AI 리서치 패널
+### v0.3.0 — 진짜 데이터 수혈 및 연결 안정화
+
+**Status: RELEASED ✓**
+Git tag: `v0.3.0`
+
+#### Completed Tasks
+
+- [X] **SSE 재연결 지수 백오프** — `useAlephStream.ts` 전면 재작성. 풀 지터 백오프(3→6→12→30 s), 탭 가시성 재연결, 싱글톤 정리. `RECONNECTING` 프리즈 해소.
+- [X] **매크로 배치 수집 엔진** — `src/database.py` `fetch_macro_indicators()` 신설. T10Y/T3M/VIX(yfinance) + FEDFUNDS/CPI/GDP/UNRATE(FRED, 선택). `macro_indicators` 하이퍼테이블 저장. `src/main.py` `_macro_collector_loop()` 서버 기동 시 hourly 루프 시작.
+- [X] **`macro_indicators` SSE 페이로드** — `_MACRO_CACHE` dict `_build_payload()` 포함. 대시보드 VIX·T10Y·FED_RATE 정적값 → 실시간 스트림 연결.
+- [X] **Milvus 가격 동기화 브릿지** — `src/database.py` `embed_price_alert()` 신설. `fetch_live_market_data()` 내 ≥2% 가격 변동 감지 시 즉시 Milvus 임베딩 ("삼성전자 3.2% 급락 …") → RAG 에이전트 실시간 컨텍스트.
+- [X] **`macro_indicators` 하이퍼테이블** — `macro_indicators(snapshot_time, series_id, value, source)` 30일 청크 TimescaleDB.
+- [X] **`FRED_API_KEY` 환경변수** — 선택적; 미설정 시 yfinance 프록시 폴백.
+- [X] **`lib/types.ts`** — `macro_indicators?: Record<string, number>` 추가.
+
+---
+
+### Next Milestone: v0.3.1 — AI 리서치 패널 + OMNI 스트리밍
 
 **Status: PENDING**
 
 #### Queued Tasks
 
-- [ ] **공모 펀드 일일 NAV 적재** — KOFIA OpenAPI → `fund_nav_ticks` TimescaleDB 하이퍼테이블. `[FUNDS]` 탭 실데이터 연결.
 - [ ] **슬라이드 아웃 AI 리서치 패널** — `ResearchPanel.tsx` 신규. `react-markdown` 렌더링. Framer Motion 슬라이드 인/아웃.
-- [ ] **장문 AI 레포트 수신 버퍼 확장** — LangChain RAG 스트리밍 토큰 버퍼 개선.
+- [ ] **LangChain 실시간 토큰 스트리밍** — `/command/stream` SSE 엔드포인트. 프론트엔드 EventSource 교체.
+- [ ] **공모 펀드 일일 NAV 적재** — KOFIA OpenAPI → `fund_nav_ticks` 하이퍼테이블. `[FUNDS]` 탭 실데이터 연결.
 

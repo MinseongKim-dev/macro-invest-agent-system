@@ -1,8 +1,19 @@
 # Aleph-One
 
-**v0.2.1** · Open-source, zero-cost financial intelligence terminal
+**v0.3.0** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.3.0
+
+- **SSE reconnect with exponential backoff** — `useAlephStream` hook rebuilt with full jitter backoff (3→6→12→30 s), tab-visibility reconnect, and proper singleton teardown. Eliminates `RECONNECTING` freeze on Vercel.
+- **Macro indicators batch engine** — `fetch_macro_indicators()` in `src/database.py` fetches T10Y, T3M, VIX from yfinance and FEDFUNDS/CPI/GDP/UNRATE from FRED (when `FRED_API_KEY` set). Persisted to `macro_indicators` TimescaleDB hypertable. Hourly `_macro_collector_loop()` starts at server boot.
+- **`macro_indicators` in SSE payload** — `_MACRO_CACHE` dict included in every tick. Dashboard wires VIX, T10Y, FED_RATE from live stream instead of static hardcoded values.
+- **Milvus price-alert sync bridge** — `embed_price_alert()` in `src/database.py` detects ≥2% price moves in `fetch_live_market_data()` and immediately embeds a text event ("삼성전자 3.2% 급락 …") into Milvus so the LangChain RAG agent has real-time context.
+- **`macro_indicators` hypertable** — `macro_indicators(snapshot_time, series_id, value, source)` with 30-day TimescaleDB chunks.
+- **`FRED_API_KEY` env var** — optional; falls back to yfinance proxies when absent.
 
 ---
 
