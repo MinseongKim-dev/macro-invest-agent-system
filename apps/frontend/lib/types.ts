@@ -231,4 +231,5 @@ export interface AlephStreamData {
     network_nodes: AlephNetworkNode[]
     risk_matrix:   AlephRiskRow[]
   }
+  market_indices?: Record<string, number>
 }
