@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET(): Promise<Response> {
-  const base = process.env.API_BASE_URL ?? 'http://api:8000'
+  const base = process.env.ALEPH_API_URL ?? 'http://aleph-api:8001'
   const upstreamUrl = `${base}/api/mock/stream/market`
 
   let upstream: Response

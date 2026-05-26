@@ -324,16 +324,20 @@ def _to_kst(ts: int | float | pd.Timestamp | datetime | str) -> datetime:
             dt = dt.replace(tzinfo=UTC)
     return dt.astimezone(_KST)
 
-# ── Milvus Vector Store ───────────────────────────────────────────────────────
+# ── Milvus Vector Store (Lite — embedded file mode) ──────────────────────────
+#
+# Uses pymilvus MilvusClient with a local file path instead of Docker Milvus.
+# This eliminates the ~1 GB Milvus standalone Docker overhead on the VPS.
+# File path is configurable via MILVUS_LITE_PATH (default: ./data/milvus_lite.db).
 
-_MILVUS_HOST: str        = os.environ.get("MILVUS_HOST", "localhost")
-_MILVUS_PORT: int        = int(os.environ.get("MILVUS_PORT", "19530"))
-_NEWS_COLLECTION: str    = "news_collection"
-_EMBEDDING_DIM: int      = 384   # sentence-transformers/all-MiniLM-L6-v2
+_NEWS_COLLECTION: str = "news_collection"
+_EMBEDDING_DIM:   int = 384   # sentence-transformers/all-MiniLM-L6-v2
+_MILVUS_LITE_PATH: str = os.environ.get("MILVUS_LITE_PATH", "./data/milvus_lite.db")
 
-# Module-level singletons populated by init_milvus() and _get_embedder()
-_milvus_ready: bool = False
-_embedder: Any      = None   # HuggingFaceEmbeddings instance
+# Module-level singletons
+_milvus_ready:  bool = False
+_milvus_client: Any  = None   # pymilvus.MilvusClient
+_embedder:      Any  = None   # HuggingFaceEmbeddings
 
 
 def _get_embedder() -> Any:  # noqa: ANN401
@@ -356,133 +360,100 @@ def _news_hash(title: str) -> str:
     return hashlib.sha256(title.encode()).hexdigest()[:16]
 
 
+def _news_hash_int(title: str) -> int:
+    """Return a stable INT64 primary key derived from the title SHA-256."""
+    return int(hashlib.sha256(title.encode()).hexdigest(), 16) % (2**63)
+
+
 def init_milvus() -> None:
-    """Connect to Milvus and ensure ``news_collection`` exists with HNSW index.
+    """Initialise Milvus Lite (embedded, file-based) vector store.
 
-    Schema:
-      id (INT64, auto)  news_hash (VARCHAR 32)  ticker (VARCHAR 10)
-      title (VARCHAR 512)  published_at (INT64)  embedding (FLOAT_VECTOR 384)
+    Creates ``news_collection`` with COSINE HNSW index if absent.
+    Sets ``_milvus_ready = True`` on success; logs a warning and returns
+    without raising on failure so the application boots even when the
+    embedder or milvus-lite package is absent.
 
-    Idempotent — safe to call on every startup. Sets ``_milvus_ready = True``
-    on success; logs a warning and returns without raising on failure so that
-    the application boots even when Milvus is not available.
+    File path: MILVUS_LITE_PATH env var (default ./data/milvus_lite.db).
     """
-    global _milvus_ready
+    global _milvus_ready, _milvus_client
     try:
-        from pymilvus import (
-            Collection,
-            CollectionSchema,
-            DataType,
-            FieldSchema,
-            connections,
-            utility,
-        )
+        from pymilvus import DataType, MilvusClient
 
-        connections.connect(alias="default", host=_MILVUS_HOST, port=_MILVUS_PORT)
+        os.makedirs(os.path.dirname(_MILVUS_LITE_PATH) or ".", exist_ok=True)
+        _milvus_client = MilvusClient(_MILVUS_LITE_PATH)
 
-        if not utility.has_collection(_NEWS_COLLECTION):
-            fields = [
-                FieldSchema(name="id",           dtype=DataType.INT64,        is_primary=True, auto_id=True),
-                FieldSchema(name="news_hash",    dtype=DataType.VARCHAR,      max_length=32),
-                FieldSchema(name="ticker",       dtype=DataType.VARCHAR,      max_length=10),
-                FieldSchema(name="title",        dtype=DataType.VARCHAR,      max_length=512),
-                FieldSchema(name="published_at", dtype=DataType.INT64),
-                FieldSchema(name="embedding",    dtype=DataType.FLOAT_VECTOR, dim=_EMBEDDING_DIM),
-            ]
-            schema = CollectionSchema(fields, description="Yahoo Finance news embeddings")
-            col: Any = Collection(name=_NEWS_COLLECTION, schema=schema)
-            col.create_index(
-                field_name="embedding",
-                index_params={
-                    "metric_type": "COSINE",
-                    "index_type":  "HNSW",
-                    "params":      {"M": 8, "efConstruction": 64},
-                },
+        if _NEWS_COLLECTION not in _milvus_client.list_collections():
+            schema = MilvusClient.create_schema(auto_id=False, enable_dynamic_field=False)
+            schema.add_field("id",           DataType.INT64,         is_primary=True)
+            schema.add_field("vector",       DataType.FLOAT_VECTOR,  dim=_EMBEDDING_DIM)
+            schema.add_field("news_hash",    DataType.VARCHAR,       max_length=32)
+            schema.add_field("ticker",       DataType.VARCHAR,       max_length=16)
+            schema.add_field("title",        DataType.VARCHAR,       max_length=512)
+            schema.add_field("published_at", DataType.INT64)
+
+            idx = MilvusClient.prepare_index_params()
+            idx.add_index(
+                field_name="vector",
+                metric_type="COSINE",
+                index_type="HNSW",
+                params={"M": 8, "efConstruction": 64},
             )
-            logger.info("milvus_collection_created", extra={"collection": _NEWS_COLLECTION})
-        else:
-            col = Collection(_NEWS_COLLECTION)
 
-        col.load()
+            _milvus_client.create_collection(
+                collection_name=_NEWS_COLLECTION,
+                schema=schema,
+                index_params=idx,
+            )
+            logger.info("milvus_lite_collection_created", extra={"collection": _NEWS_COLLECTION})
+        else:
+            _milvus_client.load_collection(_NEWS_COLLECTION)
+
         _milvus_ready = True
-        logger.info("milvus_ready", extra={"host": _MILVUS_HOST, "port": _MILVUS_PORT})
+        logger.info("milvus_lite_ready", extra={"path": _MILVUS_LITE_PATH})
 
     except Exception as exc:
-        logger.warning(
-            "milvus_init_skipped",
-            extra={"error": str(exc), "host": _MILVUS_HOST, "port": _MILVUS_PORT},
-        )
+        logger.warning("milvus_lite_init_skipped", extra={"error": str(exc), "path": _MILVUS_LITE_PATH})
         _milvus_ready = False
 
 
 def _upsert_news_to_milvus(news_map: dict[str, list[str]]) -> int:
-    """Embed headlines and insert new ones into Milvus, deduplicating by title hash.
+    """Embed headlines and upsert into Milvus Lite, deduplicating by title hash.
 
-    Called as a side-effect inside ``fetch_live_news()``.
-    Returns the number of newly inserted vectors, or 0 when Milvus is unavailable.
+    Uses INT64 primary keys derived from SHA-256 so identical titles are
+    idempotent. Returns number of newly written vectors (0 when unavailable).
     """
-    if not _milvus_ready:
+    if not _milvus_ready or _milvus_client is None:
         return 0
 
     try:
-        from pymilvus import Collection
-
-        # Build candidate list from all tickers
-        all_hashes:  list[str] = []
-        all_tickers: list[str] = []
-        all_titles:  list[str] = []
-
+        rows: list[dict[str, Any]] = []
         for ticker, headlines in news_map.items():
             for title in headlines:
-                if title:
-                    all_hashes.append(_news_hash(title))
-                    all_tickers.append(ticker)
-                    all_titles.append(title[:512])
+                if not title:
+                    continue
+                rows.append({
+                    "id":           _news_hash_int(title),
+                    "news_hash":    _news_hash(title),
+                    "ticker":       ticker[:16],
+                    "title":        title[:512],
+                    "published_at": int(time.time()),
+                    "vector":       [],   # placeholder — filled after batched embed
+                })
 
-        if not all_hashes:
+        if not rows:
             return 0
 
-        # Deduplication: query existing hashes in one round-trip
-        col: Any = Collection(_NEWS_COLLECTION)
-        hash_expr = ", ".join(f'"{h}"' for h in all_hashes)
-        existing   = col.query(
-            expr=f"news_hash in [{hash_expr}]",
-            output_fields=["news_hash"],
-            limit=len(all_hashes),
-        )
-        seen = {row["news_hash"] for row in existing}
+        embedder = _get_embedder()
+        embeddings: list[list[float]] = embedder.embed_documents([r["title"] for r in rows])
+        for row, vec in zip(rows, embeddings, strict=True):
+            row["vector"] = vec
 
-        new_idx = [i for i, h in enumerate(all_hashes) if h not in seen]
-        if not new_idx:
-            logger.debug("milvus_all_news_exist", extra={"skipped": len(all_hashes)})
-            return 0
-
-        new_hashes  = [all_hashes[i]  for i in new_idx]
-        new_tickers = [all_tickers[i] for i in new_idx]
-        new_titles  = [all_titles[i]  for i in new_idx]
-
-        # Embed in a single batch (CPU, ~MiniLM takes ~50ms for 50 texts)
-        embedder    = _get_embedder()
-        embeddings: list[list[float]] = embedder.embed_documents(new_titles)
-        now_ts      = int(time.time())
-
-        col.insert({
-            "news_hash":    new_hashes,
-            "ticker":       new_tickers,
-            "title":        new_titles,
-            "published_at": [now_ts] * len(new_titles),
-            "embedding":    embeddings,
-        })
-        col.flush()
-
-        logger.info(
-            "milvus_news_upserted",
-            extra={"inserted": len(new_titles), "skipped": len(all_hashes) - len(new_titles)},
-        )
-        return len(new_titles)
+        _milvus_client.upsert(collection_name=_NEWS_COLLECTION, data=rows)
+        logger.info("milvus_lite_upserted", extra={"inserted": len(rows)})
+        return len(rows)
 
     except Exception as exc:
-        logger.warning("milvus_upsert_failed", extra={"error": str(exc)})
+        logger.warning("milvus_lite_upsert_failed", extra={"error": str(exc)})
         return 0
 
 
@@ -491,53 +462,49 @@ def search_milvus_news(
     ticker: str | None = None,
     top_k: int = 3,
 ) -> list[dict[str, Any]]:
-    """Embed *query* and retrieve the top_k most semantically similar news items.
+    """Embed *query* and return the top_k semantically closest news items.
 
     Args:
-        query:  Natural-language query string (embedded with all-MiniLM-L6-v2).
-        ticker: Optional internal ticker ID filter (AAPL, MSFT, TSLA, 005930, 000660).
-        top_k:  Maximum number of results to return.
+        query:  Natural-language query string.
+        ticker: Optional internal ticker ID filter.
+        top_k:  Maximum results.
 
     Returns a list of dicts with keys ``ticker``, ``title``, ``published_at``,
-    ``score`` (COSINE similarity 0–1).  Returns ``[]`` when Milvus is not
-    available or the collection has no data yet.
+    ``score``.  Returns ``[]`` when Milvus Lite is not available.
     """
-    if not _milvus_ready:
+    if not _milvus_ready or _milvus_client is None:
         return []
 
     try:
-        from pymilvus import Collection
-
-        embedder     = _get_embedder()
+        embedder = _get_embedder()
         query_vec: list[float] = embedder.embed_query(query)
 
-        col: Any = Collection(_NEWS_COLLECTION)
-        expr     = f'ticker == "{ticker}"' if ticker else None
-        results  = col.search(
+        filter_expr = f'ticker == "{ticker}"' if ticker else ""
+
+        results = _milvus_client.search(
+            collection_name=_NEWS_COLLECTION,
             data=[query_vec],
-            anns_field="embedding",
-            param={"metric_type": "COSINE", "params": {"ef": 64}},
             limit=top_k,
-            expr=expr,
+            filter=filter_expr or None,
             output_fields=["ticker", "title", "published_at"],
         )
 
         hits: list[dict[str, Any]] = []
-        for hit in results[0]:
+        for hit in (results[0] if results else []):
+            entity = hit.get("entity", {})
             hits.append({
-                "ticker":       hit.entity.get("ticker", ""),
-                "title":        hit.entity.get("title", ""),
-                "published_at": hit.entity.get("published_at", 0),
-                "score":        round(float(hit.score), 4),
+                "ticker":       entity.get("ticker", ""),
+                "title":        entity.get("title", ""),
+                "published_at": entity.get("published_at", 0),
+                "score":        round(float(hit.get("distance", 0.0)), 4),
             })
 
-        logger.debug("milvus_search_done", extra={"query": query[:60], "hits": len(hits)})
+        logger.debug("milvus_lite_search_done", extra={"query": query[:60], "hits": len(hits)})
         return hits
 
     except Exception as exc:
-        logger.warning("milvus_search_failed", extra={"error": str(exc)})
+        logger.warning("milvus_lite_search_failed", extra={"error": str(exc)})
         return []
-
 # ── Retry Helper ──────────────────────────────────────────────────────────────
 
 

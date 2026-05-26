@@ -1,8 +1,19 @@
 # Aleph-One
 
-**v0.1.2** · Open-source, zero-cost financial intelligence terminal
+**v0.2.0** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.2.0
+
+- **Production config** — `src/config.py` unified LLM switching: `ENV_MODE=PRODUCTION` forces Groq, `LOCAL` prefers Groq and falls back to Ollama. `CORS_ALLOWED_ORIGINS` env var for runtime domain injection.
+- **Milvus Lite** — Docker Milvus (~1 GB RAM) replaced with embedded `MilvusClient` file-based store. Saves ~1 GB on a 2 GB VPS — no extra container needed.
+- **`docker-compose.prod.yml`** — slim production stack: FastAPI + TimescaleDB only, 800 MB memory limit per container, named volumes. Oracle Free Tier-compatible.
+- **GitHub Actions CD** — `.github/workflows/backend-cd.yml`: Docker Hub build/push + SSH rolling deploy to DigitalOcean / any VPS on every `main` push.
+- **Frontend route fixes** — `/api/v1/intelligence/command` proxy route added, `/api/events/recent` proxy added, `API_BASE_URL` → `ALEPH_API_URL` unified.
+- **Env var documentation** — `.env.example` and `apps/frontend/.env.local.example` updated for all new variables.
 
 ---
 
@@ -12,7 +23,7 @@ Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It inges
 - **KST time axis** — all `market_ticks` DB inserts and SSE `timestamp` fields normalised to `Asia/Seoul` (`+09:00`).
 - **ETF-specific volatility branch** — `QuantEngine` uses ATR(14)-based spike detection for ETFs (threshold 2.5 %, ratio 1.3×) vs raw σ for stocks.
 - **Live news feed** — static `NEWS` array replaced by SWR 30-second polling from `/api/events/recent`.
-- **Asset class tab UI** — `[ALL] [STOCKS] [ETFS] [FUNDS]` neon toggle tabs with `filteredOrder` dynamic rendering. `FUNDS` tab shows "AWAITING FEEDS" mask (v0.3.0 pipeline).
+- **Asset class tab UI** — `[ALL] [STOCKS] [ETFS] [FUNDS]` neon toggle tabs with `filteredOrder` dynamic rendering. `FUNDS` tab shows "AWAITING FEEDS" mask.
 - **Holdings scroll lock** — `maxHeight: calc(100vh - 420px)` prevents layout collapse as ticker count grows.
 
 ---
@@ -57,9 +68,9 @@ Three quantitative formulas from legendary investors, wired in sequence:
 - Graceful degradation: in-memory fallback if Milvus is unreachable
 
 ### Zero-Cost AI Architecture
-- LLM: **ChatGroq** (Llama 3.1 8B Instant, free tier) or **ChatOllama** (fully local)
+- LLM: **ChatGroq** (Llama 3.1 8B Instant, free tier) or **ChatOllama** (fully local) — switched via `ENV_MODE`
 - Embeddings: **HuggingFace sentence-transformers** (`all-MiniLM-L6-v2`, CPU, 384-dim)
-- Vector DB: **Milvus Standalone** (self-hosted Docker)
+- Vector DB: **Milvus Lite** (embedded file-based, zero extra RAM vs Docker Milvus)
 - No Anthropic, OpenAI, or Cohere keys required
 
 ---

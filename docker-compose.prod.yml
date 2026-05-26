@@ -1,0 +1,58 @@
+version: "3.9"
+
+# Production stack — FastAPI (aleph-api) + TimescaleDB only.
+# Milvus runs as embedded Lite (file-based), no separate container needed.
+# Frontend is deployed to Vercel and not included here.
+
+services:
+  aleph-api:
+    image: ${DOCKER_IMAGE:-ghcr.io/minseongkim-dev/macro-invest-agent-system/aleph-api}:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      ENV_MODE:            "PRODUCTION"
+      GROQ_API_KEY:        ${GROQ_API_KEY}
+      GROQ_MODEL:          ${GROQ_MODEL:-llama3-70b-8192}
+      DATABASE_URL:        "postgresql://aleph:${POSTGRES_PASSWORD}@timescaledb:5432/aleph"
+      MILVUS_LITE_PATH:    "/data/milvus_lite.db"
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
+    volumes:
+      - milvus_data:/data
+    depends_on:
+      timescaledb:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 800m
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  timescaledb:
+    image: timescale/timescaledb:latest-pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER:     aleph
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       aleph
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          memory: 800m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aleph -d aleph"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  pg_data:
+  milvus_data:
