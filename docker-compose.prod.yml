@@ -11,11 +11,12 @@ services:
     ports:
       - "8001:8001"
     environment:
-      ENV_MODE:            "PRODUCTION"
-      GROQ_API_KEY:        ${GROQ_API_KEY}
-      GROQ_MODEL:          ${GROQ_MODEL:-llama3-70b-8192}
-      DATABASE_URL:        "postgresql://aleph:${POSTGRES_PASSWORD}@timescaledb:5432/aleph"
-      MILVUS_LITE_PATH:    "/data/milvus_lite.db"
+      ENV_MODE:             "PRODUCTION"
+      GROQ_API_KEY:         ${GROQ_API_KEY}
+      GROQ_MODEL:           ${GROQ_MODEL:-llama3-70b-8192}
+      FRED_API_KEY:         ${FRED_API_KEY:-}
+      DATABASE_URL:         "postgresql://aleph:${POSTGRES_PASSWORD}@timescaledb:5432/aleph"
+      MILVUS_LITE_PATH:     "/data/milvus_lite.db"
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-}
     volumes:
       - milvus_data:/data
