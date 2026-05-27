@@ -23,6 +23,6 @@ COPY . .
 # Install the project itself (fast — transitive deps already in place)
 RUN uv sync --frozen --no-dev
 
-EXPOSE 8000
+EXPOSE 8001
 
-CMD ["uv", "run", "uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8001"]
