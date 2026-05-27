@@ -54,6 +54,5 @@ node_modules/
 # Docker
 .docker/
 
-# Secrets — never commit real .env files
+# Secrets — never commit real .env
 .env
-watchdog/.env.watchdog
