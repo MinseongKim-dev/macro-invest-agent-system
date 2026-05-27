@@ -110,6 +110,11 @@ ENV_MODE=PRODUCTION
 GROQ_API_KEY=여기에_Groq_API_키_입력
 GROQ_MODEL=llama3-70b-8192
 
+# ── Macro Data (FRED) ─────────────────────────────────────────
+# 선택: 미설정 시 yfinance 프록시로 자동 폴백 (T10Y, T3M, VIX)
+# 무료 발급: https://fred.stlouisfed.org/docs/api/api_key.html
+FRED_API_KEY=
+
 # ── Database ──────────────────────────────────────────────────
 POSTGRES_PASSWORD=${POSTGRES_PASS}
 
@@ -117,12 +122,11 @@ POSTGRES_PASSWORD=${POSTGRES_PASS}
 MILVUS_LITE_PATH=/data/milvus_lite.db
 
 # ── CORS ──────────────────────────────────────────────────────
-# Vercel 도메인으로 교체하세요
-CORS_ALLOWED_ORIGINS=https://your-app.vercel.app
+CORS_ALLOWED_ORIGINS=https://macro-invest-agent-system.vercel.app
 EOF
 
     chmod 600 "$ENV_FILE"
-    warn ".env 파일 생성 완료. GROQ_API_KEY와 CORS_ALLOWED_ORIGINS를 반드시 수정하세요!"
+    warn ".env 파일 생성 완료. GROQ_API_KEY를 반드시 수정하세요! (FRED_API_KEY는 선택)"
     warn "편집: nano $ENV_FILE"
 fi
 
