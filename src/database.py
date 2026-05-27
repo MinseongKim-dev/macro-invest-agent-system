@@ -26,6 +26,8 @@ import logging
 import os
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -171,6 +173,24 @@ SELECT create_hypertable(
 );
 """
 
+_DDL_MACRO_INDICATORS = """
+CREATE TABLE IF NOT EXISTS macro_indicators (
+    snapshot_time TIMESTAMPTZ   NOT NULL,
+    series_id     VARCHAR(20)   NOT NULL,
+    value         NUMERIC(15,6) NOT NULL,
+    source        VARCHAR(20)   NOT NULL DEFAULT 'yfinance'
+);
+"""
+
+_DDL_MACRO_INDICATORS_HYPERTABLE = """
+SELECT create_hypertable(
+    'macro_indicators',
+    'snapshot_time',
+    chunk_time_interval => INTERVAL '30 days',
+    if_not_exists       => TRUE
+);
+"""
+
 
 def init_db(config: DatabaseConfig | None = None) -> None:
     """Create market_ticks (hypertable, 7-day chunks) and macro_regimes.
@@ -189,6 +209,9 @@ def init_db(config: DatabaseConfig | None = None) -> None:
             conn.execute(_DDL_INDEX_TICKS)
             conn.execute(_DDL_INDEX_HYPERTABLE)
             logger.debug("db_table_ensured", extra={"table": "index_ticks"})
+            conn.execute(_DDL_MACRO_INDICATORS)
+            conn.execute(_DDL_MACRO_INDICATORS_HYPERTABLE)
+            logger.debug("db_table_ensured", extra={"table": "macro_indicators"})
             conn.commit()
         logger.info("db_init_complete")
     except Exception as exc:
@@ -337,6 +360,32 @@ INDEX_TICKERS: dict[str, str] = {
     "SP500":  "^GSPC",
     "USDKRW": "KRW=X",
 }
+
+# ── Macro Indicators ──────────────────────────────────────────────────────────
+
+# Optional FRED API key — set FRED_API_KEY to enable. Falls back to yfinance proxies.
+FRED_API_KEY: str = os.environ.get("FRED_API_KEY", "")
+FRED_BASE_URL = "https://api.stlouisfed.org/fred/series/observations"
+
+# FRED series for authoritative macro data (requires FRED_API_KEY)
+MACRO_FRED_SERIES: dict[str, str] = {
+    "FED_RATE": "FEDFUNDS",         # Effective federal funds rate (%)
+    "CPI_YOY":  "CPIAUCSL",         # CPI All Urban Consumers (index)
+    "GDP_QOQ":  "A191RL1Q225SBEA",  # Real GDP % change, annualised
+    "UNRATE":   "UNRATE",           # US unemployment rate (%)
+}
+
+# yfinance proxies used when FRED_API_KEY is absent (real-time market rates)
+MACRO_YF_PROXIES: dict[str, str] = {
+    "T10Y":  "^TNX",   # 10-year US Treasury yield
+    "T3M":   "^IRX",   # 3-month T-bill rate
+    "VIX":   "^VIX",   # CBOE Volatility Index
+}
+
+# ── Price-change tracking for Milvus sync bridge ──────────────────────────────
+# Stores the most recent close price per ticker; used to detect significant moves.
+_PREV_CLOSE: dict[str, float] = {}
+_PRICE_ALERT_THRESHOLD = 0.02  # 2% absolute price change triggers Milvus embed
 
 
 def _to_kst(ts: int | float | pd.Timestamp | datetime | str) -> datetime:
@@ -681,6 +730,26 @@ def fetch_live_market_data(config: DatabaseConfig | None = None) -> int:
             conn.commit()
 
         logger.info("live_market_upsert_done", extra={"rows": len(all_rows)})
+
+        # ── Milvus sync bridge: detect ≥2% moves and embed price alerts ────────
+        # Build latest close per ticker from the batch we just wrote
+        latest_close: dict[str, float] = {}
+        for r in all_rows:
+            ticker_id = str(r[1])
+            close_val = float(r[5])
+            # Keep the most recent row per ticker (rows are ordered oldest→newest)
+            latest_close[ticker_id] = close_val
+
+        from src.engines import DISPLAY_NAMES as _DISPLAY_NAMES  # local import avoids cycle
+        for ticker_id, curr_close in latest_close.items():
+            prev_close = _PREV_CLOSE.get(ticker_id)
+            if prev_close is not None and prev_close > 0:
+                change = abs(curr_close - prev_close) / prev_close
+                if change >= _PRICE_ALERT_THRESHOLD:
+                    name = _DISPLAY_NAMES.get(ticker_id, ticker_id)
+                    embed_price_alert(ticker_id, prev_close, curr_close, name)
+            _PREV_CLOSE[ticker_id] = curr_close
+
         return len(all_rows)
 
     except Exception as exc:
@@ -734,6 +803,107 @@ def fetch_live_news() -> dict[str, list[str]]:
         logger.info("live_news_milvus_sync", extra={"inserted": inserted})
 
     return news_map
+
+
+def fetch_macro_indicators() -> dict[str, float]:
+    """Fetch macro economic indicators.
+
+    Priority:
+    1. FRED API (authoritative, monthly cadence) when FRED_API_KEY is set.
+    2. yfinance real-time proxies (T10Y, T3M, VIX) as always-on fallback.
+
+    Returns a dict of series_id → latest float value.
+    Writes each successful fetch to the macro_indicators hypertable.
+    """
+    results: dict[str, float] = {}
+    now_kst = datetime.now(_KST)
+
+    # ── FRED path ─────────────────────────────────────────────────────────────
+    if FRED_API_KEY:
+        for series_id, fred_id in MACRO_FRED_SERIES.items():
+            url = (
+                f"{FRED_BASE_URL}?series_id={fred_id}"
+                f"&api_key={FRED_API_KEY}&file_type=json"
+                f"&sort_order=desc&limit=1"
+            )
+            try:
+                with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310
+                    import json as _json
+                    payload = _json.loads(resp.read())
+                obs = payload.get("observations", [])
+                if obs and obs[0].get("value", ".") != ".":
+                    results[series_id] = round(float(obs[0]["value"]), 4)
+            except Exception as exc:
+                logger.warning("fred_fetch_failed", extra={"series": fred_id, "error": str(exc)})
+
+    # ── yfinance proxy path ───────────────────────────────────────────────────
+    for series_id, yf_symbol in MACRO_YF_PROXIES.items():
+        if series_id in results:
+            continue  # already fetched from FRED
+        try:
+            df = yf.Ticker(yf_symbol).history(period="2d", interval="1d")
+            if not df.empty:
+                results[series_id] = round(float(df["Close"].iloc[-1]), 4)
+        except Exception as exc:
+            logger.warning("macro_yf_fetch_failed", extra={"series": series_id, "error": str(exc)})
+
+    if not results:
+        return results
+
+    # ── Persist to DB ─────────────────────────────────────────────────────────
+    try:
+        source = "FRED" if FRED_API_KEY else "yfinance"
+        with get_connection() as conn:
+            for series_id, value in results.items():
+                conn.execute(
+                    "INSERT INTO macro_indicators (snapshot_time, series_id, value, source) "
+                    "VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT DO NOTHING",
+                    (now_kst, series_id, value, source),
+                )
+            conn.commit()
+        logger.info("macro_indicators_upserted", extra={"count": len(results)})
+    except Exception as exc:
+        logger.warning("macro_indicators_db_failed", extra={"error": str(exc)})
+
+    return results
+
+
+def embed_price_alert(ticker: str, prev: float, curr: float, display_name: str) -> None:
+    """Milvus sync bridge — embed a price-alert text when a ticker moves ≥2%.
+
+    Called from fetch_live_market_data() when a significant price change is
+    detected. Creates a plain-text event string and inserts it into the
+    news_collection so the LangChain RAG agent can reference it immediately.
+    """
+    if not _milvus_ready or _milvus_client is None:
+        return
+
+    pct = (curr - prev) / prev * 100.0
+    direction = "급등" if pct > 0 else "급락"
+    alert_text = (
+        f"{display_name}({ticker}) {abs(pct):.1f}% {direction} "
+        f"— {prev:.2f} → {curr:.2f} "
+        f"({datetime.now(_KST).strftime('%Y-%m-%d %H:%M KST')})"
+    )
+
+    try:
+        embedder = _get_embedder()
+        vec: list[float] = embedder.embed_documents([alert_text])[0]
+        _milvus_client.upsert(
+            collection_name=_NEWS_COLLECTION,
+            data=[{
+                "id":           _news_hash_int(alert_text),
+                "news_hash":    _news_hash(alert_text),
+                "ticker":       ticker[:16],
+                "title":        alert_text[:512],
+                "published_at": int(time.time()),
+                "vector":       vec,
+            }],
+        )
+        logger.info("price_alert_embedded", extra={"ticker": ticker, "pct": round(pct, 2)})
+    except Exception as exc:
+        logger.warning("price_alert_embed_failed", extra={"ticker": ticker, "error": str(exc)})
 
 
 def fetch_live_index_data() -> dict[str, float]:
