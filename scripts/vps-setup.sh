@@ -108,7 +108,7 @@ else
 # ── Docker Image ──────────────────────────────────────────────
 # Docker Hub 이미지 경로 (예: yourname/aleph-api)
 # GitHub Actions → Settings → Variables → DOCKERHUB_USERNAME 과 동일한 값/aleph-api
-DOCKER_IMAGE=여기에_DockerHub유저명/aleph-api
+DOCKER_IMAGE=alstjd9615/aleph-api
 IMAGE_TAG=latest
 
 # ── LLM Provider ───────────────────────────────────────────────
