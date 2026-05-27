@@ -105,6 +105,12 @@ else
 # Aleph-One Production Environment
 # ⚠ 이 파일은 절대 Git에 커밋하지 마세요
 
+# ── Docker Image ──────────────────────────────────────────────
+# Docker Hub 이미지 경로 (예: yourname/aleph-api)
+# GitHub Actions → Settings → Variables → DOCKERHUB_USERNAME 과 동일한 값/aleph-api
+DOCKER_IMAGE=alstjd9615/aleph-api
+IMAGE_TAG=latest
+
 # ── LLM Provider ───────────────────────────────────────────────
 ENV_MODE=PRODUCTION
 GROQ_API_KEY=여기에_Groq_API_키_입력
