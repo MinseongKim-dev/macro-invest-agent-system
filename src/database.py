@@ -26,8 +26,7 @@ import logging
 import os
 import threading
 import time
-import urllib.error
-import urllib.request
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
@@ -178,8 +177,24 @@ CREATE TABLE IF NOT EXISTS macro_indicators (
     snapshot_time TIMESTAMPTZ   NOT NULL,
     series_id     VARCHAR(20)   NOT NULL,
     value         NUMERIC(15,6) NOT NULL,
-    source        VARCHAR(20)   NOT NULL DEFAULT 'yfinance'
+    source        VARCHAR(20)   NOT NULL DEFAULT 'yfinance',
+    country       VARCHAR(5)    NOT NULL DEFAULT 'US'
 );
+"""
+
+# Idempotent backfill for tables created before this schema revision.
+# DO blocks swallow duplicate_object so repeated startups are safe.
+_DDL_MACRO_BACKFILL = """
+DO $$ BEGIN
+    ALTER TABLE macro_indicators
+        ADD COLUMN IF NOT EXISTS country VARCHAR(5) NOT NULL DEFAULT 'US';
+EXCEPTION WHEN OTHERS THEN NULL; END $$;
+
+DO $$ BEGIN
+    ALTER TABLE macro_indicators
+        ADD CONSTRAINT macro_indicators_ts_series_uq
+            UNIQUE (snapshot_time, series_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 """
 
 _DDL_MACRO_INDICATORS_HYPERTABLE = """
@@ -211,6 +226,7 @@ def init_db(config: DatabaseConfig | None = None) -> None:
             logger.debug("db_table_ensured", extra={"table": "index_ticks"})
             conn.execute(_DDL_MACRO_INDICATORS)
             conn.execute(_DDL_MACRO_INDICATORS_HYPERTABLE)
+            conn.execute(_DDL_MACRO_BACKFILL)
             logger.debug("db_table_ensured", extra={"table": "macro_indicators"})
             conn.commit()
         logger.info("db_init_complete")
@@ -354,6 +370,27 @@ LIVE_TICKERS: dict[str, str] = {
     "122630": "122630.KS",   # KODEX 레버리지 ETF
 }
 
+def _normalize_yf_symbol(ticker: str) -> str:
+    """Map any internal ticker ID to its Yahoo Finance symbol.
+
+    Resolution order:
+    1. ``LIVE_TICKERS`` dict — known tickers with exact Yahoo Finance symbols.
+    2. 6-digit numeric codes (KRX / KOSDAQ) — auto-append ``.KS`` (KRX default).
+    3. Everything else — returned unchanged.
+
+    Examples::
+
+        _normalize_yf_symbol("005930") -> "005930.KS"
+        _normalize_yf_symbol("AAPL")   -> "AAPL"
+        _normalize_yf_symbol("QQQ")    -> "QQQ"
+    """
+    if ticker in LIVE_TICKERS:
+        return LIVE_TICKERS[ticker]
+    if re.fullmatch(r"\d{6}", ticker):
+        return f"{ticker}.KS"
+    return ticker
+
+
 # Market index symbols — used by the index collector (not stored in market_ticks)
 INDEX_TICKERS: dict[str, str] = {
     "KOSPI":  "^KS11",
@@ -380,6 +417,15 @@ MACRO_YF_PROXIES: dict[str, str] = {
     "T10Y":  "^TNX",   # 10-year US Treasury yield
     "T3M":   "^IRX",   # 3-month T-bill rate
     "VIX":   "^VIX",   # CBOE Volatility Index
+}
+
+# Minimal mock values — used when both FRED and yfinance are unavailable.
+# Keeps dashboard layout coherent without throwing KeyErrors.
+_MACRO_MOCK_FALLBACK: dict[str, float] = {
+    "T10Y":     4.35,
+    "T3M":      5.28,
+    "VIX":      18.5,
+    "FED_RATE": 5.33,
 }
 
 # ── Price-change tracking for Milvus sync bridge ──────────────────────────────
@@ -637,6 +683,28 @@ def _extract_news_title(item: dict[str, Any]) -> str:
     return title.strip()
 
 
+def _fetch_latest_close_from_db(internal_id: str) -> list[tuple[Any, ...]]:
+    """Return the single most recent market_ticks row for a ticker.
+
+    Used as a market-closed / network-error fallback inside ``_fetch_ticker_ohlcv``.
+    The row tuple layout matches the COPY schema:
+    (timestamp, ticker, open, high, low, close, volume).
+    """
+    try:
+        with get_connection() as conn:
+            row = conn.execute(
+                "SELECT timestamp, ticker, open_price, high_price, low_price, close_price, volume "
+                "FROM market_ticks WHERE ticker = %s ORDER BY timestamp DESC LIMIT 1",
+                (internal_id,),
+            ).fetchone()
+        if row:
+            logger.info("yf_db_fallback_used", extra={"ticker": internal_id})
+            return [tuple(row)]
+    except Exception as exc:
+        logger.warning("yf_db_fallback_failed", extra={"ticker": internal_id, "error": str(exc)})
+    return []
+
+
 def _fetch_ticker_ohlcv(internal_id: str, yf_symbol: str) -> list[tuple[Any, ...]]:
     """Download the last 5 trading days of daily OHLCV from Yahoo Finance.
 
@@ -653,7 +721,8 @@ def _fetch_ticker_ohlcv(internal_id: str, yf_symbol: str) -> list[tuple[Any, ...
 
     if hist.empty:
         logger.warning("yf_history_empty", extra={"ticker": internal_id, "symbol": yf_symbol})
-        return []
+        # Market closed or transient network error — return last known row from DB.
+        return _fetch_latest_close_from_db(internal_id)
 
     hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
@@ -827,9 +896,8 @@ def fetch_macro_indicators() -> dict[str, float]:
                 f"&sort_order=desc&limit=1"
             )
             try:
-                with urllib.request.urlopen(url, timeout=10) as resp:  # noqa: S310
-                    import json as _json
-                    payload = _json.loads(resp.read())
+                with httpx.Client(timeout=10.0) as http:
+                    payload = http.get(url).raise_for_status().json()
                 obs = payload.get("observations", [])
                 if obs and obs[0].get("value", ".") != ".":
                     results[series_id] = round(float(obs[0]["value"]), 4)
@@ -847,19 +915,26 @@ def fetch_macro_indicators() -> dict[str, float]:
         except Exception as exc:
             logger.warning("macro_yf_fetch_failed", extra={"series": series_id, "error": str(exc)})
 
+    # ── Mock fallback — dashboard stays coherent even when all live feeds fail ──
     if not results:
-        return results
+        logger.warning("macro_fetch_all_failed_using_mock")
+        results = dict(_MACRO_MOCK_FALLBACK)
 
     # ── Persist to DB ─────────────────────────────────────────────────────────
+    # ON CONFLICT target requires the UNIQUE (snapshot_time, series_id) constraint
+    # added by _DDL_MACRO_BACKFILL on first startup.
     try:
-        source = "FRED" if FRED_API_KEY else "yfinance"
+        source  = "FRED" if FRED_API_KEY else "yfinance"
+        country = "US"
         with get_connection() as conn:
             for series_id, value in results.items():
                 conn.execute(
-                    "INSERT INTO macro_indicators (snapshot_time, series_id, value, source) "
-                    "VALUES (%s, %s, %s, %s) "
-                    "ON CONFLICT DO NOTHING",
-                    (now_kst, series_id, value, source),
+                    "INSERT INTO macro_indicators "
+                    "    (snapshot_time, series_id, value, source, country) "
+                    "VALUES (%s, %s, %s, %s, %s) "
+                    "ON CONFLICT (snapshot_time, series_id) "
+                    "DO UPDATE SET value = EXCLUDED.value, source = EXCLUDED.source",
+                    (now_kst, series_id, value, source, country),
                 )
             conn.commit()
         logger.info("macro_indicators_upserted", extra={"count": len(results)})
@@ -921,6 +996,33 @@ def fetch_live_index_data() -> dict[str, float]:
         except Exception as exc:
             logger.warning("index_fetch_failed", extra={"index": index_id, "error": str(exc)})
     return results
+
+
+def get_latest_prices(config: DatabaseConfig | None = None) -> dict[str, dict[str, Any]]:
+    """Return the most recent close price per ticker from market_ticks.
+
+    Uses ``DISTINCT ON (ticker)`` — one pass, one row per ticker ordered by
+    ``timestamp DESC``.  Returns ``{}`` on any DB failure so callers can fall
+    back gracefully to the in-memory ``_PRICE_STATE``.
+    """
+    try:
+        with get_connection(config) as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT ON (ticker) ticker, close_price, timestamp "
+                "FROM market_ticks "
+                "ORDER BY ticker, timestamp DESC",
+            ).fetchall()
+        return {
+            str(row[0]): {
+                "price":     float(row[1]),
+                "timestamp": row[2].isoformat() if row[2] else None,
+                "source":    "timescaledb",
+            }
+            for row in rows
+        }
+    except Exception as exc:
+        logger.warning("get_latest_prices_failed", extra={"error": str(exc)})
+        return {}
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

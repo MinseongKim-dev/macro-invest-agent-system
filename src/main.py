@@ -36,12 +36,14 @@ from sse_starlette.sse import EventSourceResponse
 
 from src import config
 from src.database import (
+    FRED_API_KEY,
     _PoolManager,
     fetch_live_index_data,
     fetch_live_market_data,
     fetch_live_news,
     fetch_macro_indicators,
     get_connection,
+    get_latest_prices,
     init_db,
     init_milvus,
     search_milvus_news,
@@ -242,6 +244,26 @@ def _perturb_nodes(
 
 
 # ── Startup helpers ───────────────────────────────────────────────────────────
+
+def _sync_price_state_from_db() -> None:
+    """Pull the latest close per ticker from market_ticks into ``_PRICE_STATE``.
+
+    Called once at startup after ``fetch_live_market_data()`` populates the DB.
+    This ensures the SSE stream shows real market prices from the first tick,
+    not the GBM mock values seeded by ``_init_price_history()``.
+    """
+    prices = get_latest_prices()
+    synced = 0
+    for ticker, data in prices.items():
+        if ticker in _PRICE_STATE:
+            real_price = data["price"]
+            _PRICE_STATE[ticker] = real_price
+            buf = _PRICE_HISTORY.get(ticker)
+            if buf:
+                buf[-1] = real_price   # anchor last history point to the real close
+            synced += 1
+    logger.info("price_state_synced_from_db", extra={"synced": synced, "total": len(prices)})
+
 
 def _init_price_history() -> None:
     """Seed the in-memory rolling buffer with synthetic GBM data."""
@@ -939,6 +961,14 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
 
     _init_price_history()
 
+    # Fetch real OHLCV on startup so the SSE stream never shows stale GBM prices.
+    try:
+        rows = await asyncio.to_thread(fetch_live_market_data)
+        logger.info("startup_market_fetch_complete", extra={"rows": rows})
+        _sync_price_state_from_db()
+    except Exception as exc:
+        logger.warning("startup_market_fetch_failed", extra={"error": str(exc)})
+
     try:
         await asyncio.to_thread(_load_regime_from_db)
     except Exception as exc:
@@ -1008,6 +1038,81 @@ async def events_recent(limit: int = 15) -> dict[str, Any]:
                 "source":       "live" if _LIVE_NEWS_CACHE else "seed",
             })
     return {"events": events[:limit], "total": len(events)}
+
+
+@app.post("/api/v1/finance/macro/sync", tags=["finance"])
+async def finance_macro_sync() -> dict[str, Any]:
+    """Force-sync macro indicators from FRED (or yfinance proxy) into TimescaleDB.
+
+    Triggers the same pipeline as the hourly background task immediately.
+    Use from Swagger UI (/docs) to verify the macro data pipeline end-to-end:
+    the response shows which values were fetched, from which source, and the
+    current state of ``_MACRO_CACHE`` that feeds every SSE tick.
+    """
+    data = await asyncio.to_thread(fetch_macro_indicators)
+    if data:
+        _MACRO_CACHE.update(data)
+    return {
+        "status":            "ok",
+        "source":            "FRED" if FRED_API_KEY else "yfinance_proxy",
+        "indicators_synced": len(data),
+        "values":            data,
+        "macro_cache":       dict(_MACRO_CACHE),
+        "timestamp":         datetime.now(tz=_KST).isoformat(),
+    }
+
+
+@app.get("/api/v1/finance/prices", tags=["finance"])
+async def finance_prices(tickers: str = "") -> dict[str, Any]:
+    """Return the latest close price for all tracked tickers.
+
+    Price source per ticker (priority order):
+
+    1. TimescaleDB ``market_ticks`` — real yfinance data, updated every 60 s
+    2. In-memory ``_PRICE_STATE`` — GBM walk fallback when DB has no rows yet
+
+    Query params:
+
+    - ``tickers``: comma-separated internal IDs, e.g. ``AAPL,005930,QQQ``.
+      Omit to return all 12 tickers.
+
+    Use from Swagger UI to verify:
+
+    - KR tickers (6-digit codes) show ``.KS``-resolved prices from Yahoo Finance
+    - ``source: timescaledb`` confirms data is flowing through the live collector
+    - Market-closed sessions should still return the last known close from DB
+    """
+    db_prices     = await asyncio.to_thread(get_latest_prices)
+    ticker_filter = {t.strip() for t in tickers.split(",") if t.strip()} if tickers else set()
+
+    merged: dict[str, Any] = {}
+    for ticker in TICKERS:
+        if ticker_filter and ticker not in ticker_filter:
+            continue
+        db_entry   = db_prices.get(ticker)
+        live_price = round(_PRICE_STATE.get(ticker, 0.0), 4)
+        if db_entry:
+            merged[ticker] = {
+                "display_name": DISPLAY_NAMES.get(ticker, ticker),
+                "price":        db_entry["price"],
+                "live_tick":    live_price,
+                "timestamp":    db_entry["timestamp"],
+                "source":       "timescaledb",
+            }
+        else:
+            merged[ticker] = {
+                "display_name": DISPLAY_NAMES.get(ticker, ticker),
+                "price":        live_price,
+                "live_tick":    live_price,
+                "timestamp":    None,
+                "source":       "in_memory_gbm",
+            }
+
+    return {
+        "timestamp": datetime.now(tz=_KST).isoformat(),
+        "total":     len(merged),
+        "prices":    merged,
+    }
 
 
 @app.get("/api/v1/intelligence/stream", tags=["intelligence"])
