@@ -59,7 +59,7 @@ class TestNormalizeAVObservation:
     def test_none_value(self) -> None:
         result = normalize_av_observation(
             function_name="CPI",
-            raw_value_str=None,  # type: ignore[arg-type]
+            raw_value_str=None,
             country="US",
             timestamp=_TS,
             indicator=MacroIndicatorType.INFLATION,

@@ -65,7 +65,7 @@ class SupabaseFeatureStore(FeatureStoreRepositoryContract):
         """Get or create a database connection."""
         if self._conn is None or self._conn.closed:
             try:
-                import psycopg2  # type: ignore[import-untyped]
+                import psycopg2
 
                 conn = psycopg2.connect(self._db_url)
                 conn.autocommit = True
