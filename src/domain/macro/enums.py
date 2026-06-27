@@ -56,6 +56,8 @@ class MacroSourceType(StrEnum):
     OECD = "oecd"
     ECB = "ecb"  # European Central Bank
     MARKET_DATA = "market_data"
+    ALPHA_VANTAGE = "alpha_vantage"
+    YAHOO_FINANCE = "yahoo_finance"
     CUSTOM = "custom"
 
 
