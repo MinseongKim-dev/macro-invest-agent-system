@@ -11,11 +11,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-import pytest
-
 from src.agent.adapters.sources.yahoo.normalizer import normalize_yf_quote
 from src.agent.adapters.sources.yahoo.series_map import YAHOO_FINANCE_SERIES_MAP
-from src.domain.macro.enums import DataFrequency, MacroIndicatorType, MacroSourceType
+from src.domain.macro.enums import MacroIndicatorType, MacroSourceType
 
 _TS = datetime(2026, 1, 1, tzinfo=UTC)
 

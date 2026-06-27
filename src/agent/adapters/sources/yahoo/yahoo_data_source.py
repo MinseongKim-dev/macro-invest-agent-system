@@ -96,10 +96,7 @@ class YahooFinanceDataSource(MacroDataSourceContract):
                 price = valid_closes[-1]
 
             ts_unix = meta.get("regularMarketTime", 0)
-            if ts_unix:
-                timestamp = datetime.fromtimestamp(ts_unix, tz=UTC)
-            else:
-                timestamp = datetime.now(UTC)
+            timestamp = datetime.fromtimestamp(ts_unix, tz=UTC) if ts_unix else datetime.now(UTC)
 
             return float(price), timestamp
         except (KeyError, IndexError, TypeError):

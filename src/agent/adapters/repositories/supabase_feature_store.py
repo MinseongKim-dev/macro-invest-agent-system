@@ -14,7 +14,8 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
+from typing import Any
 
 from src.core.contracts.feature_store_repository import FeatureStoreRepositoryContract
 from src.core.logging.logger import get_logger
@@ -57,7 +58,7 @@ class SupabaseFeatureStore(FeatureStoreRepositoryContract):
             )
         self._conn = None
 
-    def _get_connection(self):  # type: ignore[return]
+    def _get_connection(self) -> Any:
         """Get or create a database connection."""
         if self._conn is None or self._conn.closed:
             try:
