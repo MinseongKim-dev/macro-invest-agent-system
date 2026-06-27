@@ -1,0 +1,63 @@
+# .github/workflows/daily-ingest.yml
+#
+# Runs the multi-source ingestion pipeline once daily.
+# Collects macro data from FRED, Alpha Vantage, and Yahoo Finance.
+#
+# Required secrets (set in GitHub repo Settings > Secrets):
+#   - FRED_API_KEY: Your FRED API key
+#   - ALPHA_VANTAGE_API_KEY: Your Alpha Vantage API key
+#   - SUPABASE_DB_URL: (optional) Supabase PostgreSQL connection string
+#
+# Yahoo Finance doesn't need an API key.
+
+name: Daily Macro Data Ingestion
+
+on:
+  schedule:
+    # Run at 06:00 UTC every day (15:00 KST)
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        run: pip install uv
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Run multi-source ingestion
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+          ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          uv run python -m src.pipelines.ingestion.multi_source_ingest | tee ingest_result.json
+
+      - name: Check ingestion result
+        run: |
+          TOTAL=$(python -c "import json; print(json.load(open('ingest_result.json'))['total_features'])")
+          echo "Total features ingested: $TOTAL"
+          if [ "$TOTAL" -lt 3 ]; then
+            echo "::warning::Low feature count ($TOTAL). Check data source availability."
+          fi
+
+      - name: Upload result artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ingest-result-${{ github.run_number }}
+          path: ingest_result.json
+          retention-days: 30
