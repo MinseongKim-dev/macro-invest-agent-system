@@ -15,7 +15,10 @@ import json
 import os
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from psycopg2.extensions import connection as Psycopg2Connection
 
 from src.core.contracts.feature_store_repository import FeatureStoreRepositoryContract
 from src.core.logging.logger import get_logger
@@ -58,7 +61,7 @@ class SupabaseFeatureStore(FeatureStoreRepositoryContract):
             )
         self._conn = None
 
-    def _get_connection(self) -> Any:
+    def _get_connection(self) -> Psycopg2Connection:
         """Get or create a database connection."""
         if self._conn is None or self._conn.closed:
             try:
