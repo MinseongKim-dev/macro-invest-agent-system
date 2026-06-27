@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from psycopg2.extensions import connection as Psycopg2Connection
+    from psycopg2.extensions import connection as pg2_connection
 
 from src.core.contracts.feature_store_repository import FeatureStoreRepositoryContract
 from src.core.logging.logger import get_logger
@@ -61,7 +61,7 @@ class SupabaseFeatureStore(FeatureStoreRepositoryContract):
             )
         self._conn = None
 
-    def _get_connection(self) -> Psycopg2Connection:
+    def _get_connection(self) -> pg2_connection:
         """Get or create a database connection."""
         if self._conn is None or self._conn.closed:
             try:
