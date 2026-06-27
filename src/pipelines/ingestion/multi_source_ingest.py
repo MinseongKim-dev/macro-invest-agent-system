@@ -18,6 +18,7 @@ import asyncio
 import os
 from datetime import UTC, datetime
 
+from src.core.contracts.macro_data_source import MacroDataSourceContract
 from src.core.logging.logger import get_logger
 from src.domain.macro.enums import MacroIndicatorType
 from src.domain.macro.models import MacroFeature
@@ -51,7 +52,7 @@ YAHOO_INDICATORS: list[str] = [
 
 async def _fetch_from_source(
     source_name: str,
-    source: object,
+    source: MacroDataSourceContract,
     country: str,
     indicators: list[str],
 ) -> list[MacroFeature]:
@@ -62,27 +63,27 @@ async def _fetch_from_source(
             source=source_name,
             indicator_count=len(indicators),
         )
-        features = await source.fetch_raw(country, indicators)  # type: ignore[union-attr]
+        features = await source.fetch_raw(country, indicators)
         _log.info(
             "source_fetch_complete",
             source=source_name,
             features_returned=len(features),
             indicators_requested=len(indicators),
         )
-        return features  # type: ignore[return-value]
+        return features
     except Exception as exc:
         _log.error("source_fetch_failed", source=source_name, error=str(exc))
         return []
 
 
-async def run_multi_source_ingest(country: str = "US") -> dict:  # type: ignore[type-arg]
+async def run_multi_source_ingest(country: str = "US") -> dict[str, object]:
     """Run ingestion from all configured sources.
 
     Returns a summary dict with counts and status per source.
     Sources without API keys are skipped gracefully.
     """
     all_features: list[MacroFeature] = []
-    source_status: dict[str, dict] = {}  # type: ignore[type-arg]
+    source_status: dict[str, dict[str, object]] = {}
 
     # --- FRED ---
     fred_api_key = os.environ.get("FRED_API_KEY", "")

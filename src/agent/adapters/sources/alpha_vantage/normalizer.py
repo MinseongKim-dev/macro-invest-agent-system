@@ -13,7 +13,7 @@ from src.domain.macro.models import MacroFeature
 
 def normalize_av_observation(
     function_name: str,
-    raw_value_str: str,
+    raw_value_str: str | None,
     country: str,
     timestamp: datetime,
     indicator: MacroIndicatorType,

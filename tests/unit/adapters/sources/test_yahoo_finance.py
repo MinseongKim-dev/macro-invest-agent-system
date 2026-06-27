@@ -133,7 +133,7 @@ class TestYahooFinanceDataSource:
         from src.agent.adapters.sources.yahoo.yahoo_data_source import YahooFinanceDataSource
 
         source = YahooFinanceDataSource()
-        data = {"chart": {"result": [{"meta": {}, "indicators": {"quote": [{"close": []}]}}]}}
+        data: dict[str, object] = {"chart": {"result": [{"meta": {}, "indicators": {"quote": [{"close": []}]}}]}}
         result = source._extract_latest(data)
         assert result is None
 

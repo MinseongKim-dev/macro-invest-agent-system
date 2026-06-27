@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from psycopg2.extensions import connection as pg2_connection
+    import psycopg2
 
 from src.core.contracts.feature_store_repository import FeatureStoreRepositoryContract
 from src.core.logging.logger import get_logger
@@ -59,16 +59,17 @@ class SupabaseFeatureStore(FeatureStoreRepositoryContract):
                 "SupabaseFeatureStore requires a database URL. "
                 "Set the SUPABASE_DB_URL environment variable or pass db_url directly."
             )
-        self._conn = None
+        self._conn: psycopg2.extensions.connection | None = None
 
-    def _get_connection(self) -> pg2_connection:
+    def _get_connection(self) -> psycopg2.extensions.connection:
         """Get or create a database connection."""
         if self._conn is None or self._conn.closed:
             try:
                 import psycopg2  # type: ignore[import-untyped]
 
-                self._conn = psycopg2.connect(self._db_url)
-                self._conn.autocommit = True
+                conn = psycopg2.connect(self._db_url)
+                conn.autocommit = True
+                self._conn = conn
             except ImportError as exc:
                 raise RuntimeError(
                     "psycopg2 is required for SupabaseFeatureStore. "

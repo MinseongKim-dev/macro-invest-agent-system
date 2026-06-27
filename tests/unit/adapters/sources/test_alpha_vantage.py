@@ -59,7 +59,7 @@ class TestNormalizeAVObservation:
     def test_none_value(self) -> None:
         result = normalize_av_observation(
             function_name="CPI",
-            raw_value_str=None,
+            raw_value_str=None,  # type: ignore[arg-type]
             country="US",
             timestamp=_TS,
             indicator=MacroIndicatorType.INFLATION,
@@ -171,6 +171,6 @@ class TestAlphaVantageDataSource:
         )
 
         source = AlphaVantageDataSource(api_key="test")
-        data: dict = {"data": []}
+        data: dict[str, list[object]] = {"data": []}
         result = source._extract_latest(data)
         assert result is None
