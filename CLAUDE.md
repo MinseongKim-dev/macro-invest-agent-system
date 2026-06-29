@@ -510,13 +510,61 @@ Git tag: `v0.3.0`
 
 ---
 
-### Next Milestone: v0.3.1 — AI 리서치 패널 + OMNI 스트리밍
+### v0.3.1 — AI 리서치 패널 + OMNI 스트리밍
+
+**Status: RELEASED ✓**
+
+#### Completed Tasks
+
+- [X] **슬라이드 아웃 AI 리서치 패널** — `ResearchPanel.tsx` 신규. 커스텀 마크다운 렌더러. Framer Motion 슬라이드 인/아웃. 백드롭 dimming. 메타데이터 칩(Regime/Health/Confidence/Signal).
+- [X] **LangChain 실시간 토큰 스트리밍** — `POST /api/v1/intelligence/command/stream` SSE 엔드포인트 신설. 단어 단위 토큰 방출 (`asyncio.sleep(0.025)`). Next.js 스트림 프록시 라우트 추가. 프론트엔드 `ReadableStream` 파싱으로 SSE 수신.
+- [X] **APP_VERSION v0.1.2 → v0.3.1** 갱신.
+
+#### Deferred
+
+- [ ] **공모 펀드 일일 NAV 적재** — KOFIA OpenAPI → `fund_nav_ticks` 하이퍼테이블. `[FUNDS]` 탭 실데이터 연결. (v0.4.0으로 이동)
+
+---
+
+### Next Milestone: v0.4.0 — Quant Score Engine (PRD Phase D-1)
 
 **Status: PENDING**
 
-#### Queued Tasks
+#### PRD 연계 (Phase D-1 — 멀티엔진 분석 체계)
 
-- [ ] **슬라이드 아웃 AI 리서치 패널** — `ResearchPanel.tsx` 신규. `react-markdown` 렌더링. Framer Motion 슬라이드 인/아웃.
-- [ ] **LangChain 실시간 토큰 스트리밍** — `/command/stream` SSE 엔드포인트. 프론트엔드 EventSource 교체.
-- [ ] **공모 펀드 일일 NAV 적재** — KOFIA OpenAPI → `fund_nav_ticks` 하이퍼테이블. `[FUNDS]` 탭 실데이터 연결.
+- [ ] **Quant Score 엔진** — 지표별 가중치 적용 정량 점수 시스템. `QuantScoreEngine` 도메인 레이어 신설.
+- [ ] **엔진 간 충돌 표면화** — `conflict_surface_v1` 확장. 크로스엔진 합성 뷰.
+- [ ] **공모 펀드 일일 NAV 적재** — KOFIA OpenAPI → `fund_nav_ticks`. `[FUNDS]` 탭 실데이터 연결.
+- [ ] **백테스팅 기반 마련** — 과거 매크로 데이터 2년치 로드. Regime 분류 정확성 검증 스크립트.
+
+---
+
+## PRD 로드맵 (2026-06-26 기준)
+
+### Phase A — 실사용 가능한 MVP ✓ COMPLETE
+
+- A-1 실데이터 연동 (FRED/Yahoo Finance/Alpha Vantage) ✓
+- A-2 프론트엔드-백엔드 연결 ✓
+- A-3 배포 (Vercel + DigitalOcean VPS) ✓
+- A-4 일상 사용 안정화 — v0.3.x 시리즈 진행 중
+
+### Phase B — 프로덕트 기반 강화 (예정)
+
+- B-1 인증 & 사용자 관리 (Supabase Auth 또는 Clerk)
+- B-2 사용자 맞춤 기능 (관심 지표 선택, 위젯 레이아웃)
+- B-3 모바일 반응형 (핵심 뷰 우선)
+
+### Phase D — 분석 깊이 & 기술 고도화 (v0.4.0+ 대상)
+
+- D-1 멀티엔진 분석 체계 — Quant Score 엔진, 크로스엔진 합성 (💰 무료)
+- D-2 백테스팅 + Eval 하네스 — 과거 데이터 Regime 검증, 시그널 히트율 (💰 무료)
+- D-3 AI 해석 레이어 고도화 — LLM 보강 설명, What-if 시나리오 (💰 Claude API)
+- D-4 실시간 파이프라인 + 알림 — 이벤트 기반 수집, Regime 전환 알림 (💰 서버 비용)
+
+### Phase E — 프로덕트화 & 커뮤니티 (장기)
+
+- E-1 랜딩 페이지 & 온보딩
+- E-2 사용자 피드백 & 분석
+- E-3 커뮤니티 기능 (공유, 타임라인)
+- E-4 수익화 (Stripe, Pro 티어)
 

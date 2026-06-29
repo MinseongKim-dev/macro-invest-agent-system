@@ -1,8 +1,18 @@
 # Aleph-One
 
-**v0.3.0** · Open-source, zero-cost financial intelligence terminal
+**v0.3.1** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.3.1
+
+- **Streaming AI Research Panel** — OMNI-COMMAND now opens a Framer Motion slide-out panel on the right side of the screen. Tokens stream word-by-word via a new `POST /api/v1/intelligence/command/stream` SSE endpoint, so the report appears progressively rather than all at once.
+- **ResearchPanel.tsx** — new component with backdrop dimming, metadata chips (Regime / Health / Confidence / Signal), auto-scrolling during stream, and a custom lightweight markdown renderer (headers, bullets, bold, dividers — no heavy dependency).
+- **Node.js 22 → 24 LTS** — all three Docker stages updated to `node:24-alpine`. `.nvmrc` added. `engines.node >= 24` enforced in `package.json`.
+- **uv build tool** — API Dockerfile updated from pinned `uv:0.4.29` to `uv:latest`.
+- **FRED adapter** — per-series graceful failure: one bad series (e.g. NAPM HTTP 400) no longer aborts the entire fetch. PMI mapping changed from restricted `NAPM` to publicly available `MANEMP`.
 
 ---
 

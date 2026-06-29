@@ -1,5 +1,9 @@
 # Roadmap
 
+> See also: `CLAUDE.md` → **PRD 로드맵** for the product-level Phase A/B/D/E roadmap
+> from the 2026-06-26 PRD. The engineering chapter roadmap below covers the
+> backend domain layer; the PRD roadmap covers the product surface.
+
 ## Phase 1 — Macro Data Foundation ✅
 
 Objective: build reliable ingestion + normalization for priority macro indicators.
