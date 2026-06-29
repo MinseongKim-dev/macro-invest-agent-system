@@ -20,7 +20,7 @@ from src.domain.macro.enums import MacroIndicatorType
 FRED_SERIES_MAP: dict[MacroIndicatorType, str] = {
     # Growth
     MacroIndicatorType.GDP: "GDPC1",
-    MacroIndicatorType.PMI: "NAPM",
+    MacroIndicatorType.PMI: "MANEMP",  # Manufacturing employment as PMI proxy (NAPM requires ISM subscription)
     MacroIndicatorType.INDUSTRIAL_PRODUCTION: "INDPRO",
     MacroIndicatorType.RETAIL_SALES: "RSAFS",
     MacroIndicatorType.PAYROLLS: "PAYEMS",
