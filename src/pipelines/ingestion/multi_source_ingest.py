@@ -157,6 +157,10 @@ async def run_multi_source_ingest(country: str = "US") -> dict[str, object]:
 
 if __name__ == "__main__":
     import json
+    import sys
 
+    out_path = sys.argv[1] if len(sys.argv) > 1 else "ingest_result.json"
     result = asyncio.run(run_multi_source_ingest())
-    print(json.dumps(result, indent=2))
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2)
+    _log.info("ingest_result_written", path=out_path, total_features=result.get("total_features", 0))

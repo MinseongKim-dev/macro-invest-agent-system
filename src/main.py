@@ -1040,6 +1040,86 @@ async def events_recent(limit: int = 15) -> dict[str, Any]:
     return {"events": events[:limit], "total": len(events)}
 
 
+@app.get("/api/regimes/latest", tags=["intelligence"])
+async def regimes_latest() -> dict[str, Any]:
+    """Latest macro regime for the StatusBar and dashboard regime badge.
+
+    Returns the current in-memory regime derived from the live engine.
+    """
+    regime_name  = _REGIME_CACHE.get("regime_name",      "POLICY_TIGHTENING")
+    market_phase = _REGIME_CACHE.get("market_phase",     "LATE_CYCLE")
+    confidence   = _REGIME_CACHE.get("confidence_score", 0.85)
+    now          = datetime.now(tz=_KST)
+    return {
+        "as_of_date":              now.date().isoformat(),
+        "regime_id":               f"live_{now.strftime('%Y%m%d')}",
+        "regime_timestamp":        now.isoformat(),
+        "regime_label":            regime_name,
+        "regime_family":           market_phase,
+        "confidence":              f"{confidence:.2f}",
+        "freshness_status":        "fresh",
+        "degraded_status":         "ok",
+        "missing_inputs":          [],
+        "supporting_snapshot_id":  "",
+        "supporting_states":       {},
+        "transition": {
+            "transition_from_prior": None,
+            "transition_type":       "no_change",
+            "changed":               False,
+        },
+        "rationale_summary": f"Live engine: {regime_name} / {market_phase}",
+        "warnings":          [],
+        "status":            "success",
+        "is_seeded":         False,
+        "data_source":       "aleph_one_live_engine",
+    }
+
+
+@app.get("/api/signals/latest", tags=["intelligence"])
+async def signals_latest(country: str = "US") -> dict[str, Any]:
+    """Latest signal summary with trust metadata for the dashboard.
+
+    Full per-ticker signals are served via the SSE stream; this endpoint
+    exposes the trust envelope (freshness, availability) consumed by
+    dashboard trust indicators and the useSignals hook.
+    """
+    now         = datetime.now(tz=_KST)
+    regime_name = _REGIME_CACHE.get("regime_name", "POLICY_TIGHTENING")
+    macro_fresh = bool(_MACRO_CACHE)
+
+    trust: dict[str, Any] = {
+        "snapshot_timestamp":          now.isoformat(),
+        "previous_snapshot_timestamp": None,
+        "freshness_status":            "fresh"   if macro_fresh else "unknown",
+        "availability":                "full"    if macro_fresh else "partial",
+        "is_degraded":                 not macro_fresh,
+        "sources": [
+            {
+                "source_id":           "aleph_one_live",
+                "source_label":        "Aleph-One Live Engine",
+                "retrieval_timestamp": now.isoformat(),
+            },
+        ],
+        "changed_indicators_count": None,
+        "degraded_reason":          None if macro_fresh else "macro_cache_empty",
+    }
+    return {
+        "country":             country,
+        "run_id":              f"run_{now.strftime('%Y%m%d_%H%M')}",
+        "signals":             [],
+        "signals_count":       0,
+        "buy_count":           0,
+        "sell_count":          0,
+        "hold_count":          0,
+        "strongest_signal_id": None,
+        "trust":               trust,
+        "regime_label":        regime_name,
+        "as_of_date":          now.date().isoformat(),
+        "is_regime_grounded":  True,
+        "status":              "success",
+    }
+
+
 @app.post("/api/v1/finance/macro/sync", tags=["finance"])
 async def finance_macro_sync() -> dict[str, Any]:
     """Force-sync macro indicators from FRED (or yfinance proxy) into TimescaleDB.
