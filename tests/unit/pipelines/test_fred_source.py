@@ -87,8 +87,8 @@ class TestFredSeriesMap:
     def test_yield_10y_maps_to_dgs10(self) -> None:
         assert FRED_SERIES_MAP[MacroIndicatorType.YIELD_10Y] == "DGS10"
 
-    def test_pmi_maps_to_napm(self) -> None:
-        assert FRED_SERIES_MAP[MacroIndicatorType.PMI] == "NAPM"
+    def test_pmi_maps_to_manemp(self) -> None:
+        assert FRED_SERIES_MAP[MacroIndicatorType.PMI] == "MANEMP"
 
     def test_retail_sales_maps_to_rsafs(self) -> None:
         assert FRED_SERIES_MAP[MacroIndicatorType.RETAIL_SALES] == "RSAFS"
@@ -227,35 +227,33 @@ class TestFredMacroDataSourceFailurePaths:
         ), pytest.raises(RuntimeError, match="timed out"):
             src._fetch_latest_observation("GDPC1")
 
-    def test_http_error_surfaces_through_fetch_raw(self) -> None:
-        """RuntimeError from _fetch_latest_observation propagates through fetch_raw."""
+    @pytest.mark.asyncio
+    async def test_http_error_skipped_in_fetch_raw(self) -> None:
+        """Per-series HTTP errors are skipped (continue); fetch_raw returns [] for that indicator."""
         src = FredMacroDataSource(api_key="test-key")
 
         with patch.object(
             src,
             "_fetch_latest_observation",
             side_effect=RuntimeError("FRED API HTTP error 403 for series='GDPC1': Forbidden."),
-        ), pytest.raises(RuntimeError, match="FRED API HTTP error 403"):
-            import asyncio
+        ):
+            result = await src.fetch_raw("US", [MacroIndicatorType.GDP.value])
 
-            asyncio.get_event_loop().run_until_complete(
-                src.fetch_raw("US", [MacroIndicatorType.GDP.value])
-            )
+        assert result == []
 
-    def test_timeout_surfaces_through_fetch_raw(self) -> None:
-        """TimeoutError from _fetch_latest_observation propagates through fetch_raw."""
+    @pytest.mark.asyncio
+    async def test_timeout_skipped_in_fetch_raw(self) -> None:
+        """Per-series timeout errors are skipped (continue); fetch_raw returns [] for that indicator."""
         src = FredMacroDataSource(api_key="test-key")
 
         with patch.object(
             src,
             "_fetch_latest_observation",
             side_effect=RuntimeError("FRED API request timed out after 10.0s"),
-        ), pytest.raises(RuntimeError, match="timed out"):
-            import asyncio
+        ):
+            result = await src.fetch_raw("US", [MacroIndicatorType.GDP.value])
 
-            asyncio.get_event_loop().run_until_complete(
-                src.fetch_raw("US", [MacroIndicatorType.GDP.value])
-            )
+        assert result == []
 
 
 # ---------------------------------------------------------------------------
