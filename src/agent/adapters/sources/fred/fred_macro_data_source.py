@@ -135,9 +135,15 @@ class FredMacroDataSource(MacroDataSourceContract):
             try:
                 with PROVIDER_FETCH_DURATION.labels(provider="fred").time():
                     raw_value_str, obs_date = self._fetch_latest_observation(series_id)
-            except Exception:
+            except Exception as series_exc:
                 PROVIDER_FETCH_TOTAL.labels(provider="fred", result="failure").inc()
-                raise
+                _log.warning(
+                    "fred_series_skipped",
+                    series_id=series_id,
+                    indicator=indicator_name,
+                    error=str(series_exc),
+                )
+                continue  # skip this series; keep collecting remaining indicators
             _latency_ms = (_time.perf_counter_ns() - _start) / 1_000_000.0
             if raw_value_str is None:
                 _log.debug(
