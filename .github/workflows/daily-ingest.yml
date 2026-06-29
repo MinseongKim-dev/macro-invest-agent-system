@@ -44,7 +44,7 @@ jobs:
           ALPHA_VANTAGE_API_KEY: ${{ secrets.ALPHA_VANTAGE_API_KEY }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
-          uv run python -m src.pipelines.ingestion.multi_source_ingest | tee ingest_result.json
+          uv run python -m src.pipelines.ingestion.multi_source_ingest ingest_result.json
 
       - name: Check ingestion result
         run: |

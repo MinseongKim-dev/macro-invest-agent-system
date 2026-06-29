@@ -6,6 +6,7 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
+import { useRegime, useSignals } from '@/hooks/useAlephData'
 import type { AlephStreamData } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
@@ -298,6 +299,8 @@ export default function AlephDashboard() {
   const { data: streamData }                          = useAlephStream()
   const { data: marketTick, connected, priceHistory } = useMarketStream()
   const liveNews                                      = useNewsStream(15)
+  const { data: regimeData, isLoading: regimeLoading, error: regimeError } = useRegime()
+  const { data: signalsData, isLoading: signalsLoading }                   = useSignals()
 
   // Portfolio value rolling history → drives the KRX chart
   const [chartData, setChartData] = useState<Array<{ t: number; v: number }>>([])
@@ -363,9 +366,15 @@ export default function AlephDashboard() {
     }))
   }, [streamData?.active_signals])
 
-  // Derived values from SSE stream
-  const regimeLabel     = streamData?.macro_regime?.regime_name    ?? null
-  const portfolioHealth = streamData?.portfolio_health?.score      ?? null
+  // Derived values — SSE stream takes priority; REST endpoint is the fallback
+  const regimeLabel     = streamData?.macro_regime?.regime_name ?? regimeData?.regime_label ?? (regimeLoading ? '···' : null)
+  const portfolioHealth = streamData?.portfolio_health?.score   ?? null
+
+  // Trust metadata from /api/signals/latest
+  const trust            = signalsData?.trust
+  const trustFreshness   = trust?.freshness_status ?? (signalsLoading ? '···' : '—')
+  const trustAvailability = trust?.availability    ?? '—'
+  const trustDegraded    = trust?.is_degraded ?? (!signalsData && !!regimeError)
 
   const kospi  = streamData?.market_indices?.KOSPI  ?? null
   const sp500  = streamData?.market_indices?.SP500   ?? null
@@ -477,10 +486,16 @@ export default function AlephDashboard() {
             <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 13, fontWeight: 900, color: '#00e5ff', letterSpacing: '3.5px', textShadow: '0 0 18px rgba(0,229,255,.7)' }}>ALEPH-ONE</span>
             <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '2px', color: 'rgba(0,229,255,.35)', marginLeft: 3 }}>CORE {APP_VERSION}</span>
           </div>
-          {/* Live regime badge from SSE */}
-          {regimeLabel && (
-            <div style={{ padding: '2px 8px', borderRadius: 4, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.22)', fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1.5px', color: '#00e5ff', textTransform: 'uppercase' }}>
-              {regimeLabel}
+          {/* Regime badge — SSE stream first, REST fallback, loading state */}
+          {(regimeLabel || regimeLoading) && (
+            <div style={{
+              padding: '2px 8px', borderRadius: 4,
+              background: regimeError ? 'rgba(255,71,87,.07)' : 'rgba(0,229,255,.07)',
+              border: `1px solid ${regimeError ? 'rgba(255,71,87,.3)' : 'rgba(0,229,255,.22)'}`,
+              fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1.5px',
+              color: regimeError ? '#FF4757' : '#00e5ff', textTransform: 'uppercase',
+            }}>
+              {regimeError ? 'REGIME ERR' : (regimeLabel ?? '···')}
             </div>
           )}
           {/* Index tickers — live from SSE stream market_indices */}
@@ -905,7 +920,11 @@ export default function AlephDashboard() {
         {/* Status bar */}
         <div style={{ padding: '2px 16px 6px', display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.13)' }}>
-            ALEPH-ONE CORE {APP_VERSION} · NEURAL ENGINE ACTIVE · MARKET DATA {connected ? 'CONNECTED' : 'RECONNECTING'} · 247 FEEDS INGESTED
+            ALEPH-ONE CORE {APP_VERSION} · NEURAL ENGINE ACTIVE · MARKET DATA {connected ? 'CONNECTED' : 'RECONNECTING'} · DATA{' '}
+            <span style={{ color: trustDegraded ? '#FF9800' : trustFreshness === 'fresh' ? '#00ff88' : 'rgba(255,255,255,.13)' }}>
+              {trustFreshness.toUpperCase()}
+            </span>
+            {' '}· {trustAvailability.toUpperCase()}
           </span>
           <span style={{ marginLeft: 'auto', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(0,229,255,.28)' }}>{ts} KST</span>
         </div>
