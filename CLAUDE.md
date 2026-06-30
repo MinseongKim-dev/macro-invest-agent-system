@@ -526,16 +526,40 @@ Git tag: `v0.3.0`
 
 ---
 
-### Next Milestone: v0.4.0 — Quant Score Engine (PRD Phase D-1)
+### Next Milestone: v0.4.0 — Fund NAV Ingestion (Aleph-One frontend track)
 
-**Status: PENDING**
+**Status: SCAFFOLDED (real KOFIA adapter call still pending)**
 
-#### PRD 연계 (Phase D-1 — 멀티엔진 분석 체계)
+This milestone is scoped to the legacy Aleph-One Tri-File frontend track
+(`src/database.py` / `src/engines.py` / `src/main.py` + `apps/frontend`),
+versioned independently of the PRD chapter roadmap below.
 
-- [ ] **Quant Score 엔진** — 지표별 가중치 적용 정량 점수 시스템. `QuantScoreEngine` 도메인 레이어 신설.
-- [ ] **엔진 간 충돌 표면화** — `conflict_surface_v1` 확장. 크로스엔진 합성 뷰.
-- [ ] **공모 펀드 일일 NAV 적재** — KOFIA OpenAPI → `fund_nav_ticks`. `[FUNDS]` 탭 실데이터 연결.
-- [ ] **백테스팅 기반 마련** — 과거 매크로 데이터 2년치 로드. Regime 분류 정확성 검증 스크립트.
+- [x] **공모 펀드 NAV 스캐폴드** — `fund_nav_ticks` hypertable DDL, `FundNavFact`
+  model, `KOFIA_API_KEY`-gated `fetch_fund_nav()` (graceful no-op fallback,
+  same contract as `FRED_API_KEY`), daily `_fund_nav_collector_loop()` in
+  `src/main.py`. See `src/database.py` for full notes.
+- [ ] **KOFIA real adapter** — `_fetch_kofia_fund_nav()` is a deliberate
+  `NotImplementedError` stub. `openapi.kofia.or.kr` and `data.go.kr` both
+  returned HTTP 403 to documentation fetch attempts, so the real
+  endpoint/auth-param/response-field contract could not be verified.
+  Needs either a working KOFIA OpenAPI key + API guide, or a reachable
+  alternate doc source, before implementation.
+- [ ] **`[FUNDS]` 탭 실데이터 연결** — blocked on the real adapter above;
+  populate `FUND_NAV_TARGETS` with real fund codes once it lands.
+
+---
+
+> **Note (corrected 2026-06-30):** an earlier revision of this milestone
+> mislabeled the Quant Score Engine as "not started" under a `v0.4.0`
+> heading shared with the Aleph-One frontend version track. That was
+> inaccurate: the Quant Scoring Engine is part of the **separate, unversioned
+> layered domain system** (`src/domain/`, `src/services/`, `apps/api/`) that
+> implements the PRD chapter roadmap, and it already existed —
+> `src/domain/quant/models.py` + `scoring.py` + `src/services/quant_scoring_service.py`,
+> consumed internally by regime confidence (`regime_mapping.py`) and
+> `conflict_surface_v1` (`src/domain/signals/conflict.py`). The only gap was
+> that it had no public read API. `GET /api/quant/latest` (`apps/api/routers/quant.py`)
+> closes that gap. See `docs/roadmap.md` for the corrected PRD Phase D-1 status.
 
 ---
 
@@ -554,10 +578,10 @@ Git tag: `v0.3.0`
 - B-2 사용자 맞춤 기능 (관심 지표 선택, 위젯 레이아웃)
 - B-3 모바일 반응형 (핵심 뷰 우선)
 
-### Phase D — 분석 깊이 & 기술 고도화 (v0.4.0+ 대상)
+### Phase D — 분석 깊이 & 기술 고도화
 
-- D-1 멀티엔진 분석 체계 — Quant Score 엔진, 크로스엔진 합성 (💰 무료)
-- D-2 백테스팅 + Eval 하네스 — 과거 데이터 Regime 검증, 시그널 히트율 (💰 무료)
+- D-1 멀티엔진 분석 체계 — Quant Score 엔진 (도메인 레이어 ✓ + `GET /api/quant/latest` ✓ 완료), 크로스엔진 합성 뷰 확장 (pending) (💰 무료)
+- D-2 백테스팅 + Eval 하네스 — Regime 분류 정확성 검증 하네스 ✓ (`scripts/backtest_regime_eval.py`, 합성 시나리오 9개 × `map_snapshot_to_regime_label()` 룰 분기 1:1 검증, 9/9 통과), 실거래 과거 데이터 기반 백테스트·시그널 히트율은 검증된 과거 매크로 데이터 소스 부재로 보류 (💰 무료)
 - D-3 AI 해석 레이어 고도화 — LLM 보강 설명, What-if 시나리오 (💰 Claude API)
 - D-4 실시간 파이프라인 + 알림 — 이벤트 기반 수집, Regime 전환 알림 (💰 서버 비용)
 

@@ -13,6 +13,7 @@ Tri-File Architecture — this file owns:
   - fetch_live_news()         : yfinance .news → headlines per ticker + Milvus upsert
   - init_milvus()             : Milvus connection + news_collection schema + HNSW index
   - search_milvus_news()      : semantic ANN search over ingested news headlines
+  - fetch_fund_nav()          : KOFIA fund NAV scaffold → fund_nav_ticks (adapter call TODO)
 
 Run standalone::
 
@@ -207,6 +208,25 @@ SELECT create_hypertable(
 );
 """
 
+_DDL_FUND_NAV_TICKS = """
+CREATE TABLE IF NOT EXISTS fund_nav_ticks (
+    snapshot_time TIMESTAMPTZ   NOT NULL,
+    fund_code     VARCHAR(20)   NOT NULL,
+    nav           NUMERIC(15,4) NOT NULL,
+    source        VARCHAR(20)   NOT NULL DEFAULT 'KOFIA',
+    UNIQUE (snapshot_time, fund_code)
+);
+"""
+
+_DDL_FUND_NAV_HYPERTABLE = """
+SELECT create_hypertable(
+    'fund_nav_ticks',
+    'snapshot_time',
+    chunk_time_interval => INTERVAL '30 days',
+    if_not_exists       => TRUE
+);
+"""
+
 
 def init_db(config: DatabaseConfig | None = None) -> None:
     """Create market_ticks (hypertable, 7-day chunks) and macro_regimes.
@@ -229,6 +249,9 @@ def init_db(config: DatabaseConfig | None = None) -> None:
             conn.execute(_DDL_MACRO_INDICATORS_HYPERTABLE)
             conn.execute(_DDL_MACRO_BACKFILL)
             logger.debug("db_table_ensured", extra={"table": "macro_indicators"})
+            conn.execute(_DDL_FUND_NAV_TICKS)
+            conn.execute(_DDL_FUND_NAV_HYPERTABLE)
+            logger.debug("db_table_ensured", extra={"table": "fund_nav_ticks"})
             conn.commit()
         logger.info("db_init_complete")
     except Exception as exc:
@@ -941,6 +964,102 @@ def fetch_macro_indicators() -> dict[str, float]:
         logger.info("macro_indicators_upserted", extra={"count": len(results)})
     except Exception as exc:
         logger.warning("macro_indicators_db_failed", extra={"error": str(exc)})
+
+    return results
+
+
+# ── Fund NAV (KOFIA OpenAPI) — scaffold ───────────────────────────────────────
+#
+# KOFIA(금융투자협회) OpenAPI is the planned source for daily 공모펀드 기준가
+# (NAV) data backing the [FUNDS] tab. The exact endpoint path, auth-param
+# name, and response field names could NOT be verified for this scaffold —
+# openapi.kofia.or.kr and data.go.kr both returned HTTP 403 to documentation
+# fetch attempts. Rather than guess a request/response shape for a financial
+# data API, _fetch_kofia_fund_nav() is a stub that raises NotImplementedError.
+# fetch_fund_nav() degrades gracefully around that stub, mirroring the
+# FRED_API_KEY no-key fallback contract in fetch_macro_indicators().
+
+# Optional KOFIA API key — set KOFIA_API_KEY once a real adapter is built.
+# Absent key = adapter stays dormant; fetch_fund_nav() returns {}.
+KOFIA_API_KEY: str = os.environ.get("KOFIA_API_KEY", "")
+
+# Target funds for the [FUNDS] tab, keyed by KOFIA 펀드표준코드.
+# Empty until real fund codes are confirmed — fetch_fund_nav() is a no-op
+# while this is empty, so the [FUNDS] tab correctly stays masked
+# ("AWAITING FEEDS") in the frontend.
+FUND_NAV_TARGETS: dict[str, str] = {}
+
+
+@dataclass(frozen=True)
+class FundNavFact:
+    """A single daily NAV (기준가) observation for one fund."""
+
+    fund_code: str
+    nav: float
+    as_of: date
+    source: str = "KOFIA"
+
+
+def _fetch_kofia_fund_nav(fund_code: str) -> float | None:  # noqa: ARG001
+    """Fetch the latest NAV for one fund from KOFIA OpenAPI.
+
+    TODO(kofia-spec): implement the real HTTP call once the registered
+    KOFIA_API_KEY's API guide confirms the endpoint path, auth parameter
+    name, and response field names. Until then this stub always raises so
+    fetch_fund_nav() can detect "adapter not implemented" and degrade
+    gracefully instead of silently fabricating data.
+    """
+    raise NotImplementedError("KOFIA fund NAV API contract not yet verified")
+
+
+def fetch_fund_nav() -> dict[str, float]:
+    """Fetch daily fund NAV (기준가) for each fund in FUND_NAV_TARGETS.
+
+    No-op (returns {}) when KOFIA_API_KEY is unset or FUND_NAV_TARGETS is
+    empty — both true by default until a verified KOFIA adapter lands.
+
+    Returns a dict of fund_code → latest NAV.
+    Writes each successful fetch to the fund_nav_ticks hypertable.
+    """
+    results: dict[str, float] = {}
+
+    if not KOFIA_API_KEY or not FUND_NAV_TARGETS:
+        logger.debug(
+            "fund_nav_fetch_skipped",
+            extra={"reason": "no_api_key" if not KOFIA_API_KEY else "no_targets"},
+        )
+        return results
+
+    for fund_code in FUND_NAV_TARGETS:
+        try:
+            nav = _fetch_kofia_fund_nav(fund_code)
+            if nav is not None:
+                results[fund_code] = nav
+        except NotImplementedError:
+            logger.warning("kofia_adapter_not_implemented", extra={"fund_code": fund_code})
+            break  # stub adapter — retrying remaining codes won't help
+        except Exception as exc:
+            logger.warning("fund_nav_fetch_failed", extra={"fund_code": fund_code, "error": str(exc)})
+
+    if not results:
+        return results
+
+    now_kst = datetime.now(_KST)
+    try:
+        with get_connection() as conn:
+            for fund_code, nav in results.items():
+                conn.execute(
+                    "INSERT INTO fund_nav_ticks "
+                    "    (snapshot_time, fund_code, nav, source) "
+                    "VALUES (%s, %s, %s, %s) "
+                    "ON CONFLICT (snapshot_time, fund_code) "
+                    "DO UPDATE SET nav = EXCLUDED.nav",
+                    (now_kst, fund_code, nav, "KOFIA"),
+                )
+            conn.commit()
+        logger.info("fund_nav_ticks_upserted", extra={"count": len(results)})
+    except Exception as exc:
+        logger.warning("fund_nav_ticks_db_failed", extra={"error": str(exc)})
 
     return results
 
