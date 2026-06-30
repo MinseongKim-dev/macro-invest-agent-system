@@ -378,6 +378,11 @@ Small, explicit, verifiable progress is preferred over large speculative output.
 
 ## Release Milestones
 
+> **Release checklist:** every release that bumps the app version must update
+> all three version surfaces together — `apps/frontend/components/AlephDashboard.tsx`
+> (`APP_VERSION`), `README.md` (top badge + Roadmap table), and `pyproject.toml`
+> (`[project].version`). These must stay in sync; do not bump one without the others.
+
 ### v0.1.0-RELEASE (Stable) — 2026-05-24
 
 **Status: FROZEN ✓**  
@@ -563,6 +568,97 @@ Decisions (확정, 2026-06-30):
   필드는 변경하지 않음, 추가만 함). `lib/types.ts`에 타입 반영.
   **남은 작업:** 이 데이터를 실제로 그리는 프론트엔드 시각 패널(예: PORTFOLIO ALPHA
   카드 UI)은 아직 미구현 — 백엔드 계약과 타입만 준비된 상태.
+
+---
+
+### v0.4.1 — KR 대형주 섹터 다변화
+
+**Status: RELEASED ✓**
+
+기존 라인업이 테크/화학에 치우쳐 있어, 자동차/바이오/철강/금융 섹터를
+추가해 리스크 매트릭스를 더 현실적인 포트폴리오 구성에 가깝게 확장.
+
+- [x] **신규 종목 4종 추가** — 현대차(005380, KR_AUTO) / 삼성바이오로직스
+  (207940, KR_BIO) / POSCO홀딩스(005490, KR_STEEL) / KB금융(105560,
+  KR_FINANCE). `src/engines.py`(`TICKERS`/`DISPLAY_NAMES`/`TICKER_GROUPS`),
+  `src/database.py`(`LIVE_TICKERS`), `src/main.py`(`_BASELINE_PRICES`/
+  `_TICKER_NEWS`) 4개 레지스트리 동기화. Risk matrix 12행 → 16행.
+- [x] **버전 동기화** — `APP_VERSION`/`README.md`/`pyproject.toml` v0.4.1로
+  일괄 갱신 (Release checklist 준수).
+
+---
+
+### v0.4.2 — 종목/뉴스 플로팅 디테일 패널
+
+**Status: RELEASED ✓**
+
+PORTFOLIO ALPHA의 보유 종목 행과 NEWS FEED의 뉴스 항목이 시각적으로는
+클릭 가능해 보였지만(`row-hover`/`news-hover` CSS) 실제 클릭 핸들러가
+없었음. v0.3.1에서 만든 `ResearchPanel.tsx` 슬라이드아웃 패턴을 재사용해
+종목 클릭 시 가격/변동률/가격 히스토리 차트를, 뉴스 클릭 시 전체 헤드라인/
+감성/출처/원문 링크를 보여주는 플로팅 패널을 추가.
+
+- [x] **`DetailPanel.tsx` 신규** — `ResearchPanel`과 동일한 배경/슬라이드
+  인터랙션(Framer Motion)을 공유하는 범용 디테일 패널. `ticker` 또는 `news`
+  prop 중 하나로 콘텐츠 분기.
+- [x] **홀딩스 행 클릭 핸들러** — `AlephDashboard.tsx`의 `row-hover` 행에
+  `onClick={() => openTickerDetail(h)}` 연결.
+- [x] **뉴스 항목 클릭 핸들러** — `news-hover` 행에
+  `onClick={() => openNewsDetail(item)}` 연결. `ExternalEventDTO`의
+  `summary`/`source`/`source_url`/`entity` 필드 활용.
+- [x] **패널 상호배제** — OMNI-COMMAND 리서치 패널과 디테일 패널은 같은
+  화면 영역(우측 슬라이드아웃)을 쓰므로, 한쪽을 열면 다른 쪽을 닫음.
+- [x] **버전 동기화** — `APP_VERSION`/`README.md`/`pyproject.toml` v0.4.2로
+  일괄 갱신.
+
+#### RECONNECTING 진단 (코드 수정 없음)
+
+배포된 대시보드가 `RECONNECTING`에 멈춰 있던 원인을 조사: 프론트엔드 SSE
+프록시 라우트(`apps/frontend/app/api/v1/intelligence/stream/route.ts`,
+`apps/frontend/app/api/stream/market/route.ts`)는 `ALEPH_API_URL`이
+설정되지 않으면 `http://aleph-api:8001`(docker-compose 내부 호스트명)로
+폴백하는데, 이 주소는 Vercel 서버리스 환경에서는 해석 불가능 — fetch가
+실패해 502를 반환하고 `EventSource.onerror`가 영구 재시도 루프에 들어감.
+재현/검증한 코드 버그가 아니라 **배포 환경설정 문제**이므로 레포 코드로는
+고칠 수 없음: Vercel 프로젝트의 `ALEPH_API_URL` 환경변수가 실제 VPS
+도메인(`https://api.your-domain.com` 형태)을 가리키는지, 그리고 VPS의
+`aleph-api` 컨테이너가 살아있는지 확인 필요.
+
+---
+
+### v0.4.3 — 종목 레지스트리 동기화 + 실데이터 뉴스 + 52주 레인지
+
+**Status: RELEASED ✓**
+
+v0.4.1에서 백엔드에 추가한 4개 종목이 프론트엔드 `TICKER_META`/
+`TICKER_ORDER`에는 반영되지 않아 PORTFOLIO ALPHA에서 보이지 않던 회귀
+버그를 수정. 또한 `/api/events/recent`가 실제로는 yfinance 실시간
+헤드라인을 쓰고 있었지만(완전히 빈 스켈레톤은 아니었음) `title` 외 모든
+필드(`source`, `source_url`, `entity`, `published_at`)를 버리고 가짜
+타임스탬프를 채워 넣고 있던 것을 확인 — 기존 라이브 수집 파이프라인
+안에서 실제 출처/링크/시각이 흐르도록 보강. `DetailPanel`의 종목 상세에
+52주 최고/최저가도 추가.
+
+- [x] **`TICKER_META`/`TICKER_ORDER` 4종목 추가** — 현대차(005380)/
+  삼성바이오로직스(207940)/POSCO홀딩스(005490)/KB금융(105560).
+  `AlephDashboard.tsx`. 홀딩스 16행 모두 렌더링되도록 수정.
+- [x] **`fetch_live_news_items()` 신규** — `src/database.py`.
+  `_extract_news_item()`으로 yfinance 뉴스 아이템에서 title 외에
+  url/publisher/published_at도 추출(flat/nested `content` 두 형식 모두
+  대응). 기존 `fetch_live_news()`(문자열만 반환, SentimentEngine 등 다른
+  호출부가 사용 중)는 변경 없이 그대로 유지.
+- [x] **`/api/events/recent` 실데이터 필드 채움** — `src/main.py`.
+  `_LIVE_NEWS_ITEMS_CACHE` 신설, `_live_collector_loop()`에서 매 사이클
+  갱신. 캐시가 비어있으면(첫 수집 사이클 이전) 기존 헤드라인 전용 경로로
+  폴백.
+- [x] **`GET /api/tickers/{ticker}/detail` 신규** — `src/main.py` +
+  `src/database.py`의 `fetch_ticker_detail()`. yfinance `fast_info`로
+  52주 최고/최저/거래량 조회, 실패 시 `None` 반환(기존 우아한 폴백 패턴
+  유지).
+- [x] **`DetailPanel.tsx` 52주 레인지 표시** — 패널이 열려 있을 때만
+  `tickerDetail` 엔드포인트를 호출해 가격 카드 아래 새 셀로 표시.
+- [x] **버전 동기화** — `APP_VERSION`/`README.md`/`pyproject.toml` v0.4.3로
+  일괄 갱신. (Roadmap 표에서 누락되어 있던 v0.4.1 행도 함께 보정.)
 
 ---
 

@@ -448,6 +448,10 @@ LIVE_TICKERS: dict[str, str] = {
     "051910": "051910.KS",   # LG화학
     "006400": "006400.KS",   # 삼성SDI
     "122630": "122630.KS",   # KODEX 레버리지 ETF
+    "005380": "005380.KS",   # 현대차
+    "207940": "207940.KS",   # 삼성바이오로직스
+    "005490": "005490.KS",   # POSCO홀딩스
+    "105560": "105560.KS",   # KB금융
 }
 
 def _normalize_yf_symbol(ticker: str) -> str:
@@ -763,6 +767,53 @@ def _extract_news_title(item: dict[str, Any]) -> str:
     return title.strip()
 
 
+def _extract_news_item(item: dict[str, Any]) -> dict[str, Any] | None:
+    """Extract title/url/publisher/published_at from a yfinance news item dict.
+
+    Handles both the flat format (top-level ``link``/``publisher``/
+    ``providerPublishTime``) and the nested ``content`` dict format
+    (``content.canonicalUrl.url`` or ``content.clickThroughUrl.url``,
+    ``content.provider.displayName``, ``content.pubDate`` as ISO-8601),
+    mirroring ``_extract_news_title``'s dual-shape handling.
+
+    Returns ``None`` when no usable title is present.
+    """
+    title = _extract_news_title(item)
+    if not title:
+        return None
+
+    content_raw = item.get("content")
+    content: dict[str, Any] = content_raw if isinstance(content_raw, dict) else {}
+
+    url = item.get("link")
+    if not url:
+        for key in ("canonicalUrl", "clickThroughUrl"):
+            link_obj = content.get(key)
+            if isinstance(link_obj, dict) and link_obj.get("url"):
+                url = link_obj["url"]
+                break
+
+    publisher = item.get("publisher")
+    if not publisher:
+        provider = content.get("provider")
+        if isinstance(provider, dict):
+            publisher = provider.get("displayName")
+
+    published_at: str | None = None
+    epoch = item.get("providerPublishTime")
+    if isinstance(epoch, int | float):
+        published_at = datetime.fromtimestamp(epoch, tz=UTC).isoformat()
+    elif isinstance(content.get("pubDate"), str):
+        published_at = content["pubDate"]
+
+    return {
+        "title":        title,
+        "url":          url,
+        "publisher":    publisher,
+        "published_at": published_at,
+    }
+
+
 def _fetch_latest_close_from_db(internal_id: str) -> list[tuple[Any, ...]]:
     """Return the single most recent market_ticks row for a ticker.
 
@@ -952,6 +1003,67 @@ def fetch_live_news() -> dict[str, list[str]]:
         logger.info("live_news_milvus_sync", extra={"inserted": inserted})
 
     return news_map
+
+
+def fetch_live_news_items() -> dict[str, list[dict[str, Any]]]:
+    """Fetch latest news items (title + url + publisher + published_at) per ticker.
+
+    Same Yahoo Finance source as ``fetch_live_news()`` but preserves the full
+    item shape instead of reducing each article to a bare title string.
+    Used by the ``/api/events/recent`` endpoint so news detail panels can show
+    a real source link and timestamp; ``fetch_live_news()`` is left unchanged
+    since SentimentEngine and other callers only want headline strings.
+    """
+    logger.info("live_news_items_fetch_start")
+    news_map: dict[str, list[dict[str, Any]]] = {}
+
+    for internal_id, yf_symbol in LIVE_TICKERS.items():
+        def _fetch_items(sym: str = yf_symbol) -> list[dict[str, Any]]:
+            raw: list[dict[str, Any]] = yf.Ticker(sym).news or []
+            items = [_extract_news_item(item) for item in raw[:10]]
+            return [i for i in items if i]
+
+        try:
+            items = _retry(
+                _fetch_items,
+                max_attempts=3,
+                base_delay=1.0,
+                label=f"news_items:{internal_id}",
+            )
+            news_map[internal_id] = items
+        except Exception as exc:
+            logger.warning(
+                "live_news_items_fetch_failed",
+                extra={"ticker": internal_id, "error": str(exc)},
+            )
+            news_map[internal_id] = []
+
+    logger.info("live_news_items_fetch_done", extra={"tickers": list(news_map.keys())})
+    return news_map
+
+
+def fetch_ticker_detail(ticker: str) -> dict[str, float | None]:
+    """Fetch 52-week high/low and last volume for a single ticker via fast_info.
+
+    Returns ``None`` values on any failure (network error, unknown symbol)
+    rather than raising — matches the graceful-degradation pattern used
+    throughout this module.
+    """
+    yf_symbol = _normalize_yf_symbol(ticker)
+
+    def _fetch() -> dict[str, float | None]:
+        info = yf.Ticker(yf_symbol).fast_info
+        return {
+            "week52_high": float(info.year_high) if info.year_high is not None else None,
+            "week52_low":  float(info.year_low) if info.year_low is not None else None,
+            "volume":      float(info.last_volume) if info.last_volume is not None else None,
+        }
+
+    try:
+        return _retry(_fetch, max_attempts=3, base_delay=1.0, label=f"ticker_detail:{ticker}")
+    except Exception as exc:
+        logger.warning("ticker_detail_fetch_failed", extra={"ticker": ticker, "error": str(exc)})
+        return {"week52_high": None, "week52_low": None, "volume": None}
 
 
 def fetch_macro_indicators() -> dict[str, float]:

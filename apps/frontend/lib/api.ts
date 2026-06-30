@@ -16,4 +16,5 @@ export const endpoints = {
   signals:       (country = 'US') => `/api/signals/latest?country=${country}`,
   events:        (limit = 20)     => `/api/events/recent?limit=${limit}`,
   alerts:        (limit = 10)     => `/api/alerts/recent?limit=${limit}`,
+  tickerDetail:  (ticker: string) => `/api/tickers/${ticker}/detail`,
 } as const

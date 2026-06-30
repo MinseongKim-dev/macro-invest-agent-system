@@ -32,7 +32,12 @@ logger = logging.getLogger(__name__)
 
 # ── Domain constants ──────────────────────────────────────────────────────────
 
-TICKERS: list[str] = ["AAPL", "MSFT", "TSLA", "005930", "000660", "035420", "051910", "006400", "122630", "QQQ", "BND", "GLD"]
+TICKERS: list[str] = [
+    "AAPL", "MSFT", "TSLA",
+    "005930", "000660", "035420", "051910", "006400", "122630",
+    "005380", "207940", "005490", "105560",
+    "QQQ", "BND", "GLD",
+]
 
 DISPLAY_NAMES: dict[str, str] = {
     "AAPL":   "AAPL",
@@ -44,6 +49,10 @@ DISPLAY_NAMES: dict[str, str] = {
     "051910": "LG화학",
     "006400": "삼성SDI",
     "122630": "KODEX LEV",
+    "005380": "현대차",
+    "207940": "삼성바이오로직스",
+    "005490": "POSCO홀딩스",
+    "105560": "KB금융",
     "QQQ":    "QQQ ETF",
     "BND":    "BND ETF",
     "GLD":    "GLD ETF",
@@ -59,6 +68,10 @@ TICKER_GROUPS: dict[str, str] = {
     "051910": "KR_CHEM",
     "006400": "KR_CHEM",
     "122630": "KR_ETF",
+    "005380": "KR_AUTO",
+    "207940": "KR_BIO",
+    "005490": "KR_STEEL",
+    "105560": "KR_FINANCE",
     "QQQ":    "ETF_TECH",
     "BND":    "ETF_BOND",
     "GLD":    "ETF_COMMODITY",
