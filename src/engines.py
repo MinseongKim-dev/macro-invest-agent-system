@@ -615,6 +615,87 @@ def _strategy_text(
     return f"{name}: Neutral posture — monitoring SMA convergence, vol={vol_r:.1%}{spike_note}{regime_note}"
 
 
+# ── Backtest Engine ────────────────────────────────────────────────────────────
+# History-aware simulation — deliberately NOT a BaseEngine subclass. BaseEngine's
+# analyze(ticker, market_data, context_data) contract is for single-snapshot
+# analysis; a backtest walks an entire price history and returns a time series,
+# a different shape of computation kept distinct per project architecture rules.
+
+_BACKTEST_INITIAL_CAPITAL: float = 10_000_000.0  # unit-neutral base; only the % return matters
+
+
+@dataclass(frozen=True)
+class BacktestResult:
+    ticker:           str
+    strategy:         str
+    bars:             int
+    initial_value:    float
+    final_value:      float
+    total_return_pct: float
+    max_drawdown_pct: float
+    num_trades:       int
+    equity_curve:     list[float]
+
+
+class BacktestEngine:
+    """Vectorized SMA(5/20) crossover backtest over a single ticker's close-price history.
+
+    Strategy: long-only, all-in/all-out. Enter on golden cross (SMA5 crosses
+    above SMA20), exit on dead cross (SMA5 crosses below SMA20) — the same
+    crossover rule QuantEngine already detects for live signals, replayed
+    across history instead of evaluated on the latest bar.
+
+    No Backtrader dependency: position state and daily strategy return are
+    computed with vectorised pandas operations, not a per-bar event loop.
+    """
+
+    def run(
+        self,
+        ticker:           str,
+        price_df:         pd.DataFrame,
+        initial_capital:  float = _BACKTEST_INITIAL_CAPITAL,
+    ) -> BacktestResult:
+        if price_df.empty or "close_price" not in price_df.columns:
+            raise ValueError(f"no close_price data for {ticker}")
+        if len(price_df) < _SMA_SLOW:
+            raise ValueError(f"need ≥{_SMA_SLOW} rows, got {len(price_df)}")
+
+        close = price_df["close_price"].astype(float).reset_index(drop=True)
+        sma5  = close.rolling(window=_SMA_FAST, min_periods=_SMA_FAST).mean()
+        sma20 = close.rolling(window=_SMA_SLOW, min_periods=_SMA_SLOW).mean()
+
+        bullish      = sma5 > sma20
+        golden_cross = bullish & ~bullish.shift(1, fill_value=False)
+        dead_cross   = ~bullish & bullish.shift(1, fill_value=False)
+
+        # position=1 while long, 0 while flat — forward-filled between signals.
+        position = pd.Series(np.nan, index=close.index)
+        position[golden_cross] = 1.0
+        position[dead_cross]   = 0.0
+        position = position.ffill().fillna(0.0)
+
+        # Today's bar earns yesterday's position decision — no look-ahead bias.
+        daily_return    = close.pct_change().fillna(0.0)
+        strategy_return = daily_return * position.shift(1, fill_value=0.0)
+        equity_curve    = initial_capital * (1.0 + strategy_return).cumprod()
+
+        running_max = equity_curve.cummax()
+        drawdown    = (equity_curve - running_max) / running_max
+        final_value = float(equity_curve.iloc[-1])
+
+        return BacktestResult(
+            ticker=ticker,
+            strategy="sma_crossover_5_20",
+            bars=len(close),
+            initial_value=initial_capital,
+            final_value=final_value,
+            total_return_pct=round((final_value / initial_capital - 1.0) * 100.0, 3),
+            max_drawdown_pct=round(float(drawdown.min()) * 100.0, 3),
+            num_trades=int(golden_cross.sum() + dead_cross.sum()),
+            equity_curve=[round(v, 4) for v in equity_curve.tolist()],
+        )
+
+
 # ── Orchestration helper ──────────────────────────────────────────────────────
 
 

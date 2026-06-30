@@ -11,7 +11,7 @@ import { ResearchPanel } from '@/components/ResearchPanel'
 import type { AlephStreamData } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.3.1'
+export const APP_VERSION = 'v0.4.0'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `

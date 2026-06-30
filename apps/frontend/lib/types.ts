@@ -231,6 +231,32 @@ export interface AlephStreamData {
     network_nodes: AlephNetworkNode[]
     risk_matrix:   AlephRiskRow[]
   }
-  market_indices?:   Record<string, number>
-  macro_indicators?: Record<string, number>
+  market_indices?:    Record<string, number>
+  macro_indicators?:  Record<string, number>
+  virtual_portfolio?: VirtualPortfolioSummary
+}
+
+export interface VirtualPortfolioAccount {
+  cash_balance:    number
+  market_value:    number
+  total_value:     number
+  initial_balance: number
+  total_pl:        number
+  total_pl_pct:    number
+}
+
+export interface VirtualPortfolioHolding {
+  ticker:         string
+  quantity:       number
+  avg_cost:       number
+  currency:       string
+  display_name:   string
+  live_price:     number
+  market_value:   number
+  unrealized_pl:  number
+}
+
+export interface VirtualPortfolioSummary {
+  accounts: Record<string, VirtualPortfolioAccount>
+  holdings: VirtualPortfolioHolding[]
 }

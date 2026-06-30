@@ -38,6 +38,7 @@ from src import config
 from src.database import (
     FRED_API_KEY,
     _PoolManager,
+    execute_virtual_order,
     fetch_fund_nav,
     fetch_live_index_data,
     fetch_live_market_data,
@@ -45,6 +46,8 @@ from src.database import (
     fetch_macro_indicators,
     get_connection,
     get_latest_prices,
+    get_portfolio_holdings,
+    get_virtual_accounts,
     init_db,
     init_milvus,
     search_milvus_news,
@@ -54,6 +57,7 @@ from src.engines import (
     DISPLAY_NAMES,
     TICKER_GROUPS,
     TICKERS,
+    BacktestEngine,
     PersonaProfile,
     QuantEngine,
     SentimentEngine,
@@ -211,6 +215,71 @@ def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | Non
 
     _DB_PRICE_CACHE[ticker] = (df, now)
     return df
+
+
+_PortfolioCacheEntry = tuple[dict[str, dict[str, float]], list[dict[str, Any]]]
+_PORTFOLIO_SUMMARY_CACHE: tuple[_PortfolioCacheEntry, float] | None = None
+
+
+def _build_portfolio_summary(*, force_refresh: bool = False) -> dict[str, Any]:
+    """Assemble the current virtual-broker state: cash, holdings, P&L by currency.
+
+    Holdings are marked to market using ``_PRICE_STATE`` (the same live price
+    cache the SSE stream and quant tools read from). Cash/holdings rows are
+    cached for ``_DB_CACHE_TTL`` seconds (same pattern as ``_fetch_price_df_from_db``)
+    to avoid a DB round-trip on every 1-second SSE tick; pass ``force_refresh=True``
+    right after placing an order so the next read reflects it immediately.
+    """
+    global _PORTFOLIO_SUMMARY_CACHE
+    now = time.monotonic()
+    if not force_refresh and _PORTFOLIO_SUMMARY_CACHE is not None:
+        cached, ts = _PORTFOLIO_SUMMARY_CACHE
+        if now - ts < _DB_CACHE_TTL:
+            accounts, holdings = cached
+        else:
+            accounts, holdings = get_virtual_accounts(), get_portfolio_holdings()
+            _PORTFOLIO_SUMMARY_CACHE = ((accounts, holdings), now)
+    else:
+        accounts, holdings = get_virtual_accounts(), get_portfolio_holdings()
+        _PORTFOLIO_SUMMARY_CACHE = ((accounts, holdings), now)
+
+    enriched_holdings: list[dict[str, Any]] = []
+    market_value_by_currency: dict[str, float] = dict.fromkeys(accounts, 0.0)
+
+    for h in holdings:
+        ticker        = h["ticker"]
+        live_price    = _PRICE_STATE.get(ticker, h["avg_cost"])
+        market_value  = round(h["quantity"] * live_price, 4)
+        unrealized_pl = round(market_value - h["quantity"] * h["avg_cost"], 4)
+        market_value_by_currency[h["currency"]] = (
+            market_value_by_currency.get(h["currency"], 0.0) + market_value
+        )
+        enriched_holdings.append({
+            **h,
+            "display_name":  DISPLAY_NAMES.get(ticker, ticker),
+            "live_price":    round(live_price, 4),
+            "market_value":  market_value,
+            "unrealized_pl": unrealized_pl,
+        })
+
+    accounts_summary: dict[str, dict[str, float]] = {}
+    for currency, acct in accounts.items():
+        total_value = acct["cash_balance"] + market_value_by_currency.get(currency, 0.0)
+        accounts_summary[currency] = {
+            "cash_balance":    round(acct["cash_balance"], 4),
+            "market_value":    round(market_value_by_currency.get(currency, 0.0), 4),
+            "total_value":     round(total_value, 4),
+            "initial_balance": round(acct["initial_balance"], 4),
+            "total_pl":        round(total_value - acct["initial_balance"], 4),
+            "total_pl_pct":    round(
+                (total_value / acct["initial_balance"] - 1.0) * 100.0, 3,
+            ) if acct["initial_balance"] else 0.0,
+        }
+
+    return {
+        "accounts": accounts_summary,
+        "holdings": enriched_holdings,
+    }
 
 
 # ── Fibonacci sphere node positions ──────────────────────────────────────────
@@ -495,6 +564,7 @@ def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -
         },
         "market_indices":    dict(_INDEX_CACHE),
         "macro_indicators":  dict(_MACRO_CACHE),
+        "virtual_portfolio": _build_portfolio_summary(),
     }
 
 
@@ -673,7 +743,7 @@ _AGENT_SYSTEM_PROMPT: str = (
     "• James Simons — Regime Switching: crisis keyword frequency "
     "(inflation/hawkish/tightening/crisis ≥ 3 occurrences) → CRISIS_MODE\n"
     "• Warren Buffett — Margin of Safety: RSI ≥ 70 locks BUY → HOLD for CONSERVATIVE\n\n"
-    "Operational protocol:\n"
+    "Operational protocol (analysis queries):\n"
     "1. Call search_news_database with the user query to retrieve the most relevant\n"
     "   real news articles from the Milvus vector store for RAG context\n"
     "2. Call get_quant_intelligence for each relevant ticker (momentum, RSI, vol_spike)\n"
@@ -682,7 +752,20 @@ _AGENT_SYSTEM_PROMPT: str = (
     "5. Cite specific headlines from search_news_database when making claims\n"
     "6. Lead with actionable signals and quantitative evidence\n"
     "7. Concise and data-driven — no vague commentary\n"
-    "8. Format like a top-tier hedge fund quant report with clear sections"
+    "8. Format like a top-tier hedge fund quant report with clear sections\n\n"
+    "Virtual Broker protocol (when the user asks you to trade, rebalance, or\n"
+    "execute a position — this is paper trading against a simulated KRW/USD\n"
+    "account, never real money):\n"
+    "1. Call get_portfolio_summary_tool FIRST to see current cash and holdings\n"
+    "2. Call get_quant_intelligence (and run_backtest_tool if validating a\n"
+    "   strategy) for every ticker under consideration before sizing an order\n"
+    "3. Size each order against the cash actually available in that ticker's\n"
+    "   currency account (KRW for 6-digit KR tickers, USD otherwise) — never\n"
+    "   assume unlimited cash\n"
+    "4. Call execute_virtual_order_tool per ticker; if a status is REJECTED,\n"
+    "   report the exact reason — do not retry blindly or claim it succeeded\n"
+    "5. After all orders, call get_portfolio_summary_tool again and report the\n"
+    "   resulting position sizes, cash remaining, and rationale per trade"
 )
 
 # Lazy-initialised AgentExecutor singleton — built on first OMNI command
@@ -798,6 +881,86 @@ def search_news_database(query: str, ticker: str = "") -> str:
     })
 
 
+@tool
+def execute_virtual_order_tool(ticker: str, side: str, quantity: float) -> str:
+    """Place an immediate-fill virtual order against the live Aleph-One paper-trading book.
+
+    Fills at the current live tick price (``_PRICE_STATE``) — there is no real
+    brokerage involved. BUY debits the ticker's currency account (KRW for
+    6-digit KR tickers, USD otherwise) and increases the held position at a
+    blended average cost. SELL credits cash and reduces the position. Orders
+    are rejected (not raised as errors) on insufficient cash or insufficient
+    holdings — always report the ``status`` field back to the user verbatim.
+
+    Args:
+        ticker:   Internal ticker ID. Valid values: AAPL, MSFT, TSLA, QQQ, BND,
+                   GLD, 005930, 000660, 035420, 051910, 006400, 122630
+        side:     "BUY" or "SELL"
+        quantity: Number of shares/units to trade. Must be positive.
+    """
+    side_upper = side.upper()
+    if side_upper not in ("BUY", "SELL"):
+        return json.dumps({"status": "REJECTED", "reason": f"invalid_side_{side}"})
+
+    live_price = _PRICE_STATE.get(ticker)
+    if not live_price:
+        return json.dumps({"status": "REJECTED", "reason": f"no_live_price_for_{ticker}"})
+
+    result = execute_virtual_order(ticker, side_upper, quantity, live_price)  # type: ignore[arg-type]
+    if result.get("status") == "FILLED":
+        _build_portfolio_summary(force_refresh=True)
+    return json.dumps(result)
+
+
+@tool
+def get_portfolio_summary_tool() -> str:
+    """Return the current virtual-broker state: cash balances, holdings, and P&L.
+
+    Reports both the KRW and USD paper-trading accounts separately (cash,
+    mark-to-market holding value, total value, and unrealized P&L vs the
+    initial seed balance), plus a per-position breakdown. Call this before
+    sizing a new order (to check available cash) and after executing trades
+    (to confirm the result).
+    """
+    return json.dumps(_build_portfolio_summary())
+
+
+@tool
+def run_backtest_tool(ticker: str) -> str:
+    """Backtest the SMA(5/20) crossover strategy on a ticker's recent price history.
+
+    Vectorized walk-forward simulation: long when the 5-day SMA crosses above
+    the 20-day SMA, flat otherwise. Returns total return %, max drawdown %, and
+    trade count — use this to validate a strategy BEFORE recommending or
+    executing a virtual order on a ticker.
+
+    Args:
+        ticker: Internal ticker ID. Valid values: AAPL, MSFT, TSLA, QQQ, BND,
+                 GLD, 005930, 000660, 035420, 051910, 006400, 122630
+    """
+    price_df = _fetch_price_df_from_db(ticker, n_rows=60)
+    if price_df is None or len(price_df) < 20:
+        price_df = pd.DataFrame({"close_price": _PRICE_HISTORY.get(ticker, [])})
+    if price_df.empty or len(price_df) < 20:
+        return json.dumps({"error": f"insufficient_price_history_for_{ticker}", "ticker": ticker})
+
+    try:
+        result = BacktestEngine().run(ticker, price_df)
+    except ValueError as exc:
+        return json.dumps({"error": str(exc), "ticker": ticker})
+
+    return json.dumps({
+        "ticker":           result.ticker,
+        "display_name":     DISPLAY_NAMES.get(ticker, ticker),
+        "strategy":         result.strategy,
+        "bars":             result.bars,
+        "total_return_pct": result.total_return_pct,
+        "max_drawdown_pct": result.max_drawdown_pct,
+        "num_trades":       result.num_trades,
+        "final_value":      round(result.final_value, 2),
+    })
+
+
 def _build_lc_agent() -> Any:  # noqa: ANN401
     """Construct a LangChain 1.x tool-calling agent (provider from config).
 
@@ -814,7 +977,14 @@ def _build_lc_agent() -> Any:  # noqa: ANN401
         ) from exc
 
     llm = config.get_llm()
-    tools = [search_news_database, get_quant_intelligence, get_sentiment_intelligence]
+    tools = [
+        search_news_database,
+        get_quant_intelligence,
+        get_sentiment_intelligence,
+        run_backtest_tool,
+        get_portfolio_summary_tool,
+        execute_virtual_order_tool,
+    ]
     agent = create_react_agent(llm, tools, prompt=_AGENT_SYSTEM_PROMPT)
     logger.info("lc_agent_built", extra={"tools": len(tools)})
     return agent
@@ -922,7 +1092,8 @@ async def _run_agent_async(query: str, persona: PersonaProfile) -> dict[str, Any
             "network_nodes": _perturb_nodes(_BASE_NODES, sigma=0.03, rng=rng),
             "risk_matrix":   clean_matrix,
         },
-        "omni_report": briefing,
+        "omni_report":       briefing,
+        "virtual_portfolio": _build_portfolio_summary(force_refresh=True),
     }
 
 
@@ -1233,6 +1404,30 @@ async def finance_prices(tickers: str = "") -> dict[str, Any]:
         "total":     len(merged),
         "prices":    merged,
     }
+
+
+@app.get("/api/v1/portfolio/summary", tags=["portfolio"])
+async def portfolio_summary() -> dict[str, Any]:
+    """Return the current virtual-broker state: cash, holdings, and P&L by currency.
+
+    Same shape as the ``virtual_portfolio`` field on the SSE intelligence stream
+    and OMNI command responses — exposed standalone for direct polling (e.g. a
+    dashboard panel that doesn't need the full intelligence payload).
+    """
+    try:
+        summary = await asyncio.to_thread(_build_portfolio_summary, force_refresh=True)
+        return {
+            "timestamp": datetime.now(tz=_KST).isoformat(),
+            "status":    "ok",
+            **summary,
+        }
+    except Exception as exc:
+        logger.error("portfolio_summary_failed", extra={"error": str(exc)})
+        return {
+            "timestamp": datetime.now(tz=_KST).isoformat(),
+            "status":    "ERROR",
+            "error":     str(exc),
+        }
 
 
 @app.get("/api/v1/intelligence/stream", tags=["intelligence"])
