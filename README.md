@@ -1,8 +1,14 @@
 # Aleph-One
 
-**v0.4.1** · Open-source, zero-cost financial intelligence terminal
+**v0.4.2** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.2
+
+- **Floating detail panels** — clicking a holding row in PORTFOLIO ALPHA now opens a floating panel with that ticker's live price, session change, and price-history chart; clicking a NEWS FEED item opens a floating panel with the full headline, sentiment, source, and source link. Both reuse the OMNI-COMMAND `ResearchPanel` slide-out pattern (`apps/frontend/components/DetailPanel.tsx`).
 
 ---
 
@@ -312,6 +318,7 @@ macro-invest-agent-system/
 | **v0.3.0** | ✅ Released | SSE reconnect backoff, macro indicators batch engine, Milvus price-alert sync bridge |
 | **v0.3.1** | ✅ Released | Slide-out AI Research Panel, LangChain real-time token streaming |
 | **v0.4.0** | ✅ Released | Virtual Broker — paper trading engine, LLM tool calling, vectorized backtesting |
+| **v0.4.2** | ✅ Released | Floating click-to-expand detail panels for holdings and news items |
 | **v0.4.1** | ✅ Released | KR large-cap sector diversification — auto/bio/steel/finance tickers, risk matrix → 16 rows |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |

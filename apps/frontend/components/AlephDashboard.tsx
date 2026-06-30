@@ -8,10 +8,11 @@ import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
 import { useRegime, useSignals } from '@/hooks/useAlephData'
 import { ResearchPanel } from '@/components/ResearchPanel'
-import type { AlephStreamData } from '@/lib/types'
+import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
+import type { AlephStreamData, ExternalEventDTO } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.1'
+export const APP_VERSION = 'v0.4.2'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -297,6 +298,9 @@ export default function AlephDashboard() {
   const [streaming,   setStreaming]   = useState(false)
   const [panelQuery,  setPanelQuery]  = useState('')
   const [assetTab,    setAssetTab]    = useState<'ALL' | 'STOCKS' | 'ETFS' | 'FUNDS'>('ALL')
+  const [detailOpen,  setDetailOpen]  = useState(false)
+  const [detailTicker,setDetailTicker]= useState<TickerDetail | null>(null)
+  const [detailNews,  setDetailNews]  = useState<ExternalEventDTO | null>(null)
   const [activeIndex, setActiveIndex] = useState<'PORTFOLIO' | 'KOSPI' | 'SP500' | 'USDKRW'>('PORTFOLIO')
   const [indexHistory, setIndexHistory] = useState<Record<string, Array<{t: number; v: number}>>>({})
   const indexIdxRef = useRef(0)
@@ -418,6 +422,7 @@ export default function AlephDashboard() {
     setPanelMeta(undefined)
     setPanelQuery(query)
     setPanelOpen(true)
+    setDetailOpen(false)
     setStreaming(true)
 
     try {
@@ -480,6 +485,20 @@ export default function AlephDashboard() {
     }
   }
 
+  const openTickerDetail = (h: TickerDetail) => {
+    setPanelOpen(false)
+    setDetailNews(null)
+    setDetailTicker(h)
+    setDetailOpen(true)
+  }
+
+  const openNewsDetail = (item: ExternalEventDTO) => {
+    setPanelOpen(false)
+    setDetailTicker(null)
+    setDetailNews(item)
+    setDetailOpen(true)
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#020b18', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
@@ -490,6 +509,12 @@ export default function AlephDashboard() {
         content={panelContent}
         meta={panelMeta}
         query={panelQuery}
+      />
+      <DetailPanel
+        open={detailOpen}
+        onClose={() => setDetailOpen(false)}
+        ticker={detailTicker}
+        news={detailNews}
       />
 
       {/* BG grid */}
@@ -571,7 +596,7 @@ export default function AlephDashboard() {
                       ? new Date(item.published_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })
                       : '—'
                     return (
-                      <div key={item.event_id ?? i} className="news-hover" style={{ display: 'flex', gap: 7, padding: '5px 4px' }}>
+                      <div key={item.event_id ?? i} className="news-hover" onClick={() => openNewsDetail(item)} style={{ display: 'flex', gap: 7, padding: '5px 4px' }}>
                         <SBadge type={s} />
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ fontSize: 10.5, color: 'rgba(255,255,255,.72)', lineHeight: 1.45, fontFamily: "'Rajdhani',sans-serif", overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{item.title}</div>
@@ -814,7 +839,7 @@ export default function AlephDashboard() {
             {assetTab !== 'FUNDS' && (
               <div style={{ maxHeight: 'calc(100vh - 420px)', overflowY: 'auto', paddingRight: 2 }}>
                 {holdings.map((h, i) => (
-                  <div key={h.ticker} className="row-hover" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 5px', borderBottom: i < holdings.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
+                  <div key={h.ticker} className="row-hover" onClick={() => openTickerDetail(h)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 5px', borderBottom: i < holdings.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
                     <div style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, background: `${h.col}18`, border: `1px solid ${h.col}38`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Orbitron',sans-serif", fontSize: 6.5, color: h.col }}>
                       {h.n.slice(0, 2)}
                     </div>

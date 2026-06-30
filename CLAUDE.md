@@ -588,6 +588,44 @@ Decisions (확정, 2026-06-30):
 
 ---
 
+### v0.4.2 — 종목/뉴스 플로팅 디테일 패널
+
+**Status: RELEASED ✓**
+
+PORTFOLIO ALPHA의 보유 종목 행과 NEWS FEED의 뉴스 항목이 시각적으로는
+클릭 가능해 보였지만(`row-hover`/`news-hover` CSS) 실제 클릭 핸들러가
+없었음. v0.3.1에서 만든 `ResearchPanel.tsx` 슬라이드아웃 패턴을 재사용해
+종목 클릭 시 가격/변동률/가격 히스토리 차트를, 뉴스 클릭 시 전체 헤드라인/
+감성/출처/원문 링크를 보여주는 플로팅 패널을 추가.
+
+- [x] **`DetailPanel.tsx` 신규** — `ResearchPanel`과 동일한 배경/슬라이드
+  인터랙션(Framer Motion)을 공유하는 범용 디테일 패널. `ticker` 또는 `news`
+  prop 중 하나로 콘텐츠 분기.
+- [x] **홀딩스 행 클릭 핸들러** — `AlephDashboard.tsx`의 `row-hover` 행에
+  `onClick={() => openTickerDetail(h)}` 연결.
+- [x] **뉴스 항목 클릭 핸들러** — `news-hover` 행에
+  `onClick={() => openNewsDetail(item)}` 연결. `ExternalEventDTO`의
+  `summary`/`source`/`source_url`/`entity` 필드 활용.
+- [x] **패널 상호배제** — OMNI-COMMAND 리서치 패널과 디테일 패널은 같은
+  화면 영역(우측 슬라이드아웃)을 쓰므로, 한쪽을 열면 다른 쪽을 닫음.
+- [x] **버전 동기화** — `APP_VERSION`/`README.md`/`pyproject.toml` v0.4.2로
+  일괄 갱신.
+
+#### RECONNECTING 진단 (코드 수정 없음)
+
+배포된 대시보드가 `RECONNECTING`에 멈춰 있던 원인을 조사: 프론트엔드 SSE
+프록시 라우트(`apps/frontend/app/api/v1/intelligence/stream/route.ts`,
+`apps/frontend/app/api/stream/market/route.ts`)는 `ALEPH_API_URL`이
+설정되지 않으면 `http://aleph-api:8001`(docker-compose 내부 호스트명)로
+폴백하는데, 이 주소는 Vercel 서버리스 환경에서는 해석 불가능 — fetch가
+실패해 502를 반환하고 `EventSource.onerror`가 영구 재시도 루프에 들어감.
+재현/검증한 코드 버그가 아니라 **배포 환경설정 문제**이므로 레포 코드로는
+고칠 수 없음: Vercel 프로젝트의 `ALEPH_API_URL` 환경변수가 실제 VPS
+도메인(`https://api.your-domain.com` 형태)을 가리키는지, 그리고 VPS의
+`aleph-api` 컨테이너가 살아있는지 확인 필요.
+
+---
+
 ### Deferred: v0.5.0 — Fund NAV Ingestion (공모 펀드 기준가)
 
 **Status: SCAFFOLDED (real KOFIA adapter call still pending)**
