@@ -378,6 +378,11 @@ Small, explicit, verifiable progress is preferred over large speculative output.
 
 ## Release Milestones
 
+> **Release checklist:** every release that bumps the app version must update
+> all three version surfaces together — `apps/frontend/components/AlephDashboard.tsx`
+> (`APP_VERSION`), `README.md` (top badge + Roadmap table), and `pyproject.toml`
+> (`[project].version`). These must stay in sync; do not bump one without the others.
+
 ### v0.1.0-RELEASE (Stable) — 2026-05-24
 
 **Status: FROZEN ✓**  
