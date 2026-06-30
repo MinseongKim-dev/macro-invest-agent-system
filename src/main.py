@@ -1310,6 +1310,61 @@ async def intelligence_command(body: CommandRequest) -> dict[str, Any]:
     return fallback
 
 
+@app.post("/api/v1/intelligence/command/stream", tags=["intelligence"])
+async def intelligence_command_stream(body: CommandRequest) -> EventSourceResponse:
+    """OMNI:// streaming terminal — SSE token stream.
+
+    Runs the LangChain agent (or keyword-scenario fallback), then streams the
+    response as SSE events so the frontend ResearchPanel can render tokens
+    progressively without waiting for the full agent response.
+
+    Event types::
+
+        {"type": "meta",  "macro_regime": {...}, "portfolio_health": {...}, ...}
+        {"type": "token", "content": "<word> "}
+        {"type": "done"}
+    """
+    async def _stream() -> AsyncGenerator[dict[str, str], None]:
+        try:
+            response = await _run_agent_async(body.query, body.persona)
+        except Exception as exc:
+            logger.warning("omni_stream_fallback", extra={"error": str(exc)})
+            scenario, _ = _match_scenario(body.query)
+            response = {
+                "omni_report":      scenario.get("report", "ANALYSIS UNAVAILABLE"),
+                "macro_regime":     {
+                    "regime_name":      _REGIME_CACHE.get("regime_name",      "POLICY_TIGHTENING"),
+                    "market_phase":     _REGIME_CACHE.get("market_phase",     "LATE_CYCLE"),
+                    "confidence_score": _REGIME_CACHE.get("confidence_score", 0.85),
+                },
+                "portfolio_health": {"score": 75.0, "source": "FALLBACK"},
+                "active_signals":   [],
+            }
+
+        meta: dict[str, Any] = {
+            "type":             "meta",
+            "timestamp":        datetime.now(tz=_KST).isoformat(),
+            "macro_regime":     response.get("macro_regime",     {}),
+            "portfolio_health": response.get("portfolio_health", {}),
+            "active_signals":   response.get("active_signals",   []),
+        }
+        yield {"data": json.dumps(meta, ensure_ascii=False), "event": "message"}
+
+        report: str = response.get("omni_report") or response.get("briefing") or ""
+        words = report.split()
+        for i, word in enumerate(words):
+            chunk = word + (" " if i < len(words) - 1 else "")
+            yield {
+                "data":  json.dumps({"type": "token", "content": chunk}, ensure_ascii=False),
+                "event": "message",
+            }
+            await asyncio.sleep(0.025)
+
+        yield {"data": json.dumps({"type": "done"}, ensure_ascii=False), "event": "message"}
+
+    return EventSourceResponse(_stream())
+
+
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

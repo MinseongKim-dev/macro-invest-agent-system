@@ -7,10 +7,11 @@ import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
 import { useRegime, useSignals } from '@/hooks/useAlephData'
+import { ResearchPanel } from '@/components/ResearchPanel'
 import type { AlephStreamData } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.1.2'
+export const APP_VERSION = 'v0.3.1'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -286,11 +287,16 @@ const AIWidget = ({ w, idx }: { w: Widget; idx: number }) => (
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function AlephDashboard() {
-  const [now,      setNow]      = useState(new Date())
-  const [query,    setQuery]    = useState('')
-  const [busy,     setBusy]     = useState(false)
-  const [resp,     setResp]     = useState<RespState | null>(null)
-  const [assetTab, setAssetTab] = useState<'ALL' | 'STOCKS' | 'ETFS' | 'FUNDS'>('ALL')
+  const [now,         setNow]         = useState(new Date())
+  const [query,       setQuery]       = useState('')
+  const [busy,        setBusy]        = useState(false)
+  const [resp,        setResp]        = useState<RespState | null>(null)
+  const [panelOpen,   setPanelOpen]   = useState(false)
+  const [panelContent,setPanelContent]= useState('')
+  const [panelMeta,   setPanelMeta]   = useState<{ regime?: string; phase?: string; confidence?: number; signal?: string; health?: number } | undefined>()
+  const [streaming,   setStreaming]   = useState(false)
+  const [panelQuery,  setPanelQuery]  = useState('')
+  const [assetTab,    setAssetTab]    = useState<'ALL' | 'STOCKS' | 'ETFS' | 'FUNDS'>('ALL')
   const [activeIndex, setActiveIndex] = useState<'PORTFOLIO' | 'KOSPI' | 'SP500' | 'USDKRW'>('PORTFOLIO')
   const [indexHistory, setIndexHistory] = useState<Record<string, Array<{t: number; v: number}>>>({})
   const indexIdxRef = useRef(0)
@@ -403,61 +409,73 @@ export default function AlephDashboard() {
   const pad = (n: number) => String(n).padStart(2, '0')
   const ts  = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
 
-  // ── OMNI-COMMAND — backend call + typewriter display ──────────────────────
+  // ── OMNI-COMMAND — SSE streaming + ResearchPanel ─────────────────────────
   const exec = async () => {
     if (!query.trim() || busy) return
     setBusy(true)
     setResp(null)
+    setPanelContent('')
+    setPanelMeta(undefined)
+    setPanelQuery(query)
+    setPanelOpen(true)
+    setStreaming(true)
+
     try {
-      const r = await fetch('/api/v1/intelligence/command', {
+      const r = await fetch('/api/v1/intelligence/command/stream', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ query, persona: 'AGGRESSIVE' }),
       })
-      if (!r.ok) throw new Error(`HTTP ${r.status}`)
-      const data = await r.json()
+      if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`)
 
-      const sig    = data.active_signals?.[0]
-      const regime = data.macro_regime ?? {}
-      const health = data.portfolio_health ?? {}
+      const reader  = r.body.getReader()
+      const decoder = new TextDecoder()
+      let   buffer  = ''
 
-      const widgets: Widget[] = []
-      if (regime.regime_name) {
-        widgets.push({
-          type:  'metric',
-          title: 'MACRO REGIME',
-          value: regime.regime_name,
-          sub:   regime.market_phase ?? '',
-          trend: (regime.confidence_score ?? 0.5) > 0.7 ? 'up' : 'down',
-        })
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          try {
+            const evt = JSON.parse(line.slice(6))
+            if (evt.type === 'meta') {
+              const regime = evt.macro_regime ?? {}
+              const health = evt.portfolio_health ?? {}
+              const sig    = (evt.active_signals ?? [])[0]
+              setPanelMeta({
+                regime:     regime.regime_name,
+                phase:      regime.market_phase,
+                confidence: regime.confidence_score,
+                signal:     sig?.action,
+                health:     health.score,
+              })
+              // Also update inline widgets
+              const widgets: Widget[] = []
+              if (regime.regime_name) widgets.push({ type: 'metric', title: 'MACRO REGIME',     value: regime.regime_name,               sub: regime.market_phase ?? '',  trend: (regime.confidence_score ?? 0.5) > 0.7 ? 'up' : 'down' })
+              if (health.score != null) widgets.push({ type: 'metric', title: 'PORTFOLIO HEALTH', value: `${Math.round(health.score)}`, sub: health.source ?? '', trend: health.score > 60 ? 'up' : 'down' })
+              setResp({ insight: regime.regime_name ?? 'Analysis complete.', action: sig?.action ?? '', confidence: Math.round((sig?.probability ?? 0.5) * 100), report: '', widgets })
+            } else if (evt.type === 'token') {
+              setPanelContent(prev => prev + (evt.content ?? ''))
+            } else if (evt.type === 'done') {
+              setStreaming(false)
+            }
+          } catch {
+            // malformed SSE line — skip
+          }
+        }
       }
-      if (health.score != null) {
-        widgets.push({
-          type:  'metric',
-          title: 'PORTFOLIO HEALTH',
-          value: `${Math.round(health.score)}`,
-          sub:   health.source ?? '',
-          trend: health.score > 60 ? 'up' : 'down',
-        })
-      }
-
-      const insight = sig?.strategy ?? regime.regime_name ?? 'Analysis complete.'
-      const report  = data.omni_report ?? data.briefing ?? ''
-
-      console.info('[OMNI] response received', { insight: insight.slice(0, 60), reportLen: report.length })
-
-      setResp({
-        insight,
-        action:     sig?.action ?? '',
-        confidence: Math.round((sig?.probability ?? 0.5) * 100),
-        report,
-        widgets,
-      })
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'NETWORK ERROR'
+      setPanelContent(`NEURAL LINK ERROR — ${msg}`)
       setResp({ insight: `NEURAL LINK ERROR — ${msg}`, action: '', confidence: 0, report: '', widgets: [] })
     } finally {
       setBusy(false)
+      setStreaming(false)
       setQuery('')
     }
   }
@@ -465,6 +483,14 @@ export default function AlephDashboard() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#020b18', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+      <ResearchPanel
+        open={panelOpen}
+        onClose={() => setPanelOpen(false)}
+        streaming={streaming}
+        content={panelContent}
+        meta={panelMeta}
+        query={panelQuery}
+      />
 
       {/* BG grid */}
       <div style={{
