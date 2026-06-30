@@ -248,7 +248,8 @@ def _build_portfolio_summary(*, force_refresh: bool = False) -> dict[str, Any]:
 
     for h in holdings:
         ticker        = h["ticker"]
-        live_price    = _PRICE_STATE.get(ticker, h["avg_cost"])
+        avg_cost: float = h["avg_cost"]
+        live_price      = _PRICE_STATE.get(ticker, avg_cost)
         market_value  = round(h["quantity"] * live_price, 4)
         unrealized_pl = round(market_value - h["quantity"] * h["avg_cost"], 4)
         market_value_by_currency[h["currency"]] = (
