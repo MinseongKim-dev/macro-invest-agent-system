@@ -26,6 +26,7 @@ dependencies = [
     "langchain-ollama>=0.2.0",
     "langchain-huggingface>=0.1.0",
     "sentence-transformers>=3.0.0",
+    "torch>=2.0.0",
     "pymilvus>=2.4.0",
     "milvus-lite>=2.4.0",
     "pytz>=2024.1",
@@ -48,6 +49,14 @@ dev = [
     "ruff>=0.15.13",
     "types-requests>=2.32.0",
 ]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
