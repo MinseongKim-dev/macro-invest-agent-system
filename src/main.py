@@ -43,7 +43,9 @@ from src.database import (
     fetch_live_index_data,
     fetch_live_market_data,
     fetch_live_news,
+    fetch_live_news_items,
     fetch_macro_indicators,
+    fetch_ticker_detail,
     get_connection,
     get_latest_prices,
     get_portfolio_holdings,
@@ -179,6 +181,8 @@ _DB_CACHE_TTL:   float = 10.0   # seconds — avoids a DB hit on every 1-second 
 # ── Live collector state ──────────────────────────────────────────────────────
 # News cache updated by the background collector; falls back to _TICKER_NEWS.
 _LIVE_NEWS_CACHE:     dict[str, list[str]]    = {}
+# Structured news items (title/url/publisher/published_at) for /api/events/recent.
+_LIVE_NEWS_ITEMS_CACHE: dict[str, list[dict[str, Any]]] = {}
 # Single shared background task — started on first SSE connect, cancelled on last disconnect.
 _LIVE_COLLECTOR_TASK: asyncio.Task[None] | None = None
 _SSE_CONNECTION_COUNT: int                      = 0
@@ -446,6 +450,16 @@ async def _live_collector_loop() -> None:
             raise
         except Exception as exc:
             logger.warning("live_collector_news_error", extra={"error": str(exc)})
+
+        # ── News items (structured, for /api/events/recent) ────────────────────
+        try:
+            news_items = await asyncio.to_thread(fetch_live_news_items)
+            _LIVE_NEWS_ITEMS_CACHE.update(news_items)
+            logger.info("live_collector_news_items_ok", extra={"tickers": list(news_items.keys())})
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.warning("live_collector_news_items_error", extra={"error": str(exc)})
 
         # ── Market indices ────────────────────────────────────────────────────
         try:
@@ -1253,23 +1267,50 @@ async def health() -> dict[str, str]:
 
 @app.get("/api/events/recent", tags=["intelligence"])
 async def events_recent(limit: int = 15) -> dict[str, Any]:
-    """Return the most recently cached news headlines from the live collector.
+    """Return the most recently cached news items from the live collector.
 
     Consumed by the frontend ``useNewsStream`` hook (SWR 30-second polling).
-    Falls back to the static seed corpus when the live collector has not yet
-    populated the cache.
+    Prefers the structured item cache (real source/url/timestamp) populated
+    by ``fetch_live_news_items()``; falls back to the headline-only live
+    cache, then the static seed corpus, when the live collector has not yet
+    populated the richer cache (e.g. before the first collector cycle
+    completes).
     """
     events: list[dict[str, Any]] = []
-    source = _LIVE_NEWS_CACHE if _LIVE_NEWS_CACHE else _TICKER_NEWS
-    for ticker, headlines in source.items():
-        for headline in headlines:
-            events.append({
-                "title":        headline,
-                "ticker":       ticker,
-                "published_at": datetime.now(tz=_KST).isoformat(),
-                "source":       "live" if _LIVE_NEWS_CACHE else "seed",
-            })
+
+    if _LIVE_NEWS_ITEMS_CACHE:
+        for ticker, items in _LIVE_NEWS_ITEMS_CACHE.items():
+            for item in items:
+                events.append({
+                    "title":        item["title"],
+                    "ticker":       ticker,
+                    "entity":       DISPLAY_NAMES.get(ticker, ticker),
+                    "source":       item.get("publisher") or "Yahoo Finance",
+                    "source_url":   item.get("url"),
+                    "published_at": item.get("published_at") or datetime.now(tz=_KST).isoformat(),
+                })
+    else:
+        fallback = _LIVE_NEWS_CACHE if _LIVE_NEWS_CACHE else _TICKER_NEWS
+        for ticker, headlines in fallback.items():
+            for headline in headlines:
+                events.append({
+                    "title":        headline,
+                    "ticker":       ticker,
+                    "published_at": datetime.now(tz=_KST).isoformat(),
+                    "source":       "live" if _LIVE_NEWS_CACHE else "seed",
+                })
+
     return {"events": events[:limit], "total": len(events)}
+
+
+@app.get("/api/tickers/{ticker}/detail", tags=["intelligence"])
+async def ticker_detail(ticker: str) -> dict[str, float | None]:
+    """52-week high/low and last volume for a single ticker (on-demand only).
+
+    Consumed by the frontend ``DetailPanel`` ticker view; not part of the
+    once-a-second market stream, which stays intentionally thin.
+    """
+    return await asyncio.to_thread(fetch_ticker_detail, ticker)
 
 
 @app.get("/api/regimes/latest", tags=["intelligence"])

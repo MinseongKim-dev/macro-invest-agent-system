@@ -1,10 +1,18 @@
 'use client'
 
+import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import type { ExternalEventDTO } from '@/lib/types'
+import { fetchJson, endpoints } from '@/lib/api'
+
+interface TickerFundamentals {
+  week52_high: number | null
+  week52_low:  number | null
+  volume:      number | null
+}
 
 export interface TickerDetail {
   ticker:  string
@@ -35,6 +43,24 @@ function formatPrice(t: TickerDetail): string {
 function TickerBody({ t }: { t: TickerDetail }) {
   const chartData = t.prices.map((v, i) => ({ i, v }))
   const up = t.dir > 0
+  const [fundamentals, setFundamentals] = useState<TickerFundamentals | null>(null)
+
+  useEffect(() => {
+    setFundamentals(null)
+    let cancelled = false
+    fetchJson<TickerFundamentals>(endpoints.tickerDetail(t.ticker))
+      .then((data) => { if (!cancelled) setFundamentals(data) })
+      .catch(() => { if (!cancelled) setFundamentals(null) })
+    return () => { cancelled = true }
+  }, [t.ticker])
+
+  const fmtRange = (v: number | null) => {
+    if (v == null) return '···'
+    return t.ticker.startsWith('0')
+      ? `₩${Math.round(v).toLocaleString('ko-KR')}`
+      : `$${v.toFixed(2)}`
+  }
+
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
@@ -94,6 +120,13 @@ function TickerBody({ t }: { t: TickerDetail }) {
             </div>
           </div>
         ))}
+      </div>
+
+      <div style={{ marginTop: 10, padding: '8px 6px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 7, textAlign: 'center' }}>
+        <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 7.5, color: 'rgba(255,255,255,.3)', letterSpacing: '1px', marginBottom: 3 }}>52-WEEK RANGE</div>
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, color: t.col }}>
+          {fundamentals ? `${fmtRange(fundamentals.week52_low)} – ${fmtRange(fundamentals.week52_high)}` : '···'}
+        </div>
       </div>
     </>
   )

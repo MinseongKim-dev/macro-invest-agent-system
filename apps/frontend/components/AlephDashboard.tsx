@@ -12,7 +12,7 @@ import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
 import type { AlephStreamData, ExternalEventDTO } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.2'
+export const APP_VERSION = 'v0.4.3'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -90,11 +90,15 @@ const TICKER_META: Record<string, { n: string; t: string; col: string; group: 'S
   '051910': { n: 'LG화학',    t: '051910 KS', col: '#fb923c', group: 'STOCK' },
   '006400': { n: '삼성SDI',   t: '006400 KS', col: '#f472b6', group: 'STOCK' },
   '122630': { n: 'KODEX LEV', t: '122630 KS', col: '#a78bfa', group: 'ETF'   },
+  '005380': { n: '현대차',      t: '005380 KS', col: '#ef4444', group: 'STOCK' },
+  '207940': { n: '삼성바이오',  t: '207940 KS', col: '#34d399', group: 'STOCK' },
+  '005490': { n: 'POSCO홀딩스', t: '005490 KS', col: '#eab308', group: 'STOCK' },
+  '105560': { n: 'KB금융',      t: '105560 KS', col: '#60a5fa', group: 'STOCK' },
   'QQQ':    { n: 'QQQ ETF',   t: 'QQQ US',    col: '#22d3ee', group: 'ETF'   },
   'BND':    { n: 'BND ETF',   t: 'BND US',    col: '#86efac', group: 'ETF'   },
   'GLD':    { n: 'GLD ETF',   t: 'GLD US',    col: '#fcd34d', group: 'ETF'   },
 }
-const TICKER_ORDER = ['AAPL', 'MSFT', 'TSLA', '005930', '000660', '035420', '051910', '006400', '122630', 'QQQ', 'BND', 'GLD']
+const TICKER_ORDER = ['AAPL', 'MSFT', 'TSLA', '005930', '000660', '035420', '051910', '006400', '122630', '005380', '207940', '005490', '105560', 'QQQ', 'BND', 'GLD']
 const ETF_TICKERS  = ['QQQ', 'BND', 'GLD']
 
 
