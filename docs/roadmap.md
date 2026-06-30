@@ -101,13 +101,18 @@ condition.  Caveat priority order:
 
 ### Upcoming Phase 4 work
 
-Phase 4 = **Multi-Engine Analysis Hub** (not yet started):
+Phase 4 = **Multi-Engine Analysis Hub**:
 
-- Quant Scoring Engine
-- Cross-Asset Signal Engine
-- Risk / Conflict Engine
-- AI Explanation Engine (LLM-backed)
-- Ensemble / Consensus Engine
+- Quant Scoring Engine ✅ — domain layer (`src/domain/quant/`) + service
+  (`src/services/quant_scoring_service.py`) implemented and consumed by
+  regime confidence and conflict surface; read API
+  (`GET /api/quant/latest`) added. See `docs/backlog/0403-quant-confidence-conflict.md`.
+- Cross-Asset Signal Engine (not yet started)
+- Risk / Conflict Engine — baseline exists as `conflict_surface_v1`
+  (`src/domain/signals/conflict.py`, `docs/conflict_surface_v1.md`);
+  cross-engine synthesis view beyond per-signal conflict is not yet started.
+- AI Explanation Engine (LLM-backed) (not yet started)
+- Ensemble / Consensus Engine (not yet started)
 
 Phase details should be refined in backlog tasks, not duplicated in README.
 

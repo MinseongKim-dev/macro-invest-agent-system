@@ -38,6 +38,7 @@ from src import config
 from src.database import (
     FRED_API_KEY,
     _PoolManager,
+    fetch_fund_nav,
     fetch_live_index_data,
     fetch_live_market_data,
     fetch_live_news,
@@ -172,6 +173,12 @@ _MACRO_CACHE: dict[str, float] = {
 }
 # Hourly macro collector task (lifecycle: startup → shutdown)
 _MACRO_COLLECTOR_TASK: asyncio.Task[None] | None = None
+
+# Daily fund NAV collector task (lifecycle: startup → shutdown).
+# Stays empty until KOFIA_API_KEY + FUND_NAV_TARGETS are configured — see
+# src/database.py fetch_fund_nav() scaffold notes.
+_FUND_NAV_CACHE: dict[str, float] = {}
+_FUND_NAV_COLLECTOR_TASK: asyncio.Task[None] | None = None
 
 
 def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | None:
@@ -947,10 +954,38 @@ async def _macro_collector_loop() -> None:
             raise
 
 
+async def _fund_nav_collector_loop() -> None:
+    """Daily background task: fetch KOFIA fund NAV → _FUND_NAV_CACHE.
+
+    NAV (기준가) is published once per trading day, so this runs every 86400
+    seconds. fetch_fund_nav() is a no-op while KOFIA_API_KEY/FUND_NAV_TARGETS
+    are unconfigured (default), so this loop is dormant until a real KOFIA
+    adapter is implemented. Errors are logged and swallowed so the loop never
+    crashes the server.
+    """
+    logger.info("fund_nav_collector_started")
+    while True:
+        try:
+            data = await asyncio.to_thread(fetch_fund_nav)
+            if data:
+                _FUND_NAV_CACHE.update(data)
+                logger.info("fund_nav_cache_updated", extra={"keys": list(data.keys())})
+        except asyncio.CancelledError:
+            logger.info("fund_nav_collector_stopped")
+            raise
+        except Exception as exc:
+            logger.warning("fund_nav_collector_error", extra={"error": str(exc)})
+        try:
+            await asyncio.sleep(86400)
+        except asyncio.CancelledError:
+            logger.info("fund_nav_collector_stopped")
+            raise
+
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     """Startup: DB init → seed → load history → cache regime. Shutdown: close pool."""
-    global _MACRO_COLLECTOR_TASK
+    global _MACRO_COLLECTOR_TASK, _FUND_NAV_COLLECTOR_TASK
 
     logger.info("aleph_one_startup")
     try:
@@ -983,11 +1018,16 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     # Start hourly macro indicator collector (runs independently of SSE connections)
     _MACRO_COLLECTOR_TASK = asyncio.create_task(_macro_collector_loop())
 
+    # Start daily fund NAV collector (dormant no-op until KOFIA adapter is real)
+    _FUND_NAV_COLLECTOR_TASK = asyncio.create_task(_fund_nav_collector_loop())
+
     logger.info("aleph_one_ready")
     yield
 
     if _MACRO_COLLECTOR_TASK is not None:
         _MACRO_COLLECTOR_TASK.cancel()
+    if _FUND_NAV_COLLECTOR_TASK is not None:
+        _FUND_NAV_COLLECTOR_TASK.cancel()
     _PoolManager.close()
     logger.info("aleph_one_shutdown")
 
