@@ -1,8 +1,17 @@
 # Aleph-One
 
-**v0.3.1** · Open-source, zero-cost financial intelligence terminal
+**v0.4.0** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.0
+
+- **Virtual Broker (paper trading engine)** — typing a command like *"현재 자산 배분 리스크를 고려해서 포트폴리오 최적화하고 가상 매수해줘"* into OMNI-COMMAND now lets the LangChain agent autonomously place simulated trades. New `virtual_accounts` / `virtual_orders` / `portfolio_holdings` TimescaleDB tables back an immediate-fill execution model with currency-separated books (KRW account + USD account — no FX conversion).
+- **LLM tool calling for trading** — three new LangChain tools registered on the agent: `get_portfolio_summary_tool` (cash/holdings/P&L), `run_backtest_tool` (strategy validation before sizing an order), and `execute_virtual_order_tool` (places the trade). The agent is instructed to check cash, validate the strategy, and confirm the resulting position before reporting back.
+- **Lightweight vectorized backtesting** — new `BacktestEngine` in `src/engines.py` runs a SMA(5/20) crossover simulation entirely in pandas/NumPy (no event loop, no Backtrader dependency) — total return %, max drawdown %, and trade count over a ticker's price history.
+- **`GET /api/v1/portfolio/summary`** — standalone REST endpoint for the current virtual-broker state. The same `virtual_portfolio` shape is also included additively on every SSE tick and OMNI command response.
 
 ---
 
@@ -76,6 +85,13 @@ Three quantitative formulas from legendary investors, wired in sequence:
 | **QuantEngine** (Ray Dalio — Volatility Targeting) | Stocks: σ₅/σ₂₀ > 1.5 → `vol_spike`, score −0.15 · ETFs: ATR(14) ratio > 1.3 → spike, score −0.10 | 5-day vs baseline volatility |
 | **SentimentEngine** (James Simons — Regime Switching) | Crisis keyword frequency ≥ 3 or > 3 % of tokens → `CRISIS_MODE` | News headlines |
 | **PersonaAdapterEngine** (Warren Buffett — Margin of Safety) | CONSERVATIVE + RSI(14) ≥ 70 → BUY locked to HOLD | Per-ticker RSI |
+
+### Virtual Broker — Paper Trading Engine
+- LangChain agent tools: `get_portfolio_summary_tool`, `run_backtest_tool`, `execute_virtual_order_tool`
+- Immediate-fill execution against the live tick price — no real brokerage involved
+- Currency-separated books: a KRW account for 6-digit KR tickers, a USD account for everything else
+- Orders are rejected (not raised as errors) on insufficient cash or insufficient holdings
+- `GET /api/v1/portfolio/summary` — cash, mark-to-market holdings, and P&L per currency
 
 ### Real-Time SSE Stream
 - `GET /api/v1/intelligence/stream` — 1-second tick, full UI-contract JSON payload
@@ -215,6 +231,7 @@ LOG_PRETTY=true
 | `POST` | `/api/v1/intelligence/command` | OMNI terminal — LangChain agent + scenario fallback |
 | `GET` | `/api/v1/regimes/latest` | Current macro regime |
 | `GET` | `/api/v1/events/recent?limit=15` | Recent macro events (news feed) |
+| `GET` | `/api/v1/portfolio/summary` | Virtual broker state — cash, holdings, P&L by currency |
 
 ### SSE Payload Schema (v0.1.2)
 
@@ -241,6 +258,14 @@ LOG_PRETTY=true
       { "ticker": "QQQ",   "momentum": "STABLE", "regime": "STABLE", "sig_score": "BUY" },
       { "ticker": "BND",   "momentum": "STABLE", "regime": "STABLE", "sig_score": "HOLD" },
       { "ticker": "GLD",   "momentum": "WATCH",  "regime": "STABLE", "sig_score": "BUY"  }
+    ]
+  },
+  "virtual_portfolio": {
+    "accounts": {
+      "USD": { "cash_balance": 98000.0, "market_value": 2000.0, "total_value": 100000.0, "initial_balance": 100000.0, "total_pl": 0.0, "total_pl_pct": 0.0 }
+    },
+    "holdings": [
+      { "ticker": "AAPL", "quantity": 10.0, "avg_cost": 200.0, "currency": "USD", "live_price": 200.0, "market_value": 2000.0, "unrealized_pl": 0.0 }
     ]
   }
 }
@@ -273,15 +298,15 @@ macro-invest-agent-system/
 
 | Version | Status | Description |
 |---------|--------|-------------|
-| **v0.1.0** | ✅ Stable | Monorepo layout, zero-cost LLM, Milvus RAG, KR stocks |
+| **v0.1.0** | ✅ Released | Monorepo layout, zero-cost LLM, Milvus RAG, KR stocks |
 | **v0.1.1** | ✅ Released | ETF pipeline (QQQ/BND/GLD), KST time axis, live news feed |
 | **v0.1.2** | ✅ Released | ETF ATR volatility branch, asset class tab UI, Holdings scroll lock |
-| **v0.2.0** | ⏳ Pending | KR large-cap expansion (NAVER/LG화학/삼성SDI), `index_ticks` hypertable, chart index toggle |
-| **v0.2.1** | ⏳ Pending | KST-aware market-hours hybrid scheduler (10 s during session, 60 s off-hours) |
-| **v0.3.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI), `[FUNDS]` tab live data |
-| **v0.3.1** | ⏳ Pending | Milvus financial chunking + keyword re-ranking |
-| **v0.4.0** | ⏳ Pending | Slide-out AI Research Panel (react-markdown) |
-| **v0.4.1** | ⏳ Pending | LangChain real-time token streaming |
+| **v0.2.0** | ✅ Released | DigitalOcean hybrid infra — Milvus Lite, `docker-compose.prod.yml`, GitHub Actions CD |
+| **v0.2.1** | ✅ Released | KR large-cap expansion (NAVER/LG화학/삼성SDI), `index_ticks` hypertable, chart index toggle, KST hybrid scheduler |
+| **v0.3.0** | ✅ Released | SSE reconnect backoff, macro indicators batch engine, Milvus price-alert sync bridge |
+| **v0.3.1** | ✅ Released | Slide-out AI Research Panel, LangChain real-time token streaming |
+| **v0.4.0** | ✅ Released | Virtual Broker — paper trading engine, LLM tool calling, vectorized backtesting |
+| **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |
 

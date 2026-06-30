@@ -14,6 +14,9 @@ Tri-File Architecture — this file owns:
   - init_milvus()             : Milvus connection + news_collection schema + HNSW index
   - search_milvus_news()      : semantic ANN search over ingested news headlines
   - fetch_fund_nav()          : KOFIA fund NAV scaffold → fund_nav_ticks (adapter call TODO)
+  - execute_virtual_order()   : virtual broker BUY/SELL transaction (cash + holdings + order log)
+  - get_portfolio_holdings()  : current portfolio_holdings rows
+  - get_virtual_accounts()    : current KRW/USD virtual_accounts cash balances
 
 Run standalone::
 
@@ -32,7 +35,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 import numpy as np
@@ -227,6 +230,48 @@ SELECT create_hypertable(
 );
 """
 
+# Virtual broker — current-state tables, not hypertables (one row per
+# currency/ticker, mutated in place; virtual_orders is an append-only log
+# but at simulation order volumes a plain SERIAL PK table is sufficient).
+_DDL_VIRTUAL_ACCOUNTS = """
+CREATE TABLE IF NOT EXISTS virtual_accounts (
+    currency        VARCHAR(3)    PRIMARY KEY,
+    cash_balance    NUMERIC(20,4) NOT NULL,
+    initial_balance NUMERIC(20,4) NOT NULL,
+    updated_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+"""
+
+_DDL_VIRTUAL_ORDERS = """
+CREATE TABLE IF NOT EXISTS virtual_orders (
+    id            SERIAL        PRIMARY KEY,
+    created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    ticker        VARCHAR(10)   NOT NULL,
+    side          VARCHAR(4)    NOT NULL,
+    quantity      NUMERIC(20,6) NOT NULL,
+    fill_price    NUMERIC(20,4) NOT NULL,
+    currency      VARCHAR(3)    NOT NULL,
+    status        VARCHAR(10)   NOT NULL DEFAULT 'FILLED',
+    reject_reason VARCHAR(100)
+);
+"""
+
+_DDL_PORTFOLIO_HOLDINGS = """
+CREATE TABLE IF NOT EXISTS portfolio_holdings (
+    ticker     VARCHAR(10)   PRIMARY KEY,
+    quantity   NUMERIC(20,6) NOT NULL,
+    avg_cost   NUMERIC(20,4) NOT NULL,
+    currency   VARCHAR(3)    NOT NULL,
+    updated_at TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+"""
+
+# Starting paper-trading balances, seeded once per currency on first init_db().
+_VIRTUAL_ACCOUNT_SEED: dict[str, float] = {
+    "KRW": 100_000_000.0,
+    "USD": 100_000.0,
+}
+
 
 def init_db(config: DatabaseConfig | None = None) -> None:
     """Create market_ticks (hypertable, 7-day chunks) and macro_regimes.
@@ -252,6 +297,17 @@ def init_db(config: DatabaseConfig | None = None) -> None:
             conn.execute(_DDL_FUND_NAV_TICKS)
             conn.execute(_DDL_FUND_NAV_HYPERTABLE)
             logger.debug("db_table_ensured", extra={"table": "fund_nav_ticks"})
+            conn.execute(_DDL_VIRTUAL_ACCOUNTS)
+            conn.execute(_DDL_VIRTUAL_ORDERS)
+            conn.execute(_DDL_PORTFOLIO_HOLDINGS)
+            for currency, balance in _VIRTUAL_ACCOUNT_SEED.items():
+                conn.execute(
+                    "INSERT INTO virtual_accounts (currency, cash_balance, initial_balance) "
+                    "VALUES (%s, %s, %s) "
+                    "ON CONFLICT (currency) DO NOTHING",
+                    (currency, balance, balance),
+                )
+            logger.debug("db_table_ensured", extra={"table": "virtual_accounts"})
             conn.commit()
         logger.info("db_init_complete")
     except Exception as exc:
@@ -1142,6 +1198,165 @@ def get_latest_prices(config: DatabaseConfig | None = None) -> dict[str, dict[st
         }
     except Exception as exc:
         logger.warning("get_latest_prices_failed", extra={"error": str(exc)})
+        return {}
+
+
+# ── Virtual Broker ────────────────────────────────────────────────────────────
+
+
+def _ticker_currency(ticker: str) -> str:
+    """KR tickers are 6-digit numeric codes (005930); everything else is USD."""
+    return "KRW" if ticker.isdigit() else "USD"
+
+
+def execute_virtual_order(
+    ticker: str,
+    side: Literal["BUY", "SELL"],
+    quantity: float,
+    price: float,
+    config: DatabaseConfig | None = None,
+) -> dict[str, Any]:
+    """Execute an immediate-fill virtual order against the given price.
+
+    BUY debits ``virtual_accounts.cash_balance`` for the ticker's currency and
+    upserts a weighted-average-cost ``portfolio_holdings`` row. SELL credits
+    cash and decrements the holding (deleting the row once quantity reaches
+    zero). Insufficient cash or insufficient holdings rejects the order
+    (status="REJECTED") without mutating any balance.
+
+    Single DB transaction — rows are locked with SELECT ... FOR UPDATE so
+    concurrent orders against the same account/ticker serialize correctly.
+    """
+    if quantity <= 0:
+        return {"status": "REJECTED", "reason": "quantity_must_be_positive"}
+    if price <= 0:
+        return {"status": "REJECTED", "reason": "invalid_price"}
+
+    currency = _ticker_currency(ticker)
+    notional = round(quantity * price, 4)
+
+    try:
+        with get_connection(config) as conn:
+            account_row = conn.execute(
+                "SELECT cash_balance FROM virtual_accounts WHERE currency = %s FOR UPDATE",
+                (currency,),
+            ).fetchone()
+            if account_row is None:
+                return {"status": "REJECTED", "reason": f"no_account_for_currency_{currency}"}
+            cash_balance = float(account_row[0])
+
+            holding_row = conn.execute(
+                "SELECT quantity, avg_cost FROM portfolio_holdings WHERE ticker = %s FOR UPDATE",
+                (ticker,),
+            ).fetchone()
+            held_qty  = float(holding_row[0]) if holding_row else 0.0
+            held_cost = float(holding_row[1]) if holding_row else 0.0
+
+            if side == "BUY":
+                if notional > cash_balance:
+                    return {
+                        "status":    "REJECTED",
+                        "reason":    "insufficient_cash",
+                        "required":  notional,
+                        "available": cash_balance,
+                    }
+                new_qty  = held_qty + quantity
+                new_cost = ((held_qty * held_cost) + notional) / new_qty
+                conn.execute(
+                    "INSERT INTO portfolio_holdings (ticker, quantity, avg_cost, currency, updated_at) "
+                    "VALUES (%s, %s, %s, %s, NOW()) "
+                    "ON CONFLICT (ticker) DO UPDATE SET "
+                    "    quantity = EXCLUDED.quantity, avg_cost = EXCLUDED.avg_cost, updated_at = NOW()",
+                    (ticker, new_qty, new_cost, currency),
+                )
+                conn.execute(
+                    "UPDATE virtual_accounts SET cash_balance = cash_balance - %s, updated_at = NOW() "
+                    "WHERE currency = %s",
+                    (notional, currency),
+                )
+            else:  # SELL
+                if quantity > held_qty:
+                    return {
+                        "status":    "REJECTED",
+                        "reason":    "insufficient_holdings",
+                        "requested": quantity,
+                        "held":      held_qty,
+                    }
+                remaining = held_qty - quantity
+                if remaining <= 0:
+                    conn.execute("DELETE FROM portfolio_holdings WHERE ticker = %s", (ticker,))
+                else:
+                    conn.execute(
+                        "UPDATE portfolio_holdings SET quantity = %s, updated_at = NOW() WHERE ticker = %s",
+                        (remaining, ticker),
+                    )
+                conn.execute(
+                    "UPDATE virtual_accounts SET cash_balance = cash_balance + %s, updated_at = NOW() "
+                    "WHERE currency = %s",
+                    (notional, currency),
+                )
+
+            order_row = conn.execute(
+                "INSERT INTO virtual_orders (ticker, side, quantity, fill_price, currency, status) "
+                "VALUES (%s, %s, %s, %s, %s, 'FILLED') RETURNING id",
+                (ticker, side, quantity, price, currency),
+            ).fetchone()
+            order_id = order_row[0] if order_row else None
+            conn.commit()
+
+        logger.info(
+            "virtual_order_filled",
+            extra={"ticker": ticker, "side": side, "quantity": quantity, "price": price, "order_id": order_id},
+        )
+        return {
+            "status":     "FILLED",
+            "order_id":   order_id,
+            "ticker":     ticker,
+            "side":       side,
+            "quantity":   quantity,
+            "fill_price": price,
+            "currency":   currency,
+            "notional":   notional,
+        }
+    except Exception as exc:
+        logger.error("virtual_order_failed", extra={"ticker": ticker, "error": str(exc)})
+        return {"status": "ERROR", "reason": str(exc)}
+
+
+def get_portfolio_holdings(config: DatabaseConfig | None = None) -> list[dict[str, Any]]:
+    """Return every current portfolio_holdings row (cost basis, no live valuation)."""
+    try:
+        with get_connection(config) as conn:
+            rows = conn.execute(
+                "SELECT ticker, quantity, avg_cost, currency FROM portfolio_holdings ORDER BY ticker",
+            ).fetchall()
+        return [
+            {
+                "ticker":   str(r[0]),
+                "quantity": float(r[1]),
+                "avg_cost": float(r[2]),
+                "currency": str(r[3]),
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        logger.warning("get_portfolio_holdings_failed", extra={"error": str(exc)})
+        return []
+
+
+def get_virtual_accounts(config: DatabaseConfig | None = None) -> dict[str, dict[str, float]]:
+    """Return {currency: {cash_balance, initial_balance}} for every virtual account."""
+    try:
+        with get_connection(config) as conn:
+            rows = conn.execute(
+                "SELECT currency, cash_balance, initial_balance FROM virtual_accounts",
+            ).fetchall()
+        return {
+            str(r[0]): {"cash_balance": float(r[1]), "initial_balance": float(r[2])}
+            for r in rows
+        }
+    except Exception as exc:
+        logger.warning("get_virtual_accounts_failed", extra={"error": str(exc)})
         return {}
 
 

@@ -526,21 +526,60 @@ Git tag: `v0.3.0`
 
 ---
 
-### Next Milestone: v0.4.0 — Fund NAV Ingestion (Aleph-One frontend track)
+### v0.4.0 — Virtual Broker (가상 매매 엔진, Aleph-One frontend track)
 
-**Status: SCAFFOLDED (real KOFIA adapter call still pending)**
+**Status: RELEASED ✓**
 
 This milestone is scoped to the legacy Aleph-One Tri-File frontend track
 (`src/database.py` / `src/engines.py` / `src/main.py` + `apps/frontend`),
 versioned independently of the PRD chapter roadmap below.
+
+**Goal:** OMNI-COMMAND 창에 "현재 자산 배분 리스크를 고려해서 포트폴리오 최적화하고
+가상 매수해줘" 같은 자연어 명령을 입력하면, LangChain 에이전트가 가상 매매 함수를
+직접 실행하고 결과를 DB에 기록한 뒤 대시보드에 반영하는 구조.
+
+Decisions (확정, 2026-06-30):
+- 체결 모델: MVP는 즉시 체결(마지막 캐시 현재가 기준). 추후 체결 지연/슬리피지로
+  확장 가능하도록 `virtual_orders.status` 필드는 처음부터 PENDING/FILLED/REJECTED를
+  구분해 둔다.
+- 통화: KRW 계좌 / USD 계좌 분리 관리. 티커가 숫자 코드(예: 005930)면 KRW,
+  알파벳 코드(예: AAPL, QQQ)면 USD — 기존 `TICKERS`/`TICKER_GROUPS` 표기와 일치.
+- 백테스팅: Backtrader 등 외부 라이브러리 도입 없이 자체 경량 벡터화 로직
+  (pandas 기반)으로 구현. `BaseEngine` 단일 스냅숏 계약과는 분리된 history-aware
+  컴포넌트로 `src/engines.py`에 별도 클래스로 추가.
+
+- [x] **가상 브로커 스키마** — `virtual_accounts` (KRW/USD 예수금), `virtual_orders`
+  (주문 기록), `portfolio_holdings` (잔고/평단가) 테이블 + `execute_virtual_order()`
+  DB 트랜잭션 함수 (`SELECT ... FOR UPDATE` 행 잠금). `src/database.py`.
+- [x] **LLM Tool Calling 파이프라인** — `execute_virtual_order_tool`,
+  `get_portfolio_summary_tool`, `run_backtest_tool`을 기존 LangChain
+  `_build_lc_agent()` 툴 목록에 등록. `_AGENT_SYSTEM_PROMPT`에 Virtual Broker
+  protocol 섹션 추가. `src/main.py`.
+- [x] **경량 백테스팅 엔진** — `BacktestEngine` (SMA 5/20 크로스오버 전략, 벡터화
+  수익률/MDD/에쿼티커브 계산, `BaseEngine`과 분리된 history-aware 클래스).
+  합성 GBM 데이터로 기능 검증 완료. `src/engines.py`.
+- [x] **PORTFOLIO ALPHA 데이터 연동** — `GET /api/v1/portfolio/summary` 신설,
+  SSE 페이로드 + OMNI 커맨드 응답에 `virtual_portfolio` 필드 추가 (기존 UI 계약
+  필드는 변경하지 않음, 추가만 함). `lib/types.ts`에 타입 반영.
+  **남은 작업:** 이 데이터를 실제로 그리는 프론트엔드 시각 패널(예: PORTFOLIO ALPHA
+  카드 UI)은 아직 미구현 — 백엔드 계약과 타입만 준비된 상태.
+
+---
+
+### Deferred: v0.5.0 — Fund NAV Ingestion (공모 펀드 기준가)
+
+**Status: SCAFFOLDED (real KOFIA adapter call still pending)**
+
+v0.4.0이 가상 브로커로 재정의되면서 펀드 NAV 작업은 v0.5.0으로 연기.
 
 - [x] **공모 펀드 NAV 스캐폴드** — `fund_nav_ticks` hypertable DDL, `FundNavFact`
   model, `KOFIA_API_KEY`-gated `fetch_fund_nav()` (graceful no-op fallback,
   same contract as `FRED_API_KEY`), daily `_fund_nav_collector_loop()` in
   `src/main.py`. See `src/database.py` for full notes.
 - [ ] **KOFIA real adapter** — `_fetch_kofia_fund_nav()` is a deliberate
-  `NotImplementedError` stub. `openapi.kofia.or.kr` and `data.go.kr` both
-  returned HTTP 403 to documentation fetch attempts, so the real
+  `NotImplementedError` stub. `openapi.kofia.or.kr`, `dis.kofia.or.kr`,
+  `data.go.kr`, and `openplatform.seibro.or.kr` all returned HTTP 403 to
+  documentation fetch attempts from this sandbox, so the real
   endpoint/auth-param/response-field contract could not be verified.
   Needs either a working KOFIA OpenAPI key + API guide, or a reachable
   alternate doc source, before implementation.
