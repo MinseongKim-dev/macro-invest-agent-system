@@ -571,6 +571,23 @@ Decisions (확정, 2026-06-30):
 
 ---
 
+### v0.4.1 — KR 대형주 섹터 다변화
+
+**Status: RELEASED ✓**
+
+기존 라인업이 테크/화학에 치우쳐 있어, 자동차/바이오/철강/금융 섹터를
+추가해 리스크 매트릭스를 더 현실적인 포트폴리오 구성에 가깝게 확장.
+
+- [x] **신규 종목 4종 추가** — 현대차(005380, KR_AUTO) / 삼성바이오로직스
+  (207940, KR_BIO) / POSCO홀딩스(005490, KR_STEEL) / KB금융(105560,
+  KR_FINANCE). `src/engines.py`(`TICKERS`/`DISPLAY_NAMES`/`TICKER_GROUPS`),
+  `src/database.py`(`LIVE_TICKERS`), `src/main.py`(`_BASELINE_PRICES`/
+  `_TICKER_NEWS`) 4개 레지스트리 동기화. Risk matrix 12행 → 16행.
+- [x] **버전 동기화** — `APP_VERSION`/`README.md`/`pyproject.toml` v0.4.1로
+  일괄 갱신 (Release checklist 준수).
+
+---
+
 ### Deferred: v0.5.0 — Fund NAV Ingestion (공모 펀드 기준가)
 
 **Status: SCAFFOLDED (real KOFIA adapter call still pending)**

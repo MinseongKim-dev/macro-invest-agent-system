@@ -84,6 +84,10 @@ _BASELINE_PRICES: dict[str, float] = {
     "051910": 340_000.0,
     "006400": 380_000.0,
     "122630":  18_000.0,
+    "005380": 220_000.0,
+    "207940": 950_000.0,
+    "005490": 400_000.0,
+    "105560":  85_000.0,
 }
 
 # Rolling price history buffer — populated on startup, updated each tick
@@ -148,6 +152,22 @@ _TICKER_NEWS: dict[str, list[str]] = {
     "122630": [
         "KODEX 레버리지 volume surge as KOSPI 200 momentum accelerates bullish trend",
         "Korean ETF inflows rise; institutional rotation into domestic equities confirmed",
+    ],
+    "005380": [
+        "현대차 EV lineup demand surge; North America plant ramp-up beats production targets",
+        "Hyundai Motor margin expansion bullish; hybrid sales offset EV growth slowdown",
+    ],
+    "207940": [
+        "삼성바이오로직스 CDMO contract wins expand; fourth plant utilization bullish growth",
+        "Samsung Biologics order backlog hits record high on global biosimilar demand",
+    ],
+    "005490": [
+        "POSCO홀딩스 battery materials pivot accelerates; lithium refinery output bullish",
+        "Steel price recovery supports POSCO Holdings margin; China oversupply risk lingers bearish",
+    ],
+    "105560": [
+        "KB금융 net interest margin expansion bullish; loan growth beats analyst forecasts",
+        "KB Financial Group dividend payout raised; capital ratio strength reassures investors",
     ],
 }
 

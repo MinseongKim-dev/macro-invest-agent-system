@@ -1,8 +1,14 @@
 # Aleph-One
 
-**v0.4.0** · Open-source, zero-cost financial intelligence terminal
+**v0.4.1** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.1
+
+- **KR large-cap sector diversification** — 4 new tickers added to live collection: 현대차/Hyundai Motor(005380, KR_AUTO), 삼성바이오로직스/Samsung Biologics(207940, KR_BIO), POSCO홀딩스(005490, KR_STEEL), KB금융(105560, KR_FINANCE). Risk matrix now 16 rows, spanning tech, chemicals, auto, bio, steel, and finance sectors instead of being tech/chem-heavy.
 
 ---
 
@@ -71,7 +77,7 @@ Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It inges
 ## Features
 
 ### Live Data Pipeline — Yahoo Finance
-- OHLCV ingestion for **8 assets**: AAPL · MSFT · TSLA · 삼성전자(005930) · SK하이닉스(000660) · QQQ · BND · GLD
+- OHLCV ingestion for **16 assets**: AAPL · MSFT · TSLA · 삼성전자(005930) · SK하이닉스(000660) · NAVER(035420) · LG화학(051910) · 삼성SDI(006400) · KODEX LEV(122630) · 현대차(005380) · 삼성바이오로직스(207940) · POSCO홀딩스(005490) · KB금융(105560) · QQQ · BND · GLD
 - News headline collection per ticker with automatic retry (×3, exponential back-off)
 - DELETE + COPY bulk upsert into TimescaleDB hypertable (`market_ticks`, 7-day chunks)
 - All timestamps stored and emitted in **KST (Asia/Seoul, +09:00)**
@@ -95,7 +101,7 @@ Three quantitative formulas from legendary investors, wired in sequence:
 
 ### Real-Time SSE Stream
 - `GET /api/v1/intelligence/stream` — 1-second tick, full UI-contract JSON payload
-- Payload includes `timestamp` (KST ISO-8601), `portfolio_health`, `macro_regime`, `active_signals`, `network_nodes` (3D Fibonacci sphere), `risk_matrix` (8 rows)
+- Payload includes `timestamp` (KST ISO-8601), `portfolio_health`, `macro_regime`, `active_signals`, `network_nodes` (3D Fibonacci sphere), `risk_matrix` (16 rows)
 
 ### Aleph-One Dashboard UI (Next.js 15)
 - Cyberpunk glassmorphism design — Orbitron / Rajdhani / JetBrains Mono fonts
@@ -306,6 +312,7 @@ macro-invest-agent-system/
 | **v0.3.0** | ✅ Released | SSE reconnect backoff, macro indicators batch engine, Milvus price-alert sync bridge |
 | **v0.3.1** | ✅ Released | Slide-out AI Research Panel, LangChain real-time token streaming |
 | **v0.4.0** | ✅ Released | Virtual Broker — paper trading engine, LLM tool calling, vectorized backtesting |
+| **v0.4.1** | ✅ Released | KR large-cap sector diversification — auto/bio/steel/finance tickers, risk matrix → 16 rows |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |
