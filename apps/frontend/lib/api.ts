@@ -11,10 +11,14 @@ export async function fetchJson<T>(url: string): Promise<T> {
 }
 
 export const endpoints = {
-  regime:        '/api/regimes/latest',
-  regimeCompare: '/api/regimes/compare',
-  signals:       (country = 'US') => `/api/signals/latest?country=${country}`,
-  events:        (limit = 20)     => `/api/events/recent?limit=${limit}`,
-  alerts:        (limit = 10)     => `/api/alerts/recent?limit=${limit}`,
-  tickerDetail:  (ticker: string) => `/api/tickers/${ticker}/detail`,
+  regime:           '/api/regimes/latest',
+  regimeCompare:    '/api/regimes/compare',
+  signals:          (country = 'US')   => `/api/signals/latest?country=${country}`,
+  events:           (limit = 20)       => `/api/events/recent?limit=${limit}`,
+  alerts:           (limit = 10)       => `/api/alerts/recent?limit=${limit}`,
+  tickerDetail:     (ticker: string)   => `/api/tickers/${ticker}/detail`,
+  portfolioHistory: (period: string)   => `/api/tickers/portfolio/history?period=${period}`,
+  portfolioMetrics: '/api/tickers/portfolio/metrics',
+  sectorSummary:    '/api/tickers/sector/summary',
+  newsSummarize:    '/api/news/summarize',
 } as const

@@ -1313,6 +1313,210 @@ async def ticker_detail(ticker: str) -> dict[str, float | None]:
     return await asyncio.to_thread(fetch_ticker_detail, ticker)
 
 
+@app.get("/api/tickers/portfolio/history", tags=["intelligence"])
+async def portfolio_history(period: str = "1D") -> dict[str, Any]:
+    """Historical portfolio value time series for the chart period tabs.
+
+    Aggregates ``market_ticks`` prices over the requested window using current
+    virtual holdings weights (equal-weight basket if no holdings exist).
+    Returns ``{"points": [{"ts": iso, "value": float}], "empty": bool}``.
+    """
+    # period → SQL interval + bucket size
+    _intervals: dict[str, tuple[str, str]] = {
+        "1D": ("24 hours",  "10 minutes"),
+        "1W": ("7 days",    "1 hour"),
+        "1M": ("30 days",   "6 hours"),
+        "3M": ("90 days",   "1 day"),
+    }
+    if period not in _intervals:
+        period = "1D"
+    window, bucket = _intervals[period]
+
+    try:
+        # Current holdings quantities for weighting; fall back to equal weight
+        holdings_raw = await asyncio.to_thread(get_portfolio_holdings)
+        qty: dict[str, float] = {h["ticker"]: float(h["quantity"]) for h in holdings_raw if float(h.get("quantity", 0)) > 0}
+        if not qty:
+            qty = {t: 1.0 for t in TICKERS}
+
+        tickers_in = tuple(qty.keys())
+
+        with get_connection() as conn:
+            rows = conn.execute(
+                f"SELECT time_bucket(INTERVAL %s, timestamp) AS ts, ticker, AVG(close_price) AS price "
+                f"FROM market_ticks "
+                f"WHERE timestamp >= NOW() - INTERVAL %s AND ticker = ANY(%s) "
+                f"GROUP BY 1, 2 ORDER BY 1",
+                (bucket, window, list(tickers_in)),
+            ).fetchall()
+
+        if not rows:
+            return {"points": [], "empty": True}
+
+        # Pivot: ts → {ticker: price}
+        pivot: dict[str, dict[str, float]] = {}
+        for ts, ticker, price in rows:
+            key = ts.isoformat() if hasattr(ts, "isoformat") else str(ts)
+            pivot.setdefault(key, {})[ticker] = float(price)
+
+        points: list[dict[str, Any]] = []
+        for ts_key in sorted(pivot.keys()):
+            prices = pivot[ts_key]
+            value = sum(prices.get(t, _PRICE_STATE.get(t, 0.0)) * q for t, q in qty.items())
+            if value > 0:
+                points.append({"ts": ts_key, "value": round(value, 2)})
+
+        return {"points": points, "empty": len(points) == 0}
+
+    except Exception as exc:
+        logger.warning("portfolio_history_failed", extra={"period": period, "error": str(exc)})
+        return {"points": [], "empty": True}
+
+
+@app.get("/api/tickers/sector/summary", tags=["intelligence"])
+async def sector_summary() -> dict[str, Any]:
+    """Live sector-level average % change derived from current ticker prices.
+
+    Groups ``TICKER_GROUPS`` tickers by sector, computes average price-change
+    vs ``_BASELINE_PRICES``, returns ``{"sectors": [{"name", "change_pct"}]}``.
+    """
+    _SECTOR_DISPLAY: dict[str, str] = {
+        "TECH":         "US TECH",
+        "KR_TECH":      "KR TECH",
+        "KR_CHEM":      "CHEM",
+        "KR_AUTO":      "AUTO",
+        "KR_BIO":       "BIO",
+        "KR_STEEL":     "STEEL",
+        "KR_FINANCE":   "FINANCE",
+        "KR_ETF":       "KR ETF",
+        "ETF_TECH":     "ETF TECH",
+        "ETF_BOND":     "BOND",
+        "ETF_COMMODITY":"GOLD",
+    }
+    sector_changes: dict[str, list[float]] = {}
+    for ticker, group in TICKER_GROUPS.items():
+        current  = _PRICE_STATE.get(ticker)
+        baseline = _BASELINE_PRICES.get(ticker)
+        if current is None or baseline is None or baseline == 0:
+            continue
+        chg_pct = (current - baseline) / baseline * 100
+        sector_changes.setdefault(group, []).append(chg_pct)
+
+    sectors = [
+        {"name": _SECTOR_DISPLAY.get(g, g), "change_pct": round(sum(v) / len(v), 2)}
+        for g, v in sector_changes.items() if v
+    ]
+    return {"sectors": sorted(sectors, key=lambda s: s["name"])}
+
+
+@app.get("/api/tickers/portfolio/metrics", tags=["intelligence"])
+async def portfolio_metrics() -> dict[str, Any]:
+    """Annualised Sharpe ratio from 30-day portfolio tick history.
+
+    Uses current virtual holdings weights (equal-weight basket fallback).
+    Beta and Alpha are not computed (no benchmark series stored) and are
+    returned as null.  Risk-free rate proxy: current ``FED_RATE`` from
+    ``_MACRO_CACHE``.
+    """
+    try:
+        holdings_raw = await asyncio.to_thread(get_portfolio_holdings)
+        qty: dict[str, float] = {
+            h["ticker"]: float(h["quantity"])
+            for h in holdings_raw
+            if float(h.get("quantity", 0)) > 0
+        }
+        if not qty:
+            qty = {t: 1.0 for t in TICKERS}
+
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT time_bucket(INTERVAL '1 day', timestamp) AS day, "
+                "ticker, AVG(close_price) AS price "
+                "FROM market_ticks "
+                "WHERE timestamp >= NOW() - INTERVAL '30 days' AND ticker = ANY(%s) "
+                "GROUP BY 1, 2 ORDER BY 1",
+                (list(qty.keys()),),
+            ).fetchall()
+
+        if not rows:
+            return {"sharpe": None, "beta": None, "alpha": None}
+
+        pivot: dict[str, dict[str, float]] = {}
+        for day, ticker, price in rows:
+            key = day.isoformat() if hasattr(day, "isoformat") else str(day)
+            pivot.setdefault(key, {})[ticker] = float(price)
+
+        daily_values: list[float] = []
+        for day_key in sorted(pivot.keys()):
+            prices = pivot[day_key]
+            val = sum(prices.get(t, _PRICE_STATE.get(t, 0.0)) * q for t, q in qty.items())
+            if val > 0:
+                daily_values.append(val)
+
+        if len(daily_values) < 3:
+            return {"sharpe": None, "beta": None, "alpha": None}
+
+        arr          = np.array(daily_values)
+        daily_ret    = np.diff(arr) / arr[:-1]
+        mean_ret     = float(np.mean(daily_ret))
+        std_ret      = float(np.std(daily_ret, ddof=1))
+        fed_rate     = _MACRO_CACHE.get("FED_RATE", 5.33)
+        rf_daily     = fed_rate / 100 / 252
+
+        if std_ret == 0:
+            return {"sharpe": None, "beta": None, "alpha": None}
+
+        sharpe = round((mean_ret - rf_daily) / std_ret * math.sqrt(252), 2)
+        return {"sharpe": sharpe, "beta": None, "alpha": None}
+
+    except Exception as exc:
+        logger.warning("portfolio_metrics_failed", extra={"error": str(exc)})
+        return {"sharpe": None, "beta": None, "alpha": None}
+
+
+@app.post("/api/news/summarize", tags=["intelligence"])
+async def news_summarize(request: Request) -> EventSourceResponse:
+    """Stream an AI market analysis for a news headline.
+
+    Accepts ``{"title": str, "source": str|null, "entity": str|null}`` and
+    streams Groq-generated market analysis tokens via SSE.  Uses the same
+    LangChain/Groq backend as OMNI-COMMAND; no web scraping.
+    """
+    body = await request.json()
+    title  = str(body.get("title", ""))[:500]
+    source = str(body.get("source", "") or "")
+    entity = str(body.get("entity", "") or "")
+
+    prompt = (
+        f"뉴스 헤드라인: \"{title}\""
+        + (f" (출처: {source})" if source else "")
+        + (f" (관련 종목/기업: {entity})" if entity else "")
+        + "\n\n이 뉴스가 금융 시장에 미치는 영향을 2-3단락으로 간결하게 분석해줘. "
+        "① 이 뉴스의 핵심 의미, ② 영향받는 섹터/자산, ③ 단기 매매 관점 순으로 작성. "
+        "투자 조언이 아닌 시장 분석임을 명시해."
+    )
+
+    async def _stream() -> AsyncGenerator[dict[str, str], None]:
+        try:
+            agent = _build_lc_agent()
+            result = await agent.ainvoke({"messages": [{"role": "user", "content": prompt}]})
+            messages = result.get("messages", [])
+            text = ""
+            for m in reversed(messages):
+                if hasattr(m, "content") and isinstance(m.content, str) and m.content.strip():
+                    text = m.content
+                    break
+            for word in text.split():
+                yield {"data": json.dumps({"type": "token", "text": word + " "}), "event": "summary"}
+                await asyncio.sleep(0.03)
+            yield {"data": json.dumps({"type": "done"}), "event": "summary"}
+        except Exception as exc:
+            logger.warning("news_summarize_failed", extra={"error": str(exc)})
+            yield {"data": json.dumps({"type": "error", "text": "분석을 불러올 수 없습니다."}), "event": "summary"}
+
+    return EventSourceResponse(_stream())
+
+
 @app.get("/api/regimes/latest", tags=["intelligence"])
 async def regimes_latest() -> dict[str, Any]:
     """Latest macro regime for the StatusBar and dashboard regime badge.

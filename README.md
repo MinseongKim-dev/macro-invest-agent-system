@@ -1,12 +1,12 @@
 # Aleph-One
 
-**v0.4.3** · Open-source, zero-cost financial intelligence terminal
+**v0.4.4** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
 
 ---
 
-## What's New in v0.4.3
+## What's New in v0.4.4
 
 - **Fixed 4 missing holdings rows** — the four KR tickers added to live collection in v0.4.1 (현대차/삼성바이오로직스/POSCO홀딩스/KB금융) were never added to the frontend's `TICKER_META`/`TICKER_ORDER` registries, so they silently never rendered in PORTFOLIO ALPHA despite being priced on the backend. All 16 holdings now display.
 - **Real news source/link/timestamp** — `/api/events/recent` previously returned only headline strings with a fabricated "now" timestamp. It now carries each article's real publisher, source URL, and publish time through from Yahoo Finance, so the NEWS FEED detail panel's source badge and "VIEW SOURCE ↗" link are now real instead of always empty.
@@ -329,7 +329,7 @@ macro-invest-agent-system/
 | **v0.4.1** | ✅ Released | KR large-cap sector diversification — auto/bio/steel/finance tickers, risk matrix → 16 rows |
 | **v0.4.2** | ✅ Released | Floating click-to-expand detail panels for holdings and news items |
 | **v0.4.3** | ✅ Released | Fixed missing holdings rows, real news source/link/timestamp, 52-week range on ticker detail |
-| **v0.4.1** | ✅ Released | KR large-cap sector diversification — auto/bio/steel/finance tickers, risk matrix → 16 rows |
+| **v0.4.4** | ✅ Released | Chart period tabs (1D/1W/1M/3M), live sector heatmap, news AI analysis, ANALYZE wired to OMNI, real Sharpe metric |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |
