@@ -138,6 +138,59 @@ function NewsBody({ n }: { n: ExternalEventDTO }) {
   const occurred = n.published_at ?? n.occurred_at
   const ts = occurred ? new Date(occurred).toLocaleString('ko-KR') : '—'
 
+  // AI market analysis — auto-triggered on mount
+  const [aiText,      setAiText]      = useState('')
+  const [aiStreaming, setAiStreaming]  = useState(false)
+  const [aiDone,      setAiDone]      = useState(false)
+  const [aiError,     setAiError]     = useState(false)
+
+  useEffect(() => {
+    if (!n.title) return
+    setAiText('')
+    setAiDone(false)
+    setAiError(false)
+    setAiStreaming(true)
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/news/summarize', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body:    JSON.stringify({ title: n.title, source: n.source ?? '', entity: n.entity ?? '' }),
+        })
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
+
+        const reader  = res.body.getReader()
+        const decoder = new TextDecoder()
+        let   buffer  = ''
+
+        while (true) {
+          const { done, value } = await reader.read()
+          if (done || cancelled) break
+          buffer += decoder.decode(value, { stream: true })
+          const lines = buffer.split('\n')
+          buffer = lines.pop() ?? ''
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue
+            try {
+              const evt = JSON.parse(line.slice(6))
+              if (evt.type === 'token') setAiText(prev => prev + (evt.text ?? ''))
+              if (evt.type === 'done')  setAiDone(true)
+              if (evt.type === 'error') { setAiError(true); setAiDone(true) }
+            } catch { /* skip malformed */ }
+          }
+        }
+      } catch {
+        if (!cancelled) setAiError(true)
+      } finally {
+        if (!cancelled) setAiStreaming(false)
+      }
+    })()
+
+    return () => { cancelled = true }
+  }, [n.title, n.source, n.entity])
+
   return (
     <>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -159,6 +212,33 @@ function NewsBody({ n }: { n: ExternalEventDTO }) {
       <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 14, color: '#fff', lineHeight: 1.5, marginBottom: 10 }}>{n.title}</div>
 
       <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(255,255,255,.28)', marginBottom: 16 }}>{ts}</div>
+
+      {/* AI market analysis — auto-streamed on open */}
+      <div style={{ marginBottom: 16, padding: '10px 12px', background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.22)', borderRadius: 9 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 7 }}>
+          <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#a855f7', boxShadow: '0 0 5px #a855f7', animation: aiStreaming ? 'glow-pulse 0.7s ease-in-out infinite' : 'none' }} />
+          <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '2px', color: '#a855f7' }}>AI MARKET ANALYSIS</span>
+          {!aiStreaming && aiDone && (
+            <span style={{ marginLeft: 'auto', fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'rgba(168,85,247,.45)' }}>GROQ · {aiError ? 'ERROR' : 'DONE'}</span>
+          )}
+        </div>
+        {!aiText && aiStreaming && (
+          <div style={{ display: 'flex', gap: 5, padding: '6px 0' }}>
+            {[0, 1, 2].map(i => (
+              <div key={i} style={{ height: 8, borderRadius: 4, background: 'rgba(168,85,247,.18)', animation: `glow-pulse .8s ${i * 0.18}s ease-in-out infinite` }} className={i === 0 ? 'skel-long' : i === 1 ? 'skel-mid' : 'skel-short'} />
+            ))}
+            <style>{`.skel-long{width:60%}.skel-mid{width:30%}.skel-short{width:10%}`}</style>
+          </div>
+        )}
+        {aiError && !aiText && (
+          <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: 'rgba(255,77,109,.6)', lineHeight: 1.5 }}>분석을 불러올 수 없습니다. 백엔드 연결을 확인해주세요.</div>
+        )}
+        {aiText && (
+          <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11.5, color: 'rgba(255,255,255,.78)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>
+            {aiText}{aiStreaming && <span style={{ animation: 'blink 0.8s step-end infinite', color: '#a855f7' }}>▌</span>}
+          </div>
+        )}
+      </div>
 
       {n.summary && (
         <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 12, color: 'rgba(255,255,255,.72)', lineHeight: 1.7, whiteSpace: 'pre-wrap' }}>{n.summary}</div>

@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useMemo, useRef } from 'react'
+import useSWR from 'swr'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
@@ -10,9 +11,10 @@ import { useRegime, useSignals } from '@/hooks/useAlephData'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
 import type { AlephStreamData, ExternalEventDTO } from '@/lib/types'
+import { fetchJson, endpoints } from '@/lib/api'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.3'
+export const APP_VERSION = 'v0.4.4'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -308,6 +310,7 @@ export default function AlephDashboard() {
   const [activeIndex, setActiveIndex] = useState<'PORTFOLIO' | 'KOSPI' | 'SP500' | 'USDKRW'>('PORTFOLIO')
   const [indexHistory, setIndexHistory] = useState<Record<string, Array<{t: number; v: number}>>>({})
   const indexIdxRef = useRef(0)
+  const [chartPeriod, setChartPeriod] = useState<'1D' | '1W' | '1M' | '3M'>('1D')
 
   // ── Real backend data ──────────────────────────────────────────────────────
   const { data: streamData }                          = useAlephStream()
@@ -315,6 +318,18 @@ export default function AlephDashboard() {
   const liveNews                                      = useNewsStream(15)
   const { data: regimeData, isLoading: regimeLoading, error: regimeError } = useRegime()
   const { data: signalsData, isLoading: signalsLoading }                   = useSignals()
+
+  // SWR: sector summary (30s refresh), portfolio history (per period), portfolio metrics
+  const { data: sectorData } = useSWR<{ sectors: Array<{ name: string; change_pct: number }> }>(
+    endpoints.sectorSummary, fetchJson, { refreshInterval: 30_000 }
+  )
+  const { data: histData } = useSWR<{ points: Array<{ ts: string; value: number }>; empty: boolean }>(
+    chartPeriod !== '1D' && activeIndex === 'PORTFOLIO' ? endpoints.portfolioHistory(chartPeriod) : null,
+    fetchJson, { refreshInterval: 60_000 }
+  )
+  const { data: metricsData } = useSWR<{ sharpe: number | null; beta: number | null; alpha: number | null }>(
+    endpoints.portfolioMetrics, fetchJson, { refreshInterval: 300_000 }
+  )
 
   // Portfolio value rolling history → drives the KRX chart
   const [chartData, setChartData] = useState<Array<{ t: number; v: number }>>([])
@@ -394,6 +409,23 @@ export default function AlephDashboard() {
   const sp500  = streamData?.market_indices?.SP500   ?? null
   const usdkrw = streamData?.market_indices?.USDKRW  ?? null
 
+  // Live sector heatmap — fallback to static config when API not yet ready
+  const liveSectors: Sector[] = useMemo(() => {
+    if (!sectorData?.sectors?.length) return SECTORS
+    return sectorData.sectors.map(s => ({ n: s.name, c: parseFloat(s.change_pct.toFixed(1)) }))
+  }, [sectorData])
+
+  // Historical chart data for non-1D periods
+  const historicalChartData = useMemo<Array<{ t: number; v: number }> | null>(() => {
+    if (!histData?.points?.length) return null
+    return histData.points.map((p, i) => ({ t: i, v: p.value }))
+  }, [histData])
+
+  // Sharpe, Beta, Alpha from real backend metrics
+  const sharpeDisplay = metricsData?.sharpe != null ? metricsData.sharpe.toFixed(2) : '—'
+  const betaDisplay   = metricsData?.beta   != null ? metricsData.beta.toFixed(2)   : 'N/A'
+  const alphaDisplay  = metricsData?.alpha  != null ? `${metricsData.alpha.toFixed(1)}%` : 'N/A'
+
   // ── Typewriter for OMNI insight + report ──────────────────────────────────
   const typedInsight = useTypingText(resp?.insight, 14)
   const typedReport  = useTypingText(resp?.report,  8)
@@ -418,13 +450,14 @@ export default function AlephDashboard() {
   const ts  = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
 
   // ── OMNI-COMMAND — SSE streaming + ResearchPanel ─────────────────────────
-  const exec = async () => {
-    if (!query.trim() || busy) return
+  const exec = async (forceQuery?: string) => {
+    const q = (forceQuery ?? query).trim()
+    if (!q || busy) return
     setBusy(true)
     setResp(null)
     setPanelContent('')
     setPanelMeta(undefined)
-    setPanelQuery(query)
+    setPanelQuery(q)
     setPanelOpen(true)
     setDetailOpen(false)
     setStreaming(true)
@@ -433,7 +466,7 @@ export default function AlephDashboard() {
       const r = await fetch('/api/v1/intelligence/command/stream', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ query, persona: 'AGGRESSIVE' }),
+        body:    JSON.stringify({ query: q, persona: 'AGGRESSIVE' }),
       })
       if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`)
 
@@ -485,7 +518,7 @@ export default function AlephDashboard() {
     } finally {
       setBusy(false)
       setStreaming(false)
-      setQuery('')
+      if (!forceQuery) setQuery('')
     }
   }
 
@@ -541,16 +574,16 @@ export default function AlephDashboard() {
             <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 13, fontWeight: 900, color: '#00e5ff', letterSpacing: '3.5px', textShadow: '0 0 18px rgba(0,229,255,.7)' }}>ALEPH-ONE</span>
             <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '2px', color: 'rgba(0,229,255,.35)', marginLeft: 3 }}>CORE {APP_VERSION}</span>
           </div>
-          {/* Regime badge — SSE stream first, REST fallback, loading state */}
-          {(regimeLabel || regimeLoading) && (
+          {/* Regime badge — SSE stream first, REST fallback; only show error when both sources fail */}
+          {(regimeLabel || regimeLoading || regimeError) && (
             <div style={{
               padding: '2px 8px', borderRadius: 4,
-              background: regimeError ? 'rgba(255,71,87,.07)' : 'rgba(0,229,255,.07)',
-              border: `1px solid ${regimeError ? 'rgba(255,71,87,.3)' : 'rgba(0,229,255,.22)'}`,
+              background: (regimeError && !regimeLabel) ? 'rgba(255,71,87,.07)' : 'rgba(0,229,255,.07)',
+              border: `1px solid ${(regimeError && !regimeLabel) ? 'rgba(255,71,87,.3)' : 'rgba(0,229,255,.22)'}`,
               fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1.5px',
-              color: regimeError ? '#FF4757' : '#00e5ff', textTransform: 'uppercase',
+              color: (regimeError && !regimeLabel) ? '#FF4757' : '#00e5ff', textTransform: 'uppercase',
             }}>
-              {regimeError ? 'REGIME ERR' : (regimeLabel ?? '···')}
+              {(regimeError && !regimeLabel) ? 'REGIME UNAVAILABLE' : (regimeLabel ?? '···')}
             </div>
           )}
           {/* Index tickers — live from SSE stream market_indices */}
@@ -699,7 +732,7 @@ export default function AlephDashboard() {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '2px', color: 'rgba(255,255,255,.25)', marginBottom: 6 }}>MARKET SENTIMENT HEATMAP</div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 4, height: 116 }}>
-                  {SECTORS.map((s, i) => <HCell key={i} n={s.n} c={s.c} />)}
+                  {liveSectors.map((s, i) => <HCell key={i} n={s.n} c={s.c} />)}
                 </div>
               </div>
             </div>
@@ -732,19 +765,22 @@ export default function AlephDashboard() {
                 ))}
               </div>
               <div style={{ marginLeft: 'auto', display: 'flex', gap: 5 }}>
-                {(['1D', '1W', '1M', '3M'] as const).map((t, i) => (
-                  <button key={t} style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1px', padding: '2px 7px', borderRadius: 4, cursor: 'pointer', background: i === 0 ? 'rgba(0,229,255,.14)' : 'transparent', border: `1px solid ${i === 0 ? 'rgba(0,229,255,.38)' : 'rgba(255,255,255,.07)'}`, color: i === 0 ? '#00e5ff' : 'rgba(255,255,255,.28)' }}>{t}</button>
+                {(['1D', '1W', '1M', '3M'] as const).map((t) => (
+                  <button key={t} onClick={() => setChartPeriod(t)} style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1px', padding: '2px 7px', borderRadius: 4, cursor: 'pointer', background: chartPeriod === t ? 'rgba(0,229,255,.14)' : 'transparent', border: `1px solid ${chartPeriod === t ? 'rgba(0,229,255,.38)' : 'rgba(255,255,255,.07)'}`, color: chartPeriod === t ? '#00e5ff' : 'rgba(255,255,255,.28)', transition: 'all .15s' }}>{t}</button>
                 ))}
               </div>
             </div>
             <div style={{ flex: 1, minHeight: 0 }}>
               {(() => {
+                const useHistorical = activeIndex === 'PORTFOLIO' && chartPeriod !== '1D'
                 const activeData = activeIndex === 'PORTFOLIO'
-                  ? chartData
+                  ? (useHistorical ? (historicalChartData ?? chartData) : chartData)
                   : (indexHistory[activeIndex] ?? [])
-                const hasData = activeData.length >= 2
-                const isKRW   = activeIndex === 'USDKRW'
-                const label   = activeIndex === 'PORTFOLIO' ? 'Portfolio' : activeIndex
+                const isLoading  = useHistorical && !histData
+                const isEmpty    = useHistorical && histData?.empty === true && !historicalChartData
+                const hasData    = activeData.length >= 2
+                const isKRW      = activeIndex === 'USDKRW'
+                const label      = activeIndex === 'PORTFOLIO' ? 'Portfolio' : activeIndex
                 const fmtY    = isKRW
                   ? (v: number) => `₩${v.toFixed(0)}`
                   : activeIndex === 'PORTFOLIO'
@@ -755,6 +791,16 @@ export default function AlephDashboard() {
                   : activeIndex === 'PORTFOLIO'
                     ? (v: number) => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
                     : (v: number) => v.toLocaleString('en-US', { maximumFractionDigits: 2 })
+                if (isLoading || isEmpty) return (
+                  <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(0,229,255,.3)', letterSpacing: '2px' }}>
+                      {isLoading ? '데이터 불러오는 중…' : '데이터 준비 중'}
+                    </div>
+                    {isEmpty && <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.18)', textAlign: 'center' }}>
+                      {chartPeriod} 기간 시장 데이터가 아직 충분히 쌓이지 않았습니다
+                    </div>}
+                  </div>
+                )
                 return hasData ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={activeData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
@@ -890,7 +936,7 @@ export default function AlephDashboard() {
               <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.42)', marginTop: 6, lineHeight: 1.5 }}>Tech concentration at 73.2% exceeds optimal threshold. Consider rotating 15–20% into defensive sectors.</div>
             </div>
             <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
-              {([['SHARPE', '1.84', '#00ff88'], ['BETA', '0.92', '#fbbf24'], ['α', '2.3%', '#00e5ff']] as const).map(([l, v, c]) => (
+              {([['SHARPE', sharpeDisplay, '#00ff88'], ['BETA', betaDisplay, '#fbbf24'], ['α', alphaDisplay, '#00e5ff']] as const).map(([l, v, c]) => (
                 <div key={l} style={{ flex: 1, padding: '7px 6px', background: 'rgba(0,229,255,.04)', border: '1px solid rgba(0,229,255,.1)', borderRadius: 7, textAlign: 'center' }}>
                   <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.3)', letterSpacing: '1px' }}>{l}</div>
                   <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 11, fontWeight: 700, color: c }}>{v}</div>
@@ -898,8 +944,14 @@ export default function AlephDashboard() {
               ))}
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
-              <button style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: 'rgba(168,85,247,.18)', border: '1px solid rgba(168,85,247,.38)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7' }}>APPLY</button>
-              <button style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff' }}>ANALYZE</button>
+              <button
+                title="Coming soon — Virtual Broker execution (v0.5.0)"
+                disabled
+                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'not-allowed', opacity: 0.38, background: 'rgba(168,85,247,.18)', border: '1px solid rgba(168,85,247,.38)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7' }}>APPLY</button>
+              <button
+                onClick={() => exec('현재 포트폴리오 리스크를 분석하고 최적 리밸런싱 전략을 제시해줘. 섹터 집중도, 변동성, 리스크 대비 수익률을 고려해서 구체적인 조언을 해줘.')}
+                disabled={busy}
+                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff', transition: 'all .2s' }}>ANALYZE</button>
             </div>
           </div>
         </div>
@@ -969,7 +1021,7 @@ export default function AlephDashboard() {
               {busy ? 'AI THOUGHT PROCESS' : 'AI STANDBY'}
             </span>
           </div>
-          <button onClick={exec} disabled={busy || !query.trim()} style={{ padding: '7px 14px', borderRadius: 7, cursor: busy || !query.trim() ? 'default' : 'pointer', background: busy || !query.trim() ? 'rgba(0,229,255,.04)' : 'rgba(0,229,255,.13)', border: `1px solid rgba(0,229,255,${busy || !query.trim() ? '.09' : '.36'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '1px', color: busy || !query.trim() ? 'rgba(0,229,255,.22)' : '#00e5ff', transition: 'all .2s', flexShrink: 0 }}>EXECUTE</button>
+          <button onClick={() => exec()} disabled={busy || !query.trim()} style={{ padding: '7px 14px', borderRadius: 7, cursor: busy || !query.trim() ? 'default' : 'pointer', background: busy || !query.trim() ? 'rgba(0,229,255,.04)' : 'rgba(0,229,255,.13)', border: `1px solid rgba(0,229,255,${busy || !query.trim() ? '.09' : '.36'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '1px', color: busy || !query.trim() ? 'rgba(0,229,255,.22)' : '#00e5ff', transition: 'all .2s', flexShrink: 0 }}>EXECUTE</button>
         </div>
 
         {/* Status bar */}
