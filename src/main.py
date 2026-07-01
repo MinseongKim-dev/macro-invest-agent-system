@@ -1337,16 +1337,16 @@ async def portfolio_history(period: str = "1D") -> dict[str, Any]:
         holdings_raw = await asyncio.to_thread(get_portfolio_holdings)
         qty: dict[str, float] = {h["ticker"]: float(h["quantity"]) for h in holdings_raw if float(h.get("quantity", 0)) > 0}
         if not qty:
-            qty = {t: 1.0 for t in TICKERS}
+            qty = dict.fromkeys(TICKERS, 1.0)
 
         tickers_in = tuple(qty.keys())
 
         with get_connection() as conn:
             rows = conn.execute(
-                f"SELECT time_bucket(INTERVAL %s, timestamp) AS ts, ticker, AVG(close_price) AS price "
-                f"FROM market_ticks "
-                f"WHERE timestamp >= NOW() - INTERVAL %s AND ticker = ANY(%s) "
-                f"GROUP BY 1, 2 ORDER BY 1",
+                "SELECT time_bucket(INTERVAL %s, timestamp) AS ts, ticker, AVG(close_price) AS price "
+                "FROM market_ticks "
+                "WHERE timestamp >= NOW() - INTERVAL %s AND ticker = ANY(%s) "
+                "GROUP BY 1, 2 ORDER BY 1",
                 (bucket, window, list(tickers_in)),
             ).fetchall()
 
@@ -1380,7 +1380,7 @@ async def sector_summary() -> dict[str, Any]:
     Groups ``TICKER_GROUPS`` tickers by sector, computes average price-change
     vs ``_BASELINE_PRICES``, returns ``{"sectors": [{"name", "change_pct"}]}``.
     """
-    _SECTOR_DISPLAY: dict[str, str] = {
+    sector_display: dict[str, str] = {
         "TECH":         "US TECH",
         "KR_TECH":      "KR TECH",
         "KR_CHEM":      "CHEM",
@@ -1403,7 +1403,7 @@ async def sector_summary() -> dict[str, Any]:
         sector_changes.setdefault(group, []).append(chg_pct)
 
     sectors = [
-        {"name": _SECTOR_DISPLAY.get(g, g), "change_pct": round(sum(v) / len(v), 2)}
+        {"name": sector_display.get(g, g), "change_pct": round(sum(v) / len(v), 2)}
         for g, v in sector_changes.items() if v
     ]
     return {"sectors": sorted(sectors, key=lambda s: s["name"])}
@@ -1426,7 +1426,7 @@ async def portfolio_metrics() -> dict[str, Any]:
             if float(h.get("quantity", 0)) > 0
         }
         if not qty:
-            qty = {t: 1.0 for t in TICKERS}
+            qty = dict.fromkeys(TICKERS, 1.0)
 
         with get_connection() as conn:
             rows = conn.execute(
