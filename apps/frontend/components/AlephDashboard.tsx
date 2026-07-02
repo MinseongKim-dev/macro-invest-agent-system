@@ -104,6 +104,17 @@ const CHART_MAX_PTS = 120  // 2 min rolling window for portfolio chart
 
 // ─── Typewriter hook ──────────────────────────────────────────────────────────
 
+function regimeErrorMessage(err: unknown): string {
+  if (!(err instanceof Error)) return '분석 오류'
+  const m = err.message
+  if (m.includes('503') || m.includes('502')) return '서버 연결 실패'
+  if (m.includes('504') || m.includes('408')) return '응답 시간 초과'
+  if (m.includes('5'))                        return '서버 오류'
+  if (m.includes('4'))                        return '분석에 필요한 지표 부족'
+  if (m.includes('fetch') || m.includes('NetworkError')) return '네트워크 오류'
+  return '분석 오류'
+}
+
 function useTypingText(text: string | undefined, speed = 12): string {
   const [displayed, setDisplayed] = useState('')
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -510,7 +521,7 @@ export default function AlephDashboard() {
               fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1.5px',
               color: (regimeError && !regimeLabel) ? '#FF4757' : '#00e5ff', textTransform: 'uppercase',
             }}>
-              {(regimeError && !regimeLabel) ? 'REGIME UNAVAILABLE' : (regimeLabel ?? '···')}
+              {(regimeError && !regimeLabel) ? regimeErrorMessage(regimeError) : (regimeLabel ?? '···')}
             </div>
           )}
           {/* Index tickers — live from SSE stream market_indices */}
@@ -604,7 +615,16 @@ export default function AlephDashboard() {
 
           {/* ALGORITHMIC SIGNALS — live from SSE stream */}
           <div className="glass" style={{ padding: 12, flex: 1 }}>
-            <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff', marginBottom: 10 }}>ALGORITHMIC SIGNALS</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
+              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff' }}>ALGORITHMIC SIGNALS</span>
+              {trust && (
+                <div title={trust.is_degraded ? (trust.degraded_reason ?? '데이터 품질 저하') : trust.freshness_status} style={{
+                  width: 5, height: 5, borderRadius: '50%', marginLeft: 'auto',
+                  background: trust.is_degraded ? '#FF9800' : trust.freshness_status === 'fresh' ? '#00ff88' : trust.freshness_status === 'stale' ? '#ff4d6d' : '#fbbf24',
+                  boxShadow: `0 0 5px ${trust.is_degraded ? '#FF9800' : trust.freshness_status === 'fresh' ? '#00ff88' : '#ff4d6d'}`,
+                }} />
+              )}
+            </div>
             {(liveSignals ?? [
               { sig: 'BUY',  asset: 'KOSPI 200',  conf: 78, desc: 'Momentum breakout confirmed — trend continuation pattern.' },
               { sig: 'HOLD', asset: 'USD / KRW',  conf: 53, desc: 'Algorithmic consensus: consolidation phase, range-bound.' },
@@ -633,7 +653,12 @@ export default function AlephDashboard() {
 
           {/* GLOBAL MACRO card */}
           <div className="glass" style={{ padding: 14, flexShrink: 0 }}>
-            <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: '2px', color: '#00e5ff', marginBottom: 12 }}>GLOBAL MACRO &amp; MARKET OVERVIEW</div>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 12 }}>
+              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 10, fontWeight: 700, letterSpacing: '2px', color: '#00e5ff' }}>GLOBAL MACRO &amp; MARKET OVERVIEW</span>
+              {trustDegraded && (
+                <span style={{ marginLeft: 10, fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1px', color: '#FF9800', border: '1px solid rgba(255,152,0,.3)', borderRadius: 4, padding: '1px 6px' }}>DEGRADED</span>
+              )}
+            </div>
             <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>
               <div style={{ width: 96, flexShrink: 0 }}>
                 <MacroStat lbl="VIX" val={streamData?.macro_indicators?.VIX != null ? streamData.macro_indicators.VIX.toFixed(2) : '···'} col={streamData?.macro_indicators?.VIX != null && streamData.macro_indicators.VIX > 25 ? '#ff4444' : '#00ff88'} />

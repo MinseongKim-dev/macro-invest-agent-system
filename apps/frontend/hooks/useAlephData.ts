@@ -17,6 +17,9 @@ const SWR_OPT = {
   revalidateOnFocus: false,
   shouldRetryOnError: true,
   errorRetryCount: 3,
+  onError: (err: unknown, key: string) => {
+    console.error(`[useAlephData] fetch error — ${key}:`, err)
+  },
 }
 
 export function useRegime() {
