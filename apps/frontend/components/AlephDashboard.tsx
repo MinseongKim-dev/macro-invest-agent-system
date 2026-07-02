@@ -1,17 +1,17 @@
 'use client'
 import { useState, useEffect, useMemo, useRef } from 'react'
-import useSWR from 'swr'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary } from '@/hooks/useAlephData'
+import { useOmniStream } from '@/hooks/useOmniStream'
+import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
 import type { AlephStreamData, ExternalEventDTO } from '@/lib/types'
-import { fetchJson, endpoints } from '@/lib/api'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
 export const APP_VERSION = 'v0.4.4'
@@ -57,24 +57,6 @@ const STYLES = `
 `
 
 // ─── Types ────────────────────────────────────────────────────────────────────
-
-interface Widget {
-  type:   'metric' | 'alert'
-  title:  string
-  value?: string
-  sub?:   string
-  trend?: 'up' | 'down' | 'neutral'
-  level?: 'HIGH' | 'MED' | 'LOW'
-  text?:  string
-}
-
-interface RespState {
-  insight:    string
-  action:     string
-  confidence: number
-  report?:    string
-  widgets:    Widget[]
-}
 
 interface Sector   { n: string; c: number }
 interface Particle { l: number; d: number; dur: number; s: number }
@@ -267,7 +249,7 @@ const HCell = ({ n, c }: { n: string; c: number }) => {
   )
 }
 
-const AIWidget = ({ w, idx }: { w: Widget; idx: number }) => (
+const AIWidget = ({ w, idx }: { w: OmniWidget; idx: number }) => (
   <div className="ai-w glass" style={{ padding: '10px 14px', minWidth: 120, flex: 1, animationDelay: `${idx * 0.08}s` }}>
     <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(0,229,255,.45)', marginBottom: 4, textTransform: 'uppercase' }}>{w.title}</div>
     {w.type === 'metric' && (
@@ -296,13 +278,7 @@ const AIWidget = ({ w, idx }: { w: Widget; idx: number }) => (
 export default function AlephDashboard() {
   const [now,         setNow]         = useState(new Date())
   const [query,       setQuery]       = useState('')
-  const [busy,        setBusy]        = useState(false)
-  const [resp,        setResp]        = useState<RespState | null>(null)
   const [panelOpen,   setPanelOpen]   = useState(false)
-  const [panelContent,setPanelContent]= useState('')
-  const [panelMeta,   setPanelMeta]   = useState<{ regime?: string; phase?: string; confidence?: number; signal?: string; health?: number } | undefined>()
-  const [streaming,   setStreaming]   = useState(false)
-  const [panelQuery,  setPanelQuery]  = useState('')
   const [assetTab,    setAssetTab]    = useState<'ALL' | 'STOCKS' | 'ETFS' | 'FUNDS'>('ALL')
   const [detailOpen,  setDetailOpen]  = useState(false)
   const [detailTicker,setDetailTicker]= useState<TickerDetail | null>(null)
@@ -318,18 +294,9 @@ export default function AlephDashboard() {
   const liveNews                                      = useNewsStream(15)
   const { data: regimeData, isLoading: regimeLoading, error: regimeError } = useRegime()
   const { data: signalsData, isLoading: signalsLoading }                   = useSignals()
-
-  // SWR: sector summary (30s refresh), portfolio history (per period), portfolio metrics
-  const { data: sectorData } = useSWR<{ sectors: Array<{ name: string; change_pct: number }> }>(
-    endpoints.sectorSummary, fetchJson, { refreshInterval: 30_000 }
-  )
-  const { data: histData } = useSWR<{ points: Array<{ ts: string; value: number }>; empty: boolean }>(
-    chartPeriod !== '1D' && activeIndex === 'PORTFOLIO' ? endpoints.portfolioHistory(chartPeriod) : null,
-    fetchJson, { refreshInterval: 60_000 }
-  )
-  const { data: metricsData } = useSWR<{ sharpe: number | null; beta: number | null; alpha: number | null }>(
-    endpoints.portfolioMetrics, fetchJson, { refreshInterval: 300_000 }
-  )
+  const { data: sectorData }                                                = useSectorSummary()
+  const { history: histData, metrics: metricsData }                         = usePortfolio(chartPeriod)
+  const omni                                                                 = useOmniStream()
 
   // Portfolio value rolling history → drives the KRX chart
   const [chartData, setChartData] = useState<Array<{ t: number; v: number }>>([])
@@ -426,9 +393,34 @@ export default function AlephDashboard() {
   const betaDisplay   = metricsData?.beta   != null ? metricsData.beta.toFixed(2)   : 'N/A'
   const alphaDisplay  = metricsData?.alpha  != null ? `${metricsData.alpha.toFixed(1)}%` : 'N/A'
 
+  // Virtual portfolio — HOLDING vs CASH breakdown
+  const vp = (streamData as AlephStreamData)?.virtual_portfolio
+  const vpHoldingPct = useMemo(() => {
+    if (!vp?.accounts) return null
+    const totalMarket = Object.values(vp.accounts).reduce((s, a) => s + a.market_value, 0)
+    const totalValue  = Object.values(vp.accounts).reduce((s, a) => s + a.total_value,  0)
+    return totalValue > 0 ? (totalMarket / totalValue) * 100 : null
+  }, [vp])
+  const vpCashPct = vpHoldingPct != null ? 100 - vpHoldingPct : null
+
+  // Signal distribution — drives risk bars (SELL=HIGH, HOLD=MED, BUY=LOW)
+  const riskDist = useMemo(() => {
+    const matrix = streamData?.intelligence_synthesis?.risk_matrix
+    if (!matrix?.length) return null
+    const total = matrix.length
+    const sell  = matrix.filter(r => r.sig_score === 'SELL').length
+    const hold  = matrix.filter(r => r.sig_score === 'HOLD').length
+    const buy   = matrix.filter(r => r.sig_score === 'BUY').length
+    return {
+      high: ((sell / total) * 100).toFixed(1) + '%',
+      med:  ((hold / total) * 100).toFixed(1) + '%',
+      low:  ((buy  / total) * 100).toFixed(1) + '%',
+    }
+  }, [streamData])
+
   // ── Typewriter for OMNI insight + report ──────────────────────────────────
-  const typedInsight = useTypingText(resp?.insight, 14)
-  const typedReport  = useTypingText(resp?.report,  8)
+  const typedInsight = useTypingText(omni.resp?.insight, 14)
+  const typedReport  = useTypingText(omni.resp?.report,  8)
 
   // Inject global styles once
   useEffect(() => {
@@ -449,77 +441,12 @@ export default function AlephDashboard() {
   const pad = (n: number) => String(n).padStart(2, '0')
   const ts  = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
 
-  // ── OMNI-COMMAND — SSE streaming + ResearchPanel ─────────────────────────
-  const exec = async (forceQuery?: string) => {
+  // ── OMNI-COMMAND — delegate to useOmniStream ─────────────────────────────
+  const handleExec = (forceQuery?: string) => {
     const q = (forceQuery ?? query).trim()
-    if (!q || busy) return
-    setBusy(true)
-    setResp(null)
-    setPanelContent('')
-    setPanelMeta(undefined)
-    setPanelQuery(q)
-    setPanelOpen(true)
-    setDetailOpen(false)
-    setStreaming(true)
-
-    try {
-      const r = await fetch('/api/v1/intelligence/command/stream', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ query: q, persona: 'AGGRESSIVE' }),
-      })
-      if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`)
-
-      const reader  = r.body.getReader()
-      const decoder = new TextDecoder()
-      let   buffer  = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() ?? ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          try {
-            const evt = JSON.parse(line.slice(6))
-            if (evt.type === 'meta') {
-              const regime = evt.macro_regime ?? {}
-              const health = evt.portfolio_health ?? {}
-              const sig    = (evt.active_signals ?? [])[0]
-              setPanelMeta({
-                regime:     regime.regime_name,
-                phase:      regime.market_phase,
-                confidence: regime.confidence_score,
-                signal:     sig?.action,
-                health:     health.score,
-              })
-              // Also update inline widgets
-              const widgets: Widget[] = []
-              if (regime.regime_name) widgets.push({ type: 'metric', title: 'MACRO REGIME',     value: regime.regime_name,               sub: regime.market_phase ?? '',  trend: (regime.confidence_score ?? 0.5) > 0.7 ? 'up' : 'down' })
-              if (health.score != null) widgets.push({ type: 'metric', title: 'PORTFOLIO HEALTH', value: `${Math.round(health.score)}`, sub: health.source ?? '', trend: health.score > 60 ? 'up' : 'down' })
-              setResp({ insight: regime.regime_name ?? 'Analysis complete.', action: sig?.action ?? '', confidence: Math.round((sig?.probability ?? 0.5) * 100), report: '', widgets })
-            } else if (evt.type === 'token') {
-              setPanelContent(prev => prev + (evt.content ?? ''))
-            } else if (evt.type === 'done') {
-              setStreaming(false)
-            }
-          } catch {
-            // malformed SSE line — skip
-          }
-        }
-      }
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'NETWORK ERROR'
-      setPanelContent(`NEURAL LINK ERROR — ${msg}`)
-      setResp({ insight: `NEURAL LINK ERROR — ${msg}`, action: '', confidence: 0, report: '', widgets: [] })
-    } finally {
-      setBusy(false)
-      setStreaming(false)
-      if (!forceQuery) setQuery('')
-    }
+    if (!q || omni.busy) return
+    omni.exec(q, () => { setPanelOpen(true); setDetailOpen(false) })
+    if (!forceQuery) setQuery('')
   }
 
   const openTickerDetail = (h: TickerDetail) => {
@@ -542,10 +469,10 @@ export default function AlephDashboard() {
       <ResearchPanel
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
-        streaming={streaming}
-        content={panelContent}
-        meta={panelMeta}
-        query={panelQuery}
+        streaming={omni.streaming}
+        content={omni.panelContent}
+        meta={omni.panelMeta}
+        query={omni.panelQuery}
       />
       <DetailPanel
         open={detailOpen}
@@ -669,15 +596,10 @@ export default function AlephDashboard() {
                 </AreaChart>
               </ResponsiveContainer>
             </div>
-            {([['CL1:COM', 'Crude Oil', '+1.50%', 1], ['BR2:COM', 'Brent Oil', '-0.93%', -1], ['BDI:IND', 'Baltic Dry', '+0.38%', 1]] as const).map(([code, name, val, dir]) => (
-              <div key={code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0', borderTop: '1px solid rgba(255,255,255,.04)' }}>
-                <div>
-                  <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(255,255,255,.45)' }}>{code}</div>
-                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.25)' }}>{name}</div>
-                </div>
-                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 600, color: dir > 0 ? '#00ff88' : '#ff4d6d', textShadow: dir > 0 ? '0 0 6px rgba(0,255,136,.45)' : '0 0 6px rgba(255,77,109,.45)' }}>{val}</span>
-              </div>
-            ))}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '8px 0', gap: 4 }}>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(0,229,255,.3)', letterSpacing: '2px' }}>AWAITING FEED</div>
+              <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.18)', textAlign: 'center' }}>Commodity pipeline — v0.5.0</div>
+            </div>
           </div>
 
           {/* ALGORITHMIC SIGNALS — live from SSE stream */}
@@ -911,17 +833,25 @@ export default function AlephDashboard() {
           <div className="glass" style={{ padding: 12 }}>
             <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff', marginBottom: 10 }}>PERFORMANCE</div>
             <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-              {([['59.5%', '#00e5ff', 'HOLDING'], ['41.5%', '#a855f7', 'RISK']] as const).map(([v, c, l]) => (
+              {([
+                [vpHoldingPct != null ? `${vpHoldingPct.toFixed(1)}%` : '—', '#00e5ff', 'HOLDING'],
+                [vpCashPct    != null ? `${vpCashPct.toFixed(1)}%`    : '—', '#a855f7', 'CASH'],
+              ] as [string, string, string][]).map(([v, c, l]) => (
                 <div key={l} style={{ flex: 1, textAlign: 'center', padding: '8px 4px', background: `${c}08`, borderRadius: 8, border: `1px solid ${c}20` }}>
                   <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 20, fontWeight: 900, color: c, textShadow: `0 0 14px ${c}88` }}>{v}</div>
                   <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.3)', letterSpacing: '1px' }}>{l}</div>
                 </div>
               ))}
             </div>
-            <PBar lbl="HIGH Risk" pct="19.5%" col="#ff4d6d" />
-            <PBar lbl="MED Risk"  pct="77.0%" col="#fbbf24" />
-            <PBar lbl="LOW Risk"  pct="8.0%"  col="#00ff88" />
-            <PBar lbl="Loss"      pct="2.0%"  col="#a855f7" />
+            {riskDist ? (
+              <>
+                <PBar lbl="HIGH Risk" pct={riskDist.high} col="#ff4d6d" />
+                <PBar lbl="MED Risk"  pct={riskDist.med}  col="#fbbf24" />
+                <PBar lbl="LOW Risk"  pct={riskDist.low}  col="#00ff88" />
+              </>
+            ) : (
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(0,229,255,.28)', letterSpacing: '2px', textAlign: 'center', padding: '8px 0' }}>SIGNAL DIST: LOADING…</div>
+            )}
           </div>
 
           {/* AI Advice */}
@@ -949,9 +879,9 @@ export default function AlephDashboard() {
                 disabled
                 style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'not-allowed', opacity: 0.38, background: 'rgba(168,85,247,.18)', border: '1px solid rgba(168,85,247,.38)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7' }}>APPLY</button>
               <button
-                onClick={() => exec('현재 포트폴리오 리스크를 분석하고 최적 리밸런싱 전략을 제시해줘. 섹터 집중도, 변동성, 리스크 대비 수익률을 고려해서 구체적인 조언을 해줘.')}
-                disabled={busy}
-                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: busy ? 'default' : 'pointer', opacity: busy ? 0.5 : 1, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff', transition: 'all .2s' }}>ANALYZE</button>
+                onClick={() => handleExec('현재 포트폴리오 리스크를 분석하고 최적 리밸런싱 전략을 제시해줘. 섹터 집중도, 변동성, 리스크 대비 수익률을 고려해서 구체적인 조언을 해줘.')}
+                disabled={omni.busy}
+                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: omni.busy ? 'default' : 'pointer', opacity: omni.busy ? 0.5 : 1, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff', transition: 'all .2s' }}>ANALYZE</button>
             </div>
           </div>
         </div>
@@ -961,31 +891,30 @@ export default function AlephDashboard() {
       <div style={{ zIndex: 20, flexShrink: 0, borderTop: '1px solid rgba(0,229,255,.09)', background: 'rgba(2,6,18,.97)', backdropFilter: 'blur(24px)' }}>
 
         {/* AI response widgets */}
-        {resp && (
+        {omni.resp && (
           <div style={{ padding: '10px 16px 0', display: 'flex', gap: 8, flexWrap: 'wrap', animation: 'slide-up .35s ease-out' }}>
             <div className="ai-w glass" style={{ padding: '10px 14px', minWidth: 220, flex: 2 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 4 }}>
                 <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#a855f7', boxShadow: '0 0 5px #a855f7' }} />
                 <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, color: '#a855f7', letterSpacing: '2px' }}>AI NEURAL ANALYSIS</span>
               </div>
-              {/* Typewriter effect on insight text */}
               <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 12, color: 'rgba(255,255,255,.8)', lineHeight: 1.5 }}>
                 {typedInsight}<span style={{ animation: 'blink 0.8s step-end infinite', color: '#a855f7' }}>▌</span>
               </div>
-              {resp.action && <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: '#00ff88', marginTop: 5, fontWeight: 600 }}>→ {resp.action}</div>}
+              {omni.resp.action && <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: '#00ff88', marginTop: 5, fontWeight: 600 }}>→ {omni.resp.action}</div>}
             </div>
-            {resp.widgets.map((w, i) => <AIWidget key={i} w={w} idx={i + 1} />)}
-            {resp.confidence > 0 && (
+            {omni.resp.widgets.map((w, i) => <AIWidget key={i} w={w} idx={i + 1} />)}
+            {omni.resp.confidence > 0 && (
               <div className="ai-w glass" style={{ padding: '10px 14px', minWidth: 90, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', animationDelay: '.32s' }}>
                 <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)', letterSpacing: '1px', marginBottom: 4 }}>CONFIDENCE</div>
-                <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 18, fontWeight: 900, color: '#00e5ff', textShadow: '0 0 14px rgba(0,229,255,.5)' }}>{resp.confidence}%</div>
+                <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 18, fontWeight: 900, color: '#00e5ff', textShadow: '0 0 14px rgba(0,229,255,.5)' }}>{omni.resp.confidence}%</div>
               </div>
             )}
           </div>
         )}
 
         {/* Long-form report — typewriter streaming effect */}
-        {resp?.report && resp.report.trim().length > 0 && (
+        {omni.resp?.report && omni.resp.report.trim().length > 0 && (
           <div className="report-scroll" style={{ margin: '8px 16px 0', maxHeight: 110, overflowY: 'auto', padding: '8px 12px', background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.22)', borderRadius: 8, animation: 'slide-up .3s ease-out' }}>
             <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(168,85,247,.55)', textTransform: 'uppercase', marginBottom: 5 }}>◈ INTELLIGENCE REPORT</div>
             <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: 'rgba(255,255,255,.62)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
@@ -1003,11 +932,11 @@ export default function AlephDashboard() {
               className="omni-input"
               value={query}
               onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && exec()}
+              onKeyDown={e => e.key === 'Enter' && handleExec()}
               placeholder="포트폴리오 최적화, 시장 리스크 분석, 섹터 로테이션 추천... (Enter)"
-              disabled={busy}
+              disabled={omni.busy}
             />
-            {busy && (
+            {omni.busy && (
               <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
                 {[0, 1, 2, 3].map(i => (
                   <div key={i} style={{ width: 4, height: 4, borderRadius: '50%', background: '#a855f7', boxShadow: '0 0 5px #a855f7', animation: `glow-pulse .7s ${i * 0.15}s ease-in-out infinite` }} />
@@ -1016,18 +945,18 @@ export default function AlephDashboard() {
             )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
-            <div style={{ width: 5, height: 5, borderRadius: '50%', transition: 'all .3s', background: busy ? '#a855f7' : 'rgba(255,255,255,.12)', boxShadow: busy ? '0 0 7px #a855f7' : 'none', animation: busy ? 'glow-pulse .7s ease-in-out infinite' : 'none' }} />
-            <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8.5, letterSpacing: '1px', color: busy ? 'rgba(168,85,247,.7)' : 'rgba(255,255,255,.18)' }}>
-              {busy ? 'AI THOUGHT PROCESS' : 'AI STANDBY'}
+            <div style={{ width: 5, height: 5, borderRadius: '50%', transition: 'all .3s', background: omni.busy ? '#a855f7' : 'rgba(255,255,255,.12)', boxShadow: omni.busy ? '0 0 7px #a855f7' : 'none', animation: omni.busy ? 'glow-pulse .7s ease-in-out infinite' : 'none' }} />
+            <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8.5, letterSpacing: '1px', color: omni.busy ? 'rgba(168,85,247,.7)' : 'rgba(255,255,255,.18)' }}>
+              {omni.busy ? 'AI THOUGHT PROCESS' : 'AI STANDBY'}
             </span>
           </div>
-          <button onClick={() => exec()} disabled={busy || !query.trim()} style={{ padding: '7px 14px', borderRadius: 7, cursor: busy || !query.trim() ? 'default' : 'pointer', background: busy || !query.trim() ? 'rgba(0,229,255,.04)' : 'rgba(0,229,255,.13)', border: `1px solid rgba(0,229,255,${busy || !query.trim() ? '.09' : '.36'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '1px', color: busy || !query.trim() ? 'rgba(0,229,255,.22)' : '#00e5ff', transition: 'all .2s', flexShrink: 0 }}>EXECUTE</button>
+          <button onClick={() => handleExec()} disabled={omni.busy || !query.trim()} style={{ padding: '7px 14px', borderRadius: 7, cursor: omni.busy || !query.trim() ? 'default' : 'pointer', background: omni.busy || !query.trim() ? 'rgba(0,229,255,.04)' : 'rgba(0,229,255,.13)', border: `1px solid rgba(0,229,255,${omni.busy || !query.trim() ? '.09' : '.36'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '1px', color: omni.busy || !query.trim() ? 'rgba(0,229,255,.22)' : '#00e5ff', transition: 'all .2s', flexShrink: 0 }}>EXECUTE</button>
         </div>
 
         {/* Status bar */}
         <div style={{ padding: '2px 16px 6px', display: 'flex', alignItems: 'center', gap: 16 }}>
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.13)' }}>
-            ALEPH-ONE CORE {APP_VERSION} · NEURAL ENGINE ACTIVE · MARKET DATA {connected ? 'CONNECTED' : 'RECONNECTING'} · DATA{' '}
+            ALEPH-ONE CORE {APP_VERSION} · {omni.busy ? 'AI PROCESSING' : 'NEURAL ENGINE ACTIVE'} · MARKET DATA {connected ? 'CONNECTED' : 'RECONNECTING'} · DATA{' '}
             <span style={{ color: trustDegraded ? '#FF9800' : trustFreshness === 'fresh' ? '#00ff88' : 'rgba(255,255,255,.13)' }}>
               {trustFreshness.toUpperCase()}
             </span>

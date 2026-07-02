@@ -1,5 +1,6 @@
 'use client'
 import useSWR from 'swr'
+import { useAlephStream } from '@/hooks/useAlephStream'
 import { fetchJson, endpoints } from '@/lib/api'
 import type {
   RegimeLatestResponse,
@@ -25,6 +26,13 @@ export function useRegime() {
   )
 }
 
+export const useRegimeStatus = useRegime
+
+export function useMacroSnapshot() {
+  const { data } = useAlephStream()
+  return data?.macro_indicators ?? null
+}
+
 export function useSignals(country = 'US') {
   return useSWR<SignalsLatestResponse>(
     endpoints.signals(country),
@@ -47,4 +55,33 @@ export function useAlerts(limit = 10) {
     fetchJson,
     { ...SWR_OPT, refreshInterval: POLL_SLOW },
   )
+}
+
+export function useSectorSummary() {
+  return useSWR<{ sectors: Array<{ name: string; change_pct: number }> }>(
+    endpoints.sectorSummary,
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 30_000 },
+  )
+}
+
+export function usePortfolio(period: '1D' | '1W' | '1M' | '3M' = '1D') {
+  const { data: history, isLoading: histLoading } = useSWR<{
+    points: Array<{ ts: string; value: number }>
+    empty:  boolean
+  }>(
+    period !== '1D' ? endpoints.portfolioHistory(period) : null,
+    fetchJson,
+    { refreshInterval: 60_000 },
+  )
+  const { data: metrics } = useSWR<{
+    sharpe: number | null
+    beta:   number | null
+    alpha:  number | null
+  }>(
+    endpoints.portfolioMetrics,
+    fetchJson,
+    { refreshInterval: 300_000 },
+  )
+  return { history, histLoading, metrics }
 }
