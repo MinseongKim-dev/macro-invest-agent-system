@@ -7,6 +7,7 @@ import type {
   SignalsLatestResponse,
   EventsRecentResponse,
   AlertsRecentResponse,
+  MacroSnapshot,
 } from '@/lib/types'
 
 const POLL_FAST = 30_000   // 30s — regime + signals
@@ -28,7 +29,7 @@ export function useRegime() {
 
 export const useRegimeStatus = useRegime
 
-export function useMacroSnapshot() {
+export function useMacroSnapshot(): MacroSnapshot | null {
   const { data } = useAlephStream()
   return data?.macro_indicators ?? null
 }
