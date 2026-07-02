@@ -383,6 +383,18 @@ export default function AlephDashboard() {
   const trustAvailability = trust?.availability    ?? '—'
   const trustDegraded    = trust?.is_degraded ?? (!signalsData && !!regimeError)
 
+  // "마지막 데이터 수집" — human-readable age of the last snapshot
+  const lastUpdate = useMemo(() => {
+    const snap = trust?.snapshot_timestamp
+    if (!snap) return null
+    const diffMs = Date.now() - new Date(snap).getTime()
+    const hrs    = Math.floor(diffMs / 3_600_000)
+    const mins   = Math.floor((diffMs % 3_600_000) / 60_000)
+    if (hrs > 48)  return `${Math.floor(hrs / 24)}일 전`
+    if (hrs > 0)   return `${hrs}시간 전`
+    return mins > 0 ? `${mins}분 전` : '방금'
+  }, [trust?.snapshot_timestamp])
+
   const kospi  = streamData?.market_indices?.KOSPI  ?? null
   const sp500  = streamData?.market_indices?.SP500   ?? null
   const usdkrw = streamData?.market_indices?.USDKRW  ?? null
@@ -665,12 +677,20 @@ export default function AlephDashboard() {
                 <MacroStat lbl="T10Y" val={streamData?.macro_indicators?.T10Y != null ? streamData.macro_indicators.T10Y.toFixed(2) + '%' : '···'} col="#00e5ff" />
                 <div>
                   <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(0,229,255,.45)', textTransform: 'uppercase', marginBottom: 4 }}>INTEREST RATES</div>
-                  {([['FED', streamData?.macro_indicators?.FED_RATE, streamData?.macro_indicators?.T3M], ['T10Y', streamData?.macro_indicators?.T10Y, null]] as [string, number|undefined, number|undefined][]).map(([c, v]) => (
-                    <div key={c} style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                      <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.38)' }}>{c}</span>
-                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: '#00e5ff' }}>{v != null ? v.toFixed(2) + '%' : '···'}</span>
-                    </div>
-                  ))}
+                  {([['FED', streamData?.macro_indicators?.FED_RATE], ['T10Y', streamData?.macro_indicators?.T10Y]] as [string, number|undefined][]).map(([c, v]) => {
+                    const dotCol = v != null
+                      ? (trustFreshness === 'fresh' ? '#00ff88' : trustFreshness === 'stale' ? '#ff4d6d' : '#fbbf24')
+                      : 'rgba(255,255,255,.15)'
+                    return (
+                      <div key={c} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <div style={{ width: 4, height: 4, borderRadius: '50%', background: dotCol, boxShadow: v != null ? `0 0 3px ${dotCol}` : 'none', flexShrink: 0 }} />
+                          <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.38)' }}>{c}</span>
+                        </div>
+                        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: '#00e5ff' }}>{v != null ? v.toFixed(2) + '%' : '···'}</span>
+                      </div>
+                    )
+                  })}
                 </div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: '0 8px' }}>
@@ -979,13 +999,16 @@ export default function AlephDashboard() {
         </div>
 
         {/* Status bar */}
-        <div style={{ padding: '2px 16px 6px', display: 'flex', alignItems: 'center', gap: 16 }}>
+        <div style={{ padding: '2px 16px 6px', display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.13)' }}>
             ALEPH-ONE CORE {APP_VERSION} · {omni.busy ? 'AI PROCESSING' : 'NEURAL ENGINE ACTIVE'} · MARKET DATA {connected ? 'CONNECTED' : 'RECONNECTING'} · DATA{' '}
             <span style={{ color: trustDegraded ? '#FF9800' : trustFreshness === 'fresh' ? '#00ff88' : 'rgba(255,255,255,.13)' }}>
               {trustFreshness.toUpperCase()}
             </span>
             {' '}· {trustAvailability.toUpperCase()}
+            {lastUpdate && (
+              <span style={{ color: 'rgba(0,229,255,.28)' }}> · 마지막 수집: {lastUpdate}</span>
+            )}
           </span>
           <span style={{ marginLeft: 'auto', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(0,229,255,.28)' }}>{ts} KST</span>
         </div>
