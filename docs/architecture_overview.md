@@ -234,15 +234,32 @@ MCP Response (RunSignalEngineResponse)
 4. **Tests Last**: Write comprehensive unit tests
 5. **Documentation**: Keep README and architecture updated
 
-## Out of Scope (v0.1.0)
+## Current State (v0.4.4)
 
-❌ FastAPI route implementation  
-❌ Database storage and migrations  
-❌ Real data integration (FRED, World Bank, etc.)  
-❌ Autonomous trading decisions  
-❌ Performance optimization  
-❌ Deployment and containerization  
+The "Out of Scope" list from v0.1.0 is now substantially shipped.
+
+✅ FastAPI route implementation — `apps/api/routers/` + `src/main.py`  
+✅ Database storage — TimescaleDB hypertables via `src/database.py`  
+✅ Real data integration — Yahoo Finance (yfinance), FRED (optional API key)  
+✅ Deployment and containerization — `docker-compose.prod.yml`, GitHub Actions CD  
+✅ Streaming API — SSE via `sse-starlette`; OMNI-COMMAND token stream  
+✅ LangChain RAG agent — Groq inference in production, Ollama local fallback  
+✅ Virtual trading — paper broker with immediate-fill simulation (v0.4.0)  
+
+Still deferred:
+❌ Autonomous real-money trading decisions  
 ❌ Multi-tenancy  
 ❌ Audit logging and compliance  
+❌ Fund NAV batch (KOFIA) — API key not yet obtained  
 
-These will be added in future phases as the platform matures.
+## Frontend Architecture (v0.4.4)
+
+The Next.js 15 App Router frontend (`apps/frontend/`) follows these rules:
+
+- **All API access via custom hooks** — components never call `fetch()` directly.
+  - SWR-based polling: `useAlephData.ts` (`useRegime`, `useSignals`, `usePortfolio`, `useSectorSummary`, …)
+  - SSE streaming singletons: `useAlephStream.ts`, `useMarketStream.ts`, `useNewsStream.ts`
+  - Streaming hooks: `useOmniStream.ts` (OMNI command), `useNewsSummary.ts` (news AI)
+- **No TypeScript `any`** — `tsc --noEmit` must pass cleanly.
+- **Error states mandatory** — every data widget shows degraded/stale/error UI from trust metadata.
+- **No hardcoded mock data** — all displayed values come from backend hooks or show AWAITING FEED.
