@@ -234,6 +234,43 @@ When modifying code:
 
 ---
 
+## Frontend Coding Rules (apps/frontend/)
+
+These rules apply to all Next.js component and hook files.
+
+### API Access — Hooks Only
+
+- **Never call `fetch()` directly inside a component file.**
+- Every API call must go through a custom hook in `apps/frontend/hooks/`.
+- SWR-based polling: `useAlephData.ts` (`useRegime`, `useSignals`, `usePortfolio`, `useSectorSummary`, …)
+- SSE singletons: `useAlephStream`, `useMarketStream`, `useNewsStream`
+- Streaming hooks: `useOmniStream` (OMNI command), `useNewsSummary` (news AI)
+- When adding a new backend endpoint, add a hook first; then wire it in the component.
+
+### TypeScript
+
+- **Zero `any` allowed.** `tsc --noEmit` must pass cleanly after every change.
+- New shared shapes → add to `apps/frontend/lib/types.ts`.
+- New hook return types → declare explicit interface.
+
+### Error States
+
+- **Every data widget must handle error / degraded / loading states explicitly.**
+- Use `TrustMetadata.is_degraded` and `freshness_status` to drive badge colors.
+- Show specific Korean error messages, not generic "ERROR":
+  - HTTP 503/502 → `서버 연결 실패`
+  - HTTP 504/408 → `응답 시간 초과`
+  - HTTP 4xx → `분석에 필요한 지표 부족`
+  - Network failure → `네트워크 오류`
+- Log all failures: `console.error('[hook-name] …', err)`.
+
+### Mock Data
+
+- **No hardcoded values for live data.** If a backend feed doesn't exist yet, show `AWAITING FEED`, not invented numbers.
+- Static config (ticker colors, display names, asset class labels) is OK to hardcode.
+
+---
+
 ## Task Execution Rules
 
 For each task:

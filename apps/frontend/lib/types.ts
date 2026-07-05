@@ -260,3 +260,17 @@ export interface VirtualPortfolioSummary {
   accounts: Record<string, VirtualPortfolioAccount>
   holdings: VirtualPortfolioHolding[]
 }
+
+// ── Convenience aliases ────────────────────────────────────────────────────
+
+/** Key → numeric value map for macro indicators (VIX, T10Y, FED_RATE, …) */
+export type MacroSnapshot = Record<string, number>
+
+/** Single macro indicator entry */
+export interface MacroFeature {
+  key:   string
+  value: number
+}
+
+/** Virtual portfolio summary — alias for use in consumer components */
+export type PortfolioData = VirtualPortfolioSummary

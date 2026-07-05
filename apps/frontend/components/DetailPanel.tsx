@@ -1,12 +1,13 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import useSWR from 'swr'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import type { ExternalEventDTO } from '@/lib/types'
 import { fetchJson, endpoints } from '@/lib/api'
+import { useNewsSummary } from '@/hooks/useNewsSummary'
 
 interface TickerFundamentals {
   week52_high: number | null
@@ -43,16 +44,10 @@ function formatPrice(t: TickerDetail): string {
 function TickerBody({ t }: { t: TickerDetail }) {
   const chartData = t.prices.map((v, i) => ({ i, v }))
   const up = t.dir > 0
-  const [fundamentals, setFundamentals] = useState<TickerFundamentals | null>(null)
-
-  useEffect(() => {
-    setFundamentals(null)
-    let cancelled = false
-    fetchJson<TickerFundamentals>(endpoints.tickerDetail(t.ticker))
-      .then((data) => { if (!cancelled) setFundamentals(data) })
-      .catch(() => { if (!cancelled) setFundamentals(null) })
-    return () => { cancelled = true }
-  }, [t.ticker])
+  const { data: fundamentals } = useSWR<TickerFundamentals>(
+    endpoints.tickerDetail(t.ticker),
+    fetchJson,
+  )
 
   const fmtRange = (v: number | null) => {
     if (v == null) return '···'
@@ -138,58 +133,11 @@ function NewsBody({ n }: { n: ExternalEventDTO }) {
   const occurred = n.published_at ?? n.occurred_at
   const ts = occurred ? new Date(occurred).toLocaleString('ko-KR') : '—'
 
-  // AI market analysis — auto-triggered on mount
-  const [aiText,      setAiText]      = useState('')
-  const [aiStreaming, setAiStreaming]  = useState(false)
-  const [aiDone,      setAiDone]      = useState(false)
-  const [aiError,     setAiError]     = useState(false)
-
-  useEffect(() => {
-    if (!n.title) return
-    setAiText('')
-    setAiDone(false)
-    setAiError(false)
-    setAiStreaming(true)
-
-    let cancelled = false
-    ;(async () => {
-      try {
-        const res = await fetch('/api/news/summarize', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ title: n.title, source: n.source ?? '', entity: n.entity ?? '' }),
-        })
-        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`)
-
-        const reader  = res.body.getReader()
-        const decoder = new TextDecoder()
-        let   buffer  = ''
-
-        while (true) {
-          const { done, value } = await reader.read()
-          if (done || cancelled) break
-          buffer += decoder.decode(value, { stream: true })
-          const lines = buffer.split('\n')
-          buffer = lines.pop() ?? ''
-          for (const line of lines) {
-            if (!line.startsWith('data: ')) continue
-            try {
-              const evt = JSON.parse(line.slice(6))
-              if (evt.type === 'token') setAiText(prev => prev + (evt.text ?? ''))
-              if (evt.type === 'done')  setAiDone(true)
-              if (evt.type === 'error') { setAiError(true); setAiDone(true) }
-            } catch { /* skip malformed */ }
-          }
-        }
-      } catch {
-        if (!cancelled) setAiError(true)
-      } finally {
-        if (!cancelled) setAiStreaming(false)
-      }
-    })()
-
-    return () => { cancelled = true }
-  }, [n.title, n.source, n.entity])
+  const { text: aiText, streaming: aiStreaming, done: aiDone, error: aiError } = useNewsSummary({
+    title:  n.title,
+    source: n.source,
+    entity: n.entity,
+  })
 
   return (
     <>

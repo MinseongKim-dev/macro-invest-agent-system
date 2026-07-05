@@ -6,7 +6,18 @@ Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It inges
 
 ---
 
-## What's New in v0.4.4
+## What's New in v0.4.4 (quality pass)
+
+- **API layer unification** — all `fetch()` calls removed from component files. New custom hooks: `useOmniStream` (OMNI-COMMAND SSE), `useNewsSummary` (news AI stream), `useSectorSummary`, `usePortfolio(period)`, `useRegimeStatus`, `useMacroSnapshot`.
+- **Error handling** — regime badge now shows specific Korean messages (`서버 연결 실패` / `응답 시간 초과` / `분석에 필요한 지표 부족`) instead of generic "UNAVAILABLE". Trust metadata drives degraded/stale badges on GLOBAL MACRO and SIGNALS sections.
+- **Data freshness UI** — "마지막 수집: X시간 전" in the status bar; per-indicator freshness dots on FED/T10Y rate rows.
+- **Real performance data** — HOLDING/CASH tiles now compute from virtual portfolio SSE; risk bars derive from live SELL/HOLD/BUY signal distribution instead of hardcoded percentages. Commodity rows replaced with "AWAITING FEED".
+- **TypeScript** — `MacroSnapshot`, `MacroFeature`, `PortfolioData` type aliases added to `lib/types.ts`; `tsc --noEmit` passes cleanly with zero `any`.
+- **Legacy cleanup** — `legacy/` directory moved to `_archive/`; no active code referenced it.
+
+---
+
+## What's New in v0.4.4 (original)
 
 - **Fixed 4 missing holdings rows** — the four KR tickers added to live collection in v0.4.1 (현대차/삼성바이오로직스/POSCO홀딩스/KB금융) were never added to the frontend's `TICKER_META`/`TICKER_ORDER` registries, so they silently never rendered in PORTFOLIO ALPHA despite being priced on the backend. All 16 holdings now display.
 - **Real news source/link/timestamp** — `/api/events/recent` previously returned only headline strings with a fabricated "now" timestamp. It now carries each article's real publisher, source URL, and publish time through from Yahoo Finance, so the NEWS FEED detail panel's source badge and "VIEW SOURCE ↗" link are now real instead of always empty.
@@ -330,6 +341,7 @@ macro-invest-agent-system/
 | **v0.4.2** | ✅ Released | Floating click-to-expand detail panels for holdings and news items |
 | **v0.4.3** | ✅ Released | Fixed missing holdings rows, real news source/link/timestamp, 52-week range on ticker detail |
 | **v0.4.4** | ✅ Released | Chart period tabs (1D/1W/1M/3M), live sector heatmap, news AI analysis, ANALYZE wired to OMNI, real Sharpe metric |
+| **v0.4.4-q** | ✅ Released | Quality pass: API hook unification, trust-badge error states, freshness UI, legacy cleanup |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |
