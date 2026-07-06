@@ -82,3 +82,21 @@ jobs:
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
             docker image prune -f
             echo "Deploy complete: $IMAGE_TAG"
+
+            # Health-check gate: fail the deployment if /health never returns 200
+            # Catches crash-looping containers that docker compose up -d would miss.
+            echo "Waiting for /health to return 200..."
+            for i in $(seq 1 15); do
+              status=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8001/health || echo "000")
+              if [ "$status" = "200" ]; then
+                echo "Health check passed (attempt $i)"
+                break
+              fi
+              echo "Attempt $i: status=$status, retrying in 4s..."
+              sleep 4
+              if [ "$i" = "15" ]; then
+                echo "Health check failed after 60 s — rolling back"
+                docker compose -f docker-compose.prod.yml rollout aleph-api 2>/dev/null || true
+                exit 1
+              fi
+            done
