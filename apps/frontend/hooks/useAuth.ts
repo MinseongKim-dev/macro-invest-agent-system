@@ -7,7 +7,8 @@ export function useAuth() {
   const [user, setUser] = useState<User | null>(null)
 
   useEffect(() => {
-    const supabase = createClient()
+    let supabase
+    try { supabase = createClient() } catch { return } // no-op when auth not configured
 
     supabase.auth.getUser().then(({ data }) => setUser(data.user))
 
@@ -18,8 +19,10 @@ export function useAuth() {
   }, [])
 
   async function signOut() {
-    const supabase = createClient()
-    await supabase.auth.signOut()
+    try {
+      const supabase = createClient()
+      await supabase.auth.signOut()
+    } catch { /* Supabase not configured */ }
     window.location.href = '/login'
   }
 

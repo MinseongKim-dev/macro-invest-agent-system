@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import math
+import os as _os
 import random
 import time
 from collections.abc import AsyncGenerator
@@ -27,6 +28,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytz
+import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,18 +69,12 @@ from src.engines import (
     build_intelligence_row,
 )
 
-import os as _os
-
-import sentry_sdk
-
 logger = logging.getLogger(__name__)
 
 _KST = pytz.timezone("Asia/Seoul")
 
 # ── Sentry (optional) ─────────────────────────────────────────────────────────
-_SENTRY_DSN = config.settings.sentry_dsn if hasattr(config.settings, "sentry_dsn") else None
-if not _SENTRY_DSN:
-    _SENTRY_DSN = _os.getenv("SENTRY_DSN")
+_SENTRY_DSN = _os.getenv("SENTRY_DSN")
 if _SENTRY_DSN:
     sentry_sdk.init(
         dsn=_SENTRY_DSN,
@@ -1322,9 +1318,8 @@ async def health() -> dict[str, Any]:
     db_ok = False
     db_error: str | None = None
     try:
-        with get_connection() as conn:
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1")
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
         db_ok = True
     except Exception as exc:
         db_error = str(exc)

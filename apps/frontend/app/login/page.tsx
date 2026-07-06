@@ -11,12 +11,14 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [msg, setMsg]         = useState<{ text: string; ok: boolean } | null>(null)
 
-  const supabase = createClient()
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
     setMsg(null)
+
+    // createClient() is deferred to the event handler so it only runs in the
+    // browser (never at build-time during Next.js static analysis).
+    const supabase = createClient()
 
     try {
       if (mode === 'magic') {
