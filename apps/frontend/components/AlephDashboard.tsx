@@ -8,6 +8,7 @@ import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
 import { useRegime, useSignals, usePortfolio, useSectorSummary } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
+import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
@@ -308,6 +309,7 @@ export default function AlephDashboard() {
   const { data: sectorData }                                                = useSectorSummary()
   const { history: histData, metrics: metricsData }                         = usePortfolio(chartPeriod)
   const omni                                                                 = useOmniStream()
+  const { user, signOut }                                                    = useAuth()
 
   // Portfolio value rolling history → drives the KRX chart
   const [chartData, setChartData] = useState<Array<{ t: number; v: number }>>([])
@@ -556,7 +558,14 @@ export default function AlephDashboard() {
           <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(255,255,255,.22)' }}>KST UTC+9</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)' }}>
             <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 5px #00ff88' }} />
-            <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, color: '#00e5ff', letterSpacing: '1px' }}>KIM MIN-SEONG</span>
+            <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, color: '#00e5ff', letterSpacing: '1px' }}>
+              {user ? user.email?.split('@')[0].toUpperCase() : 'KIM MIN-SEONG'}
+            </span>
+            {user && (
+              <button onClick={signOut} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '0 0 0 4px', color: 'rgba(0,229,255,0.4)', fontSize: 9, fontFamily: 'inherit', letterSpacing: '1px' }} title="로그아웃">
+                ×
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -808,7 +817,9 @@ export default function AlephDashboard() {
                   HEALTH {Math.round(portfolioHealth)}
                 </span>
               )}
-              <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)' }}>USER: KIM MIN-SEONG</span>
+              <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)' }}>
+                USER: {user ? user.email?.split('@')[0].toUpperCase() : 'KIM MIN-SEONG'}
+              </span>
             </div>
             {/* Asset class tab filter */}
             <div style={{ display: 'flex', gap: 5, marginBottom: 9 }}>
