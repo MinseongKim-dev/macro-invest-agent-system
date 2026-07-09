@@ -12,7 +12,6 @@ import pytest
 
 from src.database import execute_virtual_order, get_portfolio_nav_history, record_portfolio_nav
 
-
 # ── commission / slippage math ────────────────────────────────────────────────
 
 
