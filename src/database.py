@@ -1973,7 +1973,7 @@ def delete_push_subscription(endpoint: str, config: DatabaseConfig | None = None
         logger.warning("push_subscription_delete_failed", extra={"error": str(exc)})
 
 
-def list_push_subscriptions(config: DatabaseConfig | None = None) -> list[dict[str, str]]:
+def list_push_subscriptions(config: DatabaseConfig | None = None) -> list[dict[str, Any]]:
     """Return all stored push subscriptions as a list of dicts."""
     try:
         with get_connection(config) as conn:
