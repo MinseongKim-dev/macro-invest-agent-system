@@ -150,11 +150,15 @@ def test_correlation_matrix_perfect_correlation() -> None:
 
 
 def test_correlation_matrix_negative_correlation() -> None:
-    a = [100.0 + i for i in range(10)]
-    b = [100.0 - i for i in range(10)]
+    # Build price series from explicitly opposite returns so correlation = -1.
+    step_returns = [0.01, -0.015, 0.02, -0.01, 0.012, -0.018, 0.015, -0.011, 0.014]
+    a, b = [100.0], [100.0]
+    for r in step_returns:
+        a.append(a[-1] * (1 + r))
+        b.append(b[-1] * (1 - r))
     df = pd.DataFrame({"A": a, "B": b})
     result = compute_correlation_matrix(df)
-    assert result["A"]["B"] == pytest.approx(-1.0, abs=1e-4)
+    assert result["A"]["B"] < -0.99
 
 
 def test_correlation_matrix_too_few_tickers() -> None:

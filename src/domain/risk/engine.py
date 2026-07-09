@@ -53,7 +53,9 @@ def compute_var_95(returns: pd.Series) -> float:
     """
     if len(returns) < 20:
         return 0.0
-    return float(-np.percentile(returns.to_numpy(), 5) * 100)
+    # Clamp to 0: when the 5th-percentile return is positive (all returns positive),
+    # the historical loss is 0 — convention: VaR is always a non-negative loss amount.
+    return max(0.0, float(-np.percentile(returns.to_numpy(), 5) * 100))
 
 
 def compute_annualized_volatility(returns: pd.Series) -> float:
