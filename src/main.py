@@ -1109,6 +1109,71 @@ def get_risk_summary_tool() -> str:
     return json.dumps(summary.model_dump())
 
 
+@tool
+def get_synthesis_view_tool() -> str:
+    """Return the cross-engine synthesis view: status, risk-adjusted conviction,
+    and dominant concern derived from macro regime, quant signals, conflict
+    surface, and portfolio risk metrics.
+    """
+    from src.domain.synthesis.engine import compute_synthesis_view
+
+    regime_name  = str(_REGIME_CACHE.get("regime_name", "unknown"))
+    confidence   = float(_REGIME_CACHE.get("confidence_score", 0.5))
+    regime_label = _SYNTHESIS_REGIME_MAP.get(regime_name.upper(), "unknown")
+
+    vix    = float(_MACRO_CACHE.get("VIX",  20.0))
+    t10y   = float(_MACRO_CACHE.get("T10Y",  4.35))
+    t3m    = float(_MACRO_CACHE.get("T3M",   5.28))
+    spread = round(t10y - t3m, 4)
+
+    quant_support = _derive_quant_support(vix, spread)
+    conflict_str  = _derive_conflict_status(regime_label, vix, spread)
+
+    prices_by_ticker: dict[str, pd.Series] = {}
+    avg_var_95    = 0.0
+    worst_mdd_pct = 0.0
+    try:
+        from src.domain.risk.engine import compute_risk_summary
+        with get_connection() as conn:
+            for ticker in LIVE_TICKERS:
+                rows = conn.execute(
+                    "SELECT close_price FROM ("
+                    "  SELECT close_price, timestamp FROM historical_prices"
+                    "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT 500"
+                    ") sub ORDER BY timestamp ASC",
+                    (ticker,),
+                ).fetchall()
+                if rows:
+                    prices_by_ticker[ticker] = pd.Series(
+                        [float(r[0]) for r in rows], dtype=float
+                    )
+        if prices_by_ticker:
+            holdings_data = get_portfolio_holdings()
+            holdings: dict[str, float] = {
+                h["ticker"]: h["quantity"] * _PRICE_STATE.get(h["ticker"], h["avg_cost"])
+                for h in holdings_data
+                if h["quantity"] > 0
+            }
+            risk_s = compute_risk_summary(prices_by_ticker, holdings, TICKER_GROUPS)
+            if risk_s.ticker_risks:
+                var_vals = [tr.var_95_pct       for tr in risk_s.ticker_risks.values()]
+                mdd_vals = [tr.max_drawdown_pct  for tr in risk_s.ticker_risks.values()]
+                avg_var_95    = round(sum(var_vals) / len(var_vals), 4)
+                worst_mdd_pct = round(min(mdd_vals), 4)
+    except Exception as exc:
+        logger.warning("synthesis_tool_risk_error", extra={"error": str(exc)})
+
+    view = compute_synthesis_view(
+        regime_label=regime_label,
+        macro_confidence=confidence,
+        quant_overall_support=quant_support,
+        conflict_status=conflict_str,
+        avg_var_95=avg_var_95,
+        worst_mdd_pct=worst_mdd_pct,
+    )
+    return json.dumps({**view.model_dump(), "regime_name": regime_name})
+
+
 def _build_lc_agent() -> Any:  # noqa: ANN401
     """Construct a LangChain 1.x tool-calling agent (provider from config).
 
@@ -1133,6 +1198,7 @@ def _build_lc_agent() -> Any:  # noqa: ANN401
         get_portfolio_summary_tool,
         execute_virtual_order_tool,
         get_risk_summary_tool,
+        get_synthesis_view_tool,
     ]
     agent = create_react_agent(llm, tools, prompt=_AGENT_SYSTEM_PROMPT)
     logger.info("lc_agent_built", extra={"tools": len(tools)})
@@ -1945,6 +2011,126 @@ async def risk_summary() -> dict[str, Any]:
         "timestamp": datetime.now(tz=_KST).isoformat(),
         "status":    "ok",
         **summary.model_dump(),
+    }
+
+
+# ── Regime name → synthesis vocabulary ────────────────────────────────────────
+_SYNTHESIS_REGIME_MAP: dict[str, str] = {
+    "EXPANSION":         "expansion",
+    "RECOVERY":          "recovery",
+    "POLICY_EASING":     "expansion",
+    "EARLY_CYCLE":       "expansion",
+    "MID_CYCLE":         "expansion",
+    "LATE_CYCLE":        "slowdown",
+    "POLICY_TIGHTENING": "slowdown",
+    "SLOWDOWN":          "slowdown",
+    "CONTRACTION":       "contraction",
+    "RECESSION":         "contraction",
+    "CRISIS_MODE":       "contraction",
+    "VOLATILITY_REGIME": "stagflation",
+    "STAGFLATION":       "stagflation",
+}
+
+
+def _derive_quant_support(vix: float, spread: float) -> str:
+    """Derive a quant-support label from VIX and 10Y-3M yield spread."""
+    if vix < 15 and spread > 0.5:
+        return "strong_positive"
+    if vix < 20 and spread > 0.0:
+        return "moderate_positive"
+    if vix > 30 or spread < -0.5:
+        return "strong_negative"
+    if vix > 25 or spread < 0.0:
+        return "moderate_negative"
+    return "neutral"
+
+
+def _derive_conflict_status(regime_label: str, vix: float, spread: float) -> str:
+    if regime_label == "contraction" and vix > 25:
+        return "high_conflict"
+    if vix > 20 or spread < 0.0:
+        return "medium_conflict"
+    return "low_conflict"
+
+
+@app.get("/api/v1/synthesis/view", tags=["synthesis"])
+async def synthesis_view() -> dict[str, Any]:
+    """Cross-engine synthesis — risk-adjusted conviction score and status.
+
+    Aggregates:
+    - Macro regime from ``_REGIME_CACHE``
+    - Quant support derived from ``_MACRO_CACHE`` (VIX + yield curve)
+    - Conflict status derived from regime + volatility
+    - Risk metrics (VaR, MDD) from ``historical_prices``
+
+    Returns a :class:`~domain.synthesis.models.SynthesisView` plus raw
+    input values so callers can trace the derivation.
+    """
+    from src.domain.risk.engine import compute_risk_summary
+    from src.domain.synthesis.engine import compute_synthesis_view
+
+    regime_name = str(_REGIME_CACHE.get("regime_name", "unknown"))
+    confidence  = float(_REGIME_CACHE.get("confidence_score", 0.5))
+    regime_label = _SYNTHESIS_REGIME_MAP.get(regime_name.upper(), "unknown")
+
+    vix    = float(_MACRO_CACHE.get("VIX",  20.0))
+    t10y   = float(_MACRO_CACHE.get("T10Y",  4.35))
+    t3m    = float(_MACRO_CACHE.get("T3M",   5.28))
+    spread = round(t10y - t3m, 4)
+
+    quant_support = _derive_quant_support(vix, spread)
+    conflict_str  = _derive_conflict_status(regime_label, vix, spread)
+
+    # Risk from historical prices
+    avg_var_95    = 0.0
+    worst_mdd_pct = 0.0
+    prices_by_ticker: dict[str, pd.Series] = {}
+    try:
+        with get_connection() as conn:
+            for ticker in LIVE_TICKERS:
+                rows = conn.execute(
+                    "SELECT close_price FROM ("
+                    "  SELECT close_price, timestamp FROM historical_prices"
+                    "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT 500"
+                    ") sub ORDER BY timestamp ASC",
+                    (ticker,),
+                ).fetchall()
+                if rows:
+                    prices_by_ticker[ticker] = pd.Series(
+                        [float(r[0]) for r in rows], dtype=float
+                    )
+    except Exception as exc:
+        logger.warning("synthesis_risk_db_error", extra={"error": str(exc)})
+
+    if prices_by_ticker:
+        holdings_data = await asyncio.to_thread(get_portfolio_holdings)
+        holdings = {
+            h["ticker"]: h["quantity"] * _PRICE_STATE.get(h["ticker"], h["avg_cost"])
+            for h in holdings_data
+            if h["quantity"] > 0
+        }
+        risk_s = compute_risk_summary(prices_by_ticker, holdings, TICKER_GROUPS)
+        if risk_s.ticker_risks:
+            var_vals = [tr.var_95_pct    for tr in risk_s.ticker_risks.values()]
+            mdd_vals = [tr.max_drawdown_pct for tr in risk_s.ticker_risks.values()]
+            avg_var_95    = round(sum(var_vals) / len(var_vals), 4)
+            worst_mdd_pct = round(min(mdd_vals), 4)
+
+    view = compute_synthesis_view(
+        regime_label=regime_label,
+        macro_confidence=confidence,
+        quant_overall_support=quant_support,
+        conflict_status=conflict_str,
+        avg_var_95=avg_var_95,
+        worst_mdd_pct=worst_mdd_pct,
+    )
+    return {
+        "timestamp":      datetime.now(tz=_KST).isoformat(),
+        "status":         "ok",
+        "regime_name":    regime_name,
+        "avg_var_95":     avg_var_95,
+        "worst_mdd_pct":  worst_mdd_pct,
+        **view.model_dump(),
     }
 
 
