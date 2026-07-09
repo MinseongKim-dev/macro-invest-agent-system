@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import math
+import os as _os
 import random
 import time
 from collections.abc import AsyncGenerator
@@ -27,6 +28,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytz
+import sentry_sdk
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -70,6 +72,16 @@ from src.engines import (
 logger = logging.getLogger(__name__)
 
 _KST = pytz.timezone("Asia/Seoul")
+
+# ── Sentry (optional) ─────────────────────────────────────────────────────────
+_SENTRY_DSN = _os.getenv("SENTRY_DSN")
+if _SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=_SENTRY_DSN,
+        traces_sample_rate=0.1,
+        profiles_sample_rate=0.1,
+    )
+    logger.info("Sentry initialized")
 
 # ── In-memory live state ──────────────────────────────────────────────────────
 
@@ -186,6 +198,9 @@ _LIVE_NEWS_ITEMS_CACHE: dict[str, list[dict[str, Any]]] = {}
 # Single shared background task — started on first SSE connect, cancelled on last disconnect.
 _LIVE_COLLECTOR_TASK: asyncio.Task[None] | None = None
 _SSE_CONNECTION_COUNT: int                      = 0
+# Observability: last successful collection timestamps (None = never ran)
+_LAST_LIVE_COLLECT_AT:  datetime | None = None
+_LAST_MACRO_COLLECT_AT: datetime | None = None
 # Latest market index values — updated by _live_collector_loop every cycle
 _INDEX_CACHE: dict[str, float] = {
     "KOSPI":  2540.0,
@@ -207,6 +222,21 @@ _MACRO_COLLECTOR_TASK: asyncio.Task[None] | None = None
 # src/database.py fetch_fund_nav() scaffold notes.
 _FUND_NAV_CACHE: dict[str, float] = {}
 _FUND_NAV_COLLECTOR_TASK: asyncio.Task[None] | None = None
+
+# ── Slack webhook (optional) ──────────────────────────────────────────────────
+_SLACK_WEBHOOK_URL: str = _os.getenv("SLACK_WEBHOOK_URL", "")
+
+
+async def _slack_alert(msg: str) -> None:
+    """Fire-and-forget Slack notification. Silently no-ops when webhook is unset."""
+    if not _SLACK_WEBHOOK_URL:
+        return
+    try:
+        import httpx  # noqa: PLC0415 — lazy import to avoid circular issues
+        async with httpx.AsyncClient(timeout=5) as client:
+            await client.post(_SLACK_WEBHOOK_URL, json={"text": f":aleph-one: {msg}"})
+    except Exception:
+        pass  # Never let alerting crash the collector
 
 
 def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | None:
@@ -428,7 +458,9 @@ async def _live_collector_loop() -> None:
     - Each cycle: fetch market data → upsert DB → clear price cache → fetch news.
     - Network errors are logged and swallowed so the loop never crashes.
     """
+    global _LAST_LIVE_COLLECT_AT
     logger.info("live_collector_started")
+    _consecutive_failures = 0
     while True:
         # ── Market data ───────────────────────────────────────────────────────
         try:
@@ -436,10 +468,17 @@ async def _live_collector_loop() -> None:
             logger.info("live_collector_market_ok", extra={"rows": rows})
             # Invalidate the DB price cache so the next SSE tick reads fresh data
             _DB_PRICE_CACHE.clear()
+            _LAST_LIVE_COLLECT_AT = datetime.now(_KST)
+            _consecutive_failures = 0
         except asyncio.CancelledError:
             raise
         except Exception as exc:
+            _consecutive_failures += 1
             logger.warning("live_collector_market_error", extra={"error": str(exc)})
+            if _consecutive_failures == 5:
+                asyncio.create_task(_slack_alert(
+                    f"[aleph-one] live_collector 연속 5회 실패 — {exc}"
+                ))
 
         # ── News ──────────────────────────────────────────────────────────────
         try:
@@ -1141,18 +1180,21 @@ async def _macro_collector_loop() -> None:
     then every 3600 seconds thereafter.  Errors are logged and swallowed so the
     loop never crashes the server.
     """
+    global _LAST_MACRO_COLLECT_AT
     logger.info("macro_collector_started")
     while True:
         try:
             data = await asyncio.to_thread(fetch_macro_indicators)
             if data:
                 _MACRO_CACHE.update(data)
+                _LAST_MACRO_COLLECT_AT = datetime.now(_KST)
                 logger.info("macro_cache_updated", extra={"keys": list(data.keys())})
         except asyncio.CancelledError:
             logger.info("macro_collector_stopped")
             raise
         except Exception as exc:
             logger.warning("macro_collector_error", extra={"error": str(exc)})
+            asyncio.create_task(_slack_alert(f"[aleph-one] macro_collector 실패 — {exc}"))
         try:
             await asyncio.sleep(3600)
         except asyncio.CancelledError:
@@ -1261,8 +1303,52 @@ app.add_middleware(
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/health", tags=["ops"])
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> dict[str, Any]:
+    """Liveness + readiness check.
+
+    Returns:
+        status: "ok" if all collectors are healthy, "degraded" otherwise.
+        db: DB connection test result.
+        live_collector: last successful market-data collection timestamp + age.
+        macro_collector: last successful macro collection timestamp + age.
+    """
+    now = datetime.now(_KST)
+
+    # DB connectivity — cheap single-row query
+    db_ok = False
+    db_error: str | None = None
+    try:
+        with get_connection() as conn, conn.cursor() as cur:
+            cur.execute("SELECT 1")
+        db_ok = True
+    except Exception as exc:
+        db_error = str(exc)
+
+    def _collector_info(ts: datetime | None) -> dict[str, Any]:
+        if ts is None:
+            return {"status": "never_ran", "last_ok_at": None, "age_seconds": None}
+        age = int((now - ts).total_seconds())
+        status = "ok" if age < 300 else ("stale" if age < 1800 else "dead")
+        return {"status": status, "last_ok_at": ts.isoformat(), "age_seconds": age}
+
+    live_info  = _collector_info(_LAST_LIVE_COLLECT_AT)
+    macro_info = _collector_info(_LAST_MACRO_COLLECT_AT)
+
+    overall = (
+        "ok" if (
+            db_ok
+            and live_info["status"] in ("ok", "never_ran")
+            and macro_info["status"] in ("ok", "never_ran")
+        ) else "degraded"
+    )
+
+    return {
+        "status":          overall,
+        "db":              "ok" if db_ok else f"error: {db_error}",
+        "live_collector":  live_info,
+        "macro_collector": macro_info,
+        "server_time_kst": now.isoformat(),
+    }
 
 
 @app.get("/api/events/recent", tags=["intelligence"])

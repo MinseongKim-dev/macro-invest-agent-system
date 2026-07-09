@@ -266,6 +266,18 @@ CREATE TABLE IF NOT EXISTS portfolio_holdings (
 );
 """
 
+# Append-only audit trail for every action taken by the Virtual Broker.
+# user_id is NULL until Supabase Auth is wired in (Phase B-1).
+_DDL_AUDIT_LOG = """
+CREATE TABLE IF NOT EXISTS audit_log (
+    id         BIGSERIAL    PRIMARY KEY,
+    created_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+    action     VARCHAR(64)  NOT NULL,
+    user_id    UUID,
+    payload    JSONB        NOT NULL DEFAULT '{}'
+);
+"""
+
 # Starting paper-trading balances, seeded once per currency on first init_db().
 _VIRTUAL_ACCOUNT_SEED: dict[str, float] = {
     "KRW": 100_000_000.0,
@@ -300,6 +312,8 @@ def init_db(config: DatabaseConfig | None = None) -> None:
             conn.execute(_DDL_VIRTUAL_ACCOUNTS)
             conn.execute(_DDL_VIRTUAL_ORDERS)
             conn.execute(_DDL_PORTFOLIO_HOLDINGS)
+            conn.execute(_DDL_AUDIT_LOG)
+            logger.debug("db_table_ensured", extra={"table": "audit_log"})
             for currency, balance in _VIRTUAL_ACCOUNT_SEED.items():
                 conn.execute(
                     "INSERT INTO virtual_accounts (currency, cash_balance, initial_balance) "
@@ -1414,6 +1428,24 @@ def execute_virtual_order(
                 (ticker, side, quantity, price, currency),
             ).fetchone()
             order_id = order_row[0] if order_row else None
+
+            # Append-only audit trail
+            import json as _json
+            conn.execute(
+                "INSERT INTO audit_log (action, payload) VALUES (%s, %s)",
+                (
+                    "virtual_order_filled",
+                    _json.dumps({
+                        "order_id":  order_id,
+                        "ticker":    ticker,
+                        "side":      side,
+                        "quantity":  quantity,
+                        "price":     price,
+                        "currency":  currency,
+                        "notional":  notional,
+                    }),
+                ),
+            )
             conn.commit()
 
         logger.info(
