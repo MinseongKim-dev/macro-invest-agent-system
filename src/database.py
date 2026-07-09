@@ -323,6 +323,16 @@ CREATE TABLE IF NOT EXISTS portfolio_nav_snapshots (
 );
 """
 
+_DDL_PUSH_SUBSCRIPTIONS = """
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id           SERIAL        PRIMARY KEY,
+    endpoint     TEXT          NOT NULL UNIQUE,
+    p256dh       TEXT          NOT NULL,
+    auth         TEXT          NOT NULL,
+    created_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+"""
+
 # Starting paper-trading balances, seeded once per currency on first init_db().
 _VIRTUAL_ACCOUNT_SEED: dict[str, float] = {
     "KRW": 100_000_000.0,
@@ -363,6 +373,7 @@ def init_db(config: DatabaseConfig | None = None) -> None:
             conn.execute(_DDL_PORTFOLIO_HOLDINGS)
             conn.execute(_DDL_AUDIT_LOG)
             conn.execute(_DDL_PORTFOLIO_NAV_SNAPSHOTS)
+            conn.execute(_DDL_PUSH_SUBSCRIPTIONS)
             logger.debug("db_table_ensured", extra={"table": "audit_log"})
             for currency, balance in _VIRTUAL_ACCOUNT_SEED.items():
                 conn.execute(
@@ -1935,6 +1946,44 @@ def fetch_historical_data(
             logger.warning("historical_data_fetch_failed", extra={"ticker": internal_id, "error": str(exc)})
     logger.info("historical_data_complete", extra={"total_rows": total_inserted})
     return total_inserted
+
+
+# ── Push subscription store ────────────────────────────────────────────────────
+
+def upsert_push_subscription(endpoint: str, p256dh: str, auth: str, config: DatabaseConfig | None = None) -> None:
+    """Insert or replace a browser push subscription."""
+    try:
+        with get_connection(config) as conn:
+            conn.execute(
+                "INSERT INTO push_subscriptions (endpoint, p256dh, auth) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth",
+                (endpoint, p256dh, auth),
+            )
+    except Exception as exc:
+        logger.warning("push_subscription_upsert_failed", extra={"error": str(exc)})
+
+
+def delete_push_subscription(endpoint: str, config: DatabaseConfig | None = None) -> None:
+    """Remove a push subscription by endpoint URL."""
+    try:
+        with get_connection(config) as conn:
+            conn.execute("DELETE FROM push_subscriptions WHERE endpoint = %s", (endpoint,))
+    except Exception as exc:
+        logger.warning("push_subscription_delete_failed", extra={"error": str(exc)})
+
+
+def list_push_subscriptions(config: DatabaseConfig | None = None) -> list[dict[str, str]]:
+    """Return all stored push subscriptions as a list of dicts."""
+    try:
+        with get_connection(config) as conn:
+            rows = conn.execute(
+                "SELECT endpoint, p256dh, auth FROM push_subscriptions ORDER BY id"
+            ).fetchall()
+        return [{"endpoint": r[0], "keys": {"p256dh": r[1], "auth": r[2]}} for r in rows]
+    except Exception as exc:
+        logger.warning("push_subscription_list_failed", extra={"error": str(exc)})
+        return []
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

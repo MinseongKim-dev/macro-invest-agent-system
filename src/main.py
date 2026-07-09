@@ -41,6 +41,7 @@ from src.database import (
     FRED_API_KEY,
     LIVE_TICKERS,
     _PoolManager,
+    delete_push_subscription,
     execute_virtual_order,
     fetch_fund_nav,
     fetch_historical_data,
@@ -57,9 +58,17 @@ from src.database import (
     get_virtual_accounts,
     init_db,
     init_milvus,
+    list_push_subscriptions,
     record_portfolio_nav,
     search_milvus_news,
     seed_mock_data,
+    upsert_push_subscription,
+)
+from src.domain.notifications.service import (
+    build_regime_email_html,
+    generate_vapid_keys,
+    send_email_alert,
+    send_web_push,
 )
 from src.engines import (
     DISPLAY_NAMES,
@@ -120,6 +129,9 @@ _REGIME_CACHE: dict[str, Any] = {
     "market_phase":     "LATE_CYCLE",
     "confidence_score": 0.85,
 }
+
+# Tracks the last regime name seen by the collector loop to detect transitions
+_LAST_NOTIFIED_REGIME: str = ""
 
 # Per-ticker placeholder news (seed for SentimentEngine)
 _TICKER_NEWS: dict[str, list[str]] = {
@@ -247,6 +259,35 @@ async def _slack_alert(msg: str) -> None:
             await client.post(_SLACK_WEBHOOK_URL, json={"text": f":aleph-one: {msg}"})
     except Exception:
         pass  # Never let alerting crash the collector
+
+
+async def _broadcast_regime_alert(old_regime: str, new_regime: str) -> None:
+    """Fire email + web push alerts for a regime transition.
+
+    Both channels are attempted independently; a failure in one does not
+    suppress the other.
+    """
+    confidence   = float(_REGIME_CACHE.get("confidence_score", 0.85))
+    market_phase = str(_REGIME_CACHE.get("market_phase", "UNKNOWN"))
+    subject      = f"[Aleph-One] Regime Transition: {old_regime} → {new_regime}"
+    html_body    = build_regime_email_html(old_regime, new_regime, confidence, market_phase)
+    await send_email_alert(subject, html_body)
+    push_title = f"Regime Transition: {new_regime}"
+    push_body  = f"{old_regime} → {new_regime} (confidence {confidence:.0%})"
+    subscriptions = await asyncio.to_thread(list_push_subscriptions)
+    stale: list[str] = []
+    for sub in subscriptions:
+        ok = await send_web_push(sub, push_title, push_body)
+        if not ok:
+            stale.append(sub.get("endpoint", ""))
+    # Remove subscriptions that responded with 410 Gone
+    for endpoint in stale:
+        if endpoint:
+            await asyncio.to_thread(delete_push_subscription, endpoint)
+    logger.info(
+        "regime_alert_broadcast",
+        extra={"old": old_regime, "new": new_regime, "push_count": len(subscriptions)},
+    )
 
 
 def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | None:
@@ -626,6 +667,12 @@ def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -
     else:
         live_regime_name   = _REGIME_CACHE.get("regime_name", "POLICY_TIGHTENING")
         live_regime_conf   = _REGIME_CACHE.get("confidence_score", 0.85)
+
+    # Regime transition detection — fire alerts when label changes
+    global _LAST_NOTIFIED_REGIME
+    if _LAST_NOTIFIED_REGIME and live_regime_name != _LAST_NOTIFIED_REGIME:
+        asyncio.create_task(_broadcast_regime_alert(_LAST_NOTIFIED_REGIME, live_regime_name))
+    _LAST_NOTIFIED_REGIME = live_regime_name
 
     # Derive active_signals from risk_matrix (top 3 by confidence)
     sorted_rows = sorted(
@@ -2324,6 +2371,52 @@ async def synthesis_whatif(scenario: str = "vix_spike") -> dict[str, Any]:
         "scenario":      scenario,
         **result.model_dump(),
     }
+
+
+# ── Notification endpoints ─────────────────────────────────────────────────────
+
+@app.get("/api/v1/notifications/vapid-public-key", tags=["notifications"])
+async def get_vapid_public_key() -> dict[str, str]:
+    """Return the VAPID public key for browser push subscription.
+
+    The browser calls ``PushManager.subscribe({ applicationServerKey: <key> })``
+    with this value to create a push subscription.
+    """
+    pub_key = _os.getenv("VAPID_PUBLIC_KEY", "")
+    if not pub_key:
+        # Generate an ephemeral pair for dev — not persisted across restarts
+        keys = generate_vapid_keys()
+        pub_key = keys["public_key"]
+    return {"public_key": pub_key}
+
+
+@app.post("/api/v1/notifications/subscribe", tags=["notifications"])
+async def subscribe_push(body: dict[str, Any]) -> dict[str, str]:
+    """Store a browser push subscription for regime-transition alerts.
+
+    Body must follow ``PushSubscription.toJSON()``::
+
+        {
+            "endpoint": "https://fcm.googleapis.com/fcm/send/…",
+            "keys": {"p256dh": "…", "auth": "…"}
+        }
+    """
+    endpoint = body.get("endpoint", "")
+    keys     = body.get("keys", {})
+    p256dh   = keys.get("p256dh", "") if isinstance(keys, dict) else ""
+    auth     = keys.get("auth", "")   if isinstance(keys, dict) else ""
+    if not endpoint or not p256dh or not auth:
+        from fastapi import HTTPException  # noqa: PLC0415
+        raise HTTPException(status_code=400, detail="endpoint, keys.p256dh, and keys.auth are required")
+    await asyncio.to_thread(upsert_push_subscription, endpoint, p256dh, auth)
+    return {"status": "subscribed"}
+
+
+@app.delete("/api/v1/notifications/unsubscribe", tags=["notifications"])
+async def unsubscribe_push(endpoint: str) -> dict[str, str]:
+    """Remove a push subscription by endpoint URL."""
+    await asyncio.to_thread(delete_push_subscription, endpoint)
+    return {"status": "unsubscribed"}
 
 
 @app.get("/api/v1/intelligence/stream", tags=["intelligence"])
