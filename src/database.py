@@ -1,5 +1,5 @@
 """Aleph-One database layer — connection pool, schema init, mock data seeding,
-live market data fetch via yfinance, Milvus news vector store.
+live market data fetch (yfinance + optional Alpaca/Finnhub/KIS adapters), Milvus news vector store.
 
 Tri-File Architecture — this file owns:
   - DatabaseConfig            : env-var backed config dataclass
@@ -8,8 +8,9 @@ Tri-File Architecture — this file owns:
   - get_connection()          : context manager (lease → auto-return)
   - init_db()                 : DDL — market_ticks hypertable + macro_regimes
   - seed_mock_data()          : pandas GBM OHLCV + dummy regimes via COPY (bulk)
-  - LIVE_TICKERS              : yfinance symbol → internal ticker ID mapping
-  - fetch_live_market_data()  : yfinance OHLCV → market_ticks (DELETE + COPY, retried)
+  - LIVE_TICKERS              : internal ticker ID → yfinance symbol mapping
+  - _US_TICKERS               : US-listed ticker IDs eligible for Alpaca / Finnhub adapters
+  - fetch_live_market_data()  : OHLCV → market_ticks (Alpaca for US, yfinance fallback)
   - fetch_live_news()         : yfinance .news → headlines per ticker + Milvus upsert
   - init_milvus()             : Milvus connection + news_collection schema + HNSW index
   - search_milvus_news()      : semantic ANN search over ingested news headlines
@@ -45,6 +46,8 @@ import psycopg_pool
 import pytz
 import yfinance as yf
 from psycopg.rows import TupleRow
+
+from src.adapters import alpaca_available, fetch_alpaca_bars, fetch_kis_bars, kis_available
 
 logger = logging.getLogger(__name__)
 
@@ -468,6 +471,12 @@ LIVE_TICKERS: dict[str, str] = {
     "105560": "105560.KS",   # KB금융
 }
 
+# US-listed tickers eligible for Alpaca / Finnhub adapters.
+# KR tickers (.KS suffix) use yfinance or KIS as primary source.
+_US_TICKERS: frozenset[str] = frozenset({
+    "AAPL", "MSFT", "TSLA", "QQQ", "BND", "GLD",
+})
+
 def _normalize_yf_symbol(ticker: str) -> str:
     """Map any internal ticker ID to its Yahoo Finance symbol.
 
@@ -833,12 +842,13 @@ def _fetch_latest_close_from_db(internal_id: str) -> list[tuple[Any, ...]]:
 
     Used as a market-closed / network-error fallback inside ``_fetch_ticker_ohlcv``.
     The row tuple layout matches the COPY schema:
-    (timestamp, ticker, open, high, low, close, volume).
+    (timestamp, ticker, open, high, low, close, volume, source).
     """
     try:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT timestamp, ticker, open_price, high_price, low_price, close_price, volume "
+                "SELECT timestamp, ticker, open_price, high_price, low_price, close_price, "
+                "volume, source "
                 "FROM market_ticks WHERE ticker = %s ORDER BY timestamp DESC LIMIT 1",
                 (internal_id,),
             ).fetchone()
@@ -851,11 +861,33 @@ def _fetch_latest_close_from_db(internal_id: str) -> list[tuple[Any, ...]]:
 
 
 def _fetch_ticker_ohlcv(internal_id: str, yf_symbol: str) -> list[tuple[Any, ...]]:
-    """Download the last 5 trading days of daily OHLCV from Yahoo Finance.
+    """Download the last 5 trading days of daily OHLCV for a ticker.
+
+    Adapter dispatch order (each step falls back to the next on failure):
+      1. Alpaca Markets — US-listed tickers when ALPACA_API_KEY is set
+      2. KIS Developers — KR-listed tickers when KIS_APP_KEY is set [stub]
+      3. yfinance       — always-on fallback for all tickers
 
     Returns a list of DB row tuples ready for COPY:
-        (timestamp_utc, internal_id, open, high, low, close, volume)
+        (timestamp_kst, internal_id, open, high, low, close, volume, source)
     """
+    # ── 1. Alpaca for US tickers ──────────────────────────────────────────────
+    if internal_id in _US_TICKERS and alpaca_available():
+        rows = fetch_alpaca_bars(internal_id, yf_symbol, days=5)
+        if rows:
+            return rows
+        logger.info(
+            "alpaca_fallback_to_yf",
+            extra={"ticker": internal_id, "reason": "empty_or_error"},
+        )
+
+    # ── 2. KIS for KR tickers (stub — falls through immediately) ─────────────
+    if internal_id not in _US_TICKERS and kis_available():
+        rows_kis = fetch_kis_bars(internal_id, yf_symbol, days=5)
+        if rows_kis:
+            return rows_kis
+
+    # ── 3. yfinance (always-on fallback) ─────────────────────────────────────
     ticker_obj = yf.Ticker(yf_symbol)
     hist: pd.DataFrame = ticker_obj.history(
         period="5d",
@@ -866,16 +898,14 @@ def _fetch_ticker_ohlcv(internal_id: str, yf_symbol: str) -> list[tuple[Any, ...
 
     if hist.empty:
         logger.warning("yf_history_empty", extra={"ticker": internal_id, "symbol": yf_symbol})
-        # Market closed or transient network error — return last known row from DB.
         return _fetch_latest_close_from_db(internal_id)
 
     hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
-    rows: list[tuple[Any, ...]] = []
+    rows_yf: list[tuple[Any, ...]] = []
     for idx, row in hist.iterrows():
-        ts = pd.Timestamp(idx)
-        ts_kst = _to_kst(ts)   # normalise to KST before DB insert
-        rows.append((
+        ts_kst = _to_kst(pd.Timestamp(idx))
+        rows_yf.append((
             ts_kst,
             internal_id,
             float(row["Open"]),
@@ -883,8 +913,9 @@ def _fetch_ticker_ohlcv(internal_id: str, yf_symbol: str) -> list[tuple[Any, ...
             float(row["Low"]),
             float(row["Close"]),
             int(row["Volume"]),
+            "yfinance",
         ))
-    return rows
+    return rows_yf
 
 
 # ── Live Data Fetchers ────────────────────────────────────────────────────────
@@ -936,7 +967,7 @@ def fetch_live_market_data(config: DatabaseConfig | None = None) -> int:
             )
             with conn.cursor() as cur, cur.copy(
                 "COPY market_ticks "
-                "(timestamp, ticker, open_price, high_price, low_price, close_price, volume) "
+                "(timestamp, ticker, open_price, high_price, low_price, close_price, volume, source) "
                 "FROM STDIN"
             ) as copy:
                 for r in all_rows:
