@@ -2188,6 +2188,144 @@ async def synthesis_view() -> dict[str, Any]:
     }
 
 
+# Named preset scenarios for GET /api/v1/synthesis/whatif
+_WHATIF_PRESETS: dict[str, dict[str, object]] = {
+    "vix_spike": {
+        "label":               "vix_spike",
+        "quant_support_override": "strong_negative",
+        "avg_var_95_override": 6.5,
+    },
+    "yield_inversion": {
+        "label":                  "yield_inversion",
+        "quant_support_override": "moderate_negative",
+        "conflict_status_override": "medium_conflict",
+    },
+    "market_crash": {
+        "label":                "market_crash",
+        "quant_support_override": "strong_negative",
+        "avg_var_95_override":  8.0,
+        "worst_mdd_pct_override": -45.0,
+        "conflict_status_override": "high_conflict",
+    },
+    "soft_landing": {
+        "label":                   "soft_landing",
+        "regime_label_override":   "expansion",
+        "quant_support_override":  "strong_positive",
+        "conflict_status_override": "low_conflict",
+        "avg_var_95_override":     0.8,
+    },
+    "stagflation": {
+        "label":                    "stagflation",
+        "regime_label_override":    "stagflation",
+        "quant_support_override":   "strong_negative",
+        "conflict_status_override": "high_conflict",
+        "avg_var_95_override":      5.5,
+    },
+}
+
+
+@app.get("/api/v1/synthesis/whatif", tags=["synthesis"])
+async def synthesis_whatif(scenario: str = "vix_spike") -> dict[str, Any]:
+    """Run a named what-if scenario against the current synthesis baseline.
+
+    Applies pre-defined input overrides to the synthesis engine and returns
+    the before/after comparison so callers can see how conviction and status
+    would change under the hypothetical conditions.
+
+    Available scenarios (``?scenario=``):
+    - ``vix_spike``     — VaR jumps to 6.5 %, quant turns negative.
+    - ``yield_inversion`` — Yield curve inverts; moderate quant/conflict drag.
+    - ``market_crash``  — Severe VaR + MDD + high conflict.
+    - ``soft_landing``  — Expansion regime, strong quant, low conflict.
+    - ``stagflation``   — Stagflation regime with elevated VaR.
+    """
+    from src.domain.synthesis.engine import compute_synthesis_view
+    from src.domain.whatif.engine import compute_whatif_result
+    from src.domain.whatif.models import WhatIfScenario
+
+    if scenario not in _WHATIF_PRESETS:
+        available = list(_WHATIF_PRESETS)
+        return {
+            "timestamp": datetime.now(tz=_KST).isoformat(),
+            "status":    "ERROR",
+            "error":     f"unknown scenario '{scenario}'. Available: {available}",
+        }
+
+    regime_name  = str(_REGIME_CACHE.get("regime_name", "unknown"))
+    confidence   = float(_REGIME_CACHE.get("confidence_score", 0.5))
+    regime_label = _SYNTHESIS_REGIME_MAP.get(regime_name.upper(), "unknown")
+
+    vix    = float(_MACRO_CACHE.get("VIX",  20.0))
+    t10y   = float(_MACRO_CACHE.get("T10Y",  4.35))
+    t3m    = float(_MACRO_CACHE.get("T3M",   5.28))
+    spread = round(t10y - t3m, 4)
+
+    quant_support = _derive_quant_support(vix, spread)
+    conflict_str  = _derive_conflict_status(regime_label, vix, spread)
+
+    avg_var_95    = 0.0
+    worst_mdd_pct = 0.0
+    try:
+        from src.domain.risk.engine import compute_risk_summary
+        prices_by_ticker: dict[str, pd.Series] = {}
+        with get_connection() as conn:
+            for ticker in LIVE_TICKERS:
+                rows = conn.execute(
+                    "SELECT close_price FROM ("
+                    "  SELECT close_price, timestamp FROM historical_prices"
+                    "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT 500"
+                    ") sub ORDER BY timestamp ASC",
+                    (ticker,),
+                ).fetchall()
+                if rows:
+                    prices_by_ticker[ticker] = pd.Series(
+                        [float(r[0]) for r in rows], dtype=float
+                    )
+        if prices_by_ticker:
+            holdings_data = await asyncio.to_thread(get_portfolio_holdings)
+            holdings: dict[str, float] = {
+                h["ticker"]: h["quantity"] * _PRICE_STATE.get(h["ticker"], h["avg_cost"])
+                for h in holdings_data
+                if h["quantity"] > 0
+            }
+            risk_s = compute_risk_summary(prices_by_ticker, holdings, TICKER_GROUPS)
+            if risk_s.ticker_risks:
+                var_vals = [tr.var_95_pct       for tr in risk_s.ticker_risks.values()]
+                mdd_vals = [tr.max_drawdown_pct  for tr in risk_s.ticker_risks.values()]
+                avg_var_95    = round(sum(var_vals) / len(var_vals), 4)
+                worst_mdd_pct = round(min(mdd_vals), 4)
+    except Exception as exc:
+        logger.warning("whatif_risk_db_error", extra={"error": str(exc)})
+
+    baseline_view = compute_synthesis_view(
+        regime_label=regime_label,
+        macro_confidence=confidence,
+        quant_overall_support=quant_support,
+        conflict_status=conflict_str,
+        avg_var_95=avg_var_95,
+        worst_mdd_pct=worst_mdd_pct,
+    )
+
+    preset = WhatIfScenario(**_WHATIF_PRESETS[scenario])  # type: ignore[arg-type]
+    result = compute_whatif_result(
+        scenario=preset,
+        baseline=baseline_view,
+        regime_label=regime_label,
+        macro_confidence=confidence,
+        quant_overall_support=quant_support,
+        conflict_status=conflict_str,
+        avg_var_95=avg_var_95,
+        worst_mdd_pct=worst_mdd_pct,
+    )
+
+    return {
+        "timestamp":     datetime.now(tz=_KST).isoformat(),
+        "status":        "ok",
+        "scenario":      scenario,
+        **result.model_dump(),
+    }
+
+
 @app.get("/api/v1/intelligence/stream", tags=["intelligence"])
 async def intelligence_stream(
     request:  Request,
