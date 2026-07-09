@@ -18,6 +18,8 @@ Tri-File Architecture — this file owns:
   - execute_virtual_order()   : virtual broker BUY/SELL transaction (cash + holdings + order log)
   - get_portfolio_holdings()  : current portfolio_holdings rows
   - get_virtual_accounts()    : current KRW/USD virtual_accounts cash balances
+  - record_portfolio_nav()    : mark-to-market portfolio NAV snapshot → portfolio_nav_snapshots
+  - get_portfolio_nav_history(): last N days of NAV snapshots
   - fetch_historical_data()   : 2-year EOD close prices → historical_prices hypertable
 
 Run standalone::
@@ -302,6 +304,25 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 """
 
+# Commission and slippage columns added in L3-3 (idempotent via IF NOT EXISTS).
+_DDL_VIRTUAL_ORDERS_V2 = """
+ALTER TABLE virtual_orders
+    ADD COLUMN IF NOT EXISTS slippage_pct   NUMERIC(10,6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS commission     NUMERIC(20,4) NOT NULL DEFAULT 0;
+"""
+
+# Daily NAV snapshots — one row per currency per snapshot.
+_DDL_PORTFOLIO_NAV_SNAPSHOTS = """
+CREATE TABLE IF NOT EXISTS portfolio_nav_snapshots (
+    snapshot_at    TIMESTAMPTZ   NOT NULL,
+    currency       VARCHAR(3)    NOT NULL,
+    cash_balance   NUMERIC(20,4) NOT NULL,
+    holdings_value NUMERIC(20,4) NOT NULL,
+    total_nav      NUMERIC(20,4) NOT NULL,
+    UNIQUE (snapshot_at, currency)
+);
+"""
+
 # Starting paper-trading balances, seeded once per currency on first init_db().
 _VIRTUAL_ACCOUNT_SEED: dict[str, float] = {
     "KRW": 100_000_000.0,
@@ -338,8 +359,10 @@ def init_db(config: DatabaseConfig | None = None) -> None:
             logger.debug("db_table_ensured", extra={"table": "historical_prices"})
             conn.execute(_DDL_VIRTUAL_ACCOUNTS)
             conn.execute(_DDL_VIRTUAL_ORDERS)
+            conn.execute(_DDL_VIRTUAL_ORDERS_V2)
             conn.execute(_DDL_PORTFOLIO_HOLDINGS)
             conn.execute(_DDL_AUDIT_LOG)
+            conn.execute(_DDL_PORTFOLIO_NAV_SNAPSHOTS)
             logger.debug("db_table_ensured", extra={"table": "audit_log"})
             for currency, balance in _VIRTUAL_ACCOUNT_SEED.items():
                 conn.execute(
@@ -1569,15 +1592,33 @@ def execute_virtual_order(
     side: Literal["BUY", "SELL"],
     quantity: float,
     price: float,
+    commission_rate: float = 0.00025,
+    slippage_pct: float = 0.001,
     config: DatabaseConfig | None = None,
 ) -> dict[str, Any]:
-    """Execute an immediate-fill virtual order against the given price.
+    """Execute an immediate-fill virtual order with commission and slippage.
 
     BUY debits ``virtual_accounts.cash_balance`` for the ticker's currency and
     upserts a weighted-average-cost ``portfolio_holdings`` row. SELL credits
     cash and decrements the holding (deleting the row once quantity reaches
     zero). Insufficient cash or insufficient holdings rejects the order
     (status="REJECTED") without mutating any balance.
+
+    Slippage is applied to the fill price before commission:
+    - BUY : ``fill_price = price × (1 + slippage_pct)``
+    - SELL: ``fill_price = price × (1 - slippage_pct)``
+
+    Commission is charged on top of the fill notional:
+    ``commission = fill_price × quantity × commission_rate``
+
+    Total cash deducted on BUY = ``notional + commission``.
+    Total cash credited on SELL = ``notional − commission``.
+
+    Args:
+        commission_rate: Fraction of notional charged as broker commission
+                         (default 0.00025 = 0.025 %).
+        slippage_pct:    One-way market-impact fraction applied to fill price
+                         (default 0.001 = 0.1 %).
 
     Single DB transaction — rows are locked with SELECT ... FOR UPDATE so
     concurrent orders against the same account/ticker serialize correctly.
@@ -1588,7 +1629,15 @@ def execute_virtual_order(
         return {"status": "REJECTED", "reason": "invalid_price"}
 
     currency = _ticker_currency(ticker)
-    notional = round(quantity * price, 4)
+
+    # Apply slippage to the fill price
+    if side == "BUY":
+        fill_price = round(price * (1.0 + slippage_pct), 6)
+    else:
+        fill_price = round(price * (1.0 - slippage_pct), 6)
+
+    notional   = round(quantity * fill_price, 4)
+    commission = round(notional * commission_rate, 4)
 
     try:
         with get_connection(config) as conn:
@@ -1608,11 +1657,12 @@ def execute_virtual_order(
             held_cost = float(holding_row[1]) if holding_row else 0.0
 
             if side == "BUY":
-                if notional > cash_balance:
+                total_debit = round(notional + commission, 4)
+                if total_debit > cash_balance:
                     return {
                         "status":    "REJECTED",
                         "reason":    "insufficient_cash",
-                        "required":  notional,
+                        "required":  total_debit,
                         "available": cash_balance,
                     }
                 new_qty  = held_qty + quantity
@@ -1627,7 +1677,7 @@ def execute_virtual_order(
                 conn.execute(
                     "UPDATE virtual_accounts SET cash_balance = cash_balance - %s, updated_at = NOW() "
                     "WHERE currency = %s",
-                    (notional, currency),
+                    (total_debit, currency),
                 )
             else:  # SELL
                 if quantity > held_qty:
@@ -1645,16 +1695,18 @@ def execute_virtual_order(
                         "UPDATE portfolio_holdings SET quantity = %s, updated_at = NOW() WHERE ticker = %s",
                         (remaining, ticker),
                     )
+                net_proceeds = round(notional - commission, 4)
                 conn.execute(
                     "UPDATE virtual_accounts SET cash_balance = cash_balance + %s, updated_at = NOW() "
                     "WHERE currency = %s",
-                    (notional, currency),
+                    (net_proceeds, currency),
                 )
 
             order_row = conn.execute(
-                "INSERT INTO virtual_orders (ticker, side, quantity, fill_price, currency, status) "
-                "VALUES (%s, %s, %s, %s, %s, 'FILLED') RETURNING id",
-                (ticker, side, quantity, price, currency),
+                "INSERT INTO virtual_orders"
+                " (ticker, side, quantity, fill_price, currency, status, slippage_pct, commission)"
+                " VALUES (%s, %s, %s, %s, %s, 'FILLED', %s, %s) RETURNING id",
+                (ticker, side, quantity, fill_price, currency, slippage_pct, commission),
             ).fetchone()
             order_id = order_row[0] if order_row else None
 
@@ -1665,13 +1717,16 @@ def execute_virtual_order(
                 (
                     "virtual_order_filled",
                     _json.dumps({
-                        "order_id":  order_id,
-                        "ticker":    ticker,
-                        "side":      side,
-                        "quantity":  quantity,
-                        "price":     price,
-                        "currency":  currency,
-                        "notional":  notional,
+                        "order_id":     order_id,
+                        "ticker":       ticker,
+                        "side":         side,
+                        "quantity":     quantity,
+                        "price":        price,
+                        "fill_price":   fill_price,
+                        "currency":     currency,
+                        "notional":     notional,
+                        "commission":   commission,
+                        "slippage_pct": slippage_pct,
                     }),
                 ),
             )
@@ -1679,17 +1734,26 @@ def execute_virtual_order(
 
         logger.info(
             "virtual_order_filled",
-            extra={"ticker": ticker, "side": side, "quantity": quantity, "price": price, "order_id": order_id},
+            extra={
+                "ticker":     ticker,
+                "side":       side,
+                "quantity":   quantity,
+                "fill_price": fill_price,
+                "commission": commission,
+                "order_id":   order_id,
+            },
         )
         return {
-            "status":     "FILLED",
-            "order_id":   order_id,
-            "ticker":     ticker,
-            "side":       side,
-            "quantity":   quantity,
-            "fill_price": price,
-            "currency":   currency,
-            "notional":   notional,
+            "status":       "FILLED",
+            "order_id":     order_id,
+            "ticker":       ticker,
+            "side":         side,
+            "quantity":     quantity,
+            "fill_price":   fill_price,
+            "currency":     currency,
+            "notional":     notional,
+            "commission":   commission,
+            "slippage_pct": slippage_pct,
         }
     except Exception as exc:
         logger.error("virtual_order_failed", extra={"ticker": ticker, "error": str(exc)})
@@ -1731,6 +1795,94 @@ def get_virtual_accounts(config: DatabaseConfig | None = None) -> dict[str, dict
     except Exception as exc:
         logger.warning("get_virtual_accounts_failed", extra={"error": str(exc)})
         return {}
+
+
+def record_portfolio_nav(
+    prices: dict[str, float],
+    config: DatabaseConfig | None = None,
+) -> dict[str, float]:
+    """Compute portfolio NAV and insert a snapshot into portfolio_nav_snapshots.
+
+    Args:
+        prices: ``{ticker: current_price}`` — used to mark holdings to market.
+
+    Returns:
+        ``{currency: total_nav}`` for the snapshotted currencies.
+        Returns ``{}`` and logs a warning on DB error.
+    """
+    try:
+        holdings = get_portfolio_holdings(config)
+        accounts = get_virtual_accounts(config)
+        if not accounts:
+            return {}
+
+        # Group holdings by currency and compute mark-to-market value
+        holdings_value_by_currency: dict[str, float] = {}
+        for h in holdings:
+            currency = str(h["currency"])
+            ticker   = str(h["ticker"])
+            qty      = float(h["quantity"])
+            mark     = prices.get(ticker, float(h["avg_cost"]))
+            holdings_value_by_currency[currency] = (
+                holdings_value_by_currency.get(currency, 0.0) + qty * mark
+            )
+
+        now = datetime.now(tz=_KST)
+        result: dict[str, float] = {}
+
+        with get_connection(config) as conn:
+            for currency, acct in accounts.items():
+                cash    = acct["cash_balance"]
+                h_value = holdings_value_by_currency.get(currency, 0.0)
+                total   = round(cash + h_value, 4)
+                conn.execute(
+                    "INSERT INTO portfolio_nav_snapshots"
+                    " (snapshot_at, currency, cash_balance, holdings_value, total_nav)"
+                    " VALUES (%s, %s, %s, %s, %s)"
+                    " ON CONFLICT (snapshot_at, currency) DO NOTHING",
+                    (now, currency, round(cash, 4), round(h_value, 4), total),
+                )
+                result[currency] = total
+            conn.commit()
+
+        logger.info("portfolio_nav_recorded", extra={"nav": result})
+        return result
+    except Exception as exc:
+        logger.warning("portfolio_nav_record_failed", extra={"error": str(exc)})
+        return {}
+
+
+def get_portfolio_nav_history(
+    days: int = 30,
+    config: DatabaseConfig | None = None,
+) -> list[dict[str, Any]]:
+    """Return the last *days* NAV snapshots, newest first.
+
+    Returns a list of ``{snapshot_at, currency, cash_balance, holdings_value, total_nav}``
+    dicts, or ``[]`` on error.
+    """
+    try:
+        with get_connection(config) as conn:
+            rows = conn.execute(
+                "SELECT snapshot_at, currency, cash_balance, holdings_value, total_nav"
+                " FROM portfolio_nav_snapshots"
+                " WHERE snapshot_at >= NOW() - (%s || ' days')::INTERVAL"
+                " ORDER BY snapshot_at DESC",
+                (str(days),),
+            ).fetchall()
+        return [
+            {
+                "snapshot_at":    str(r[0]),
+                "currency":       str(r[1]),
+                "cash_balance":   float(r[2]),
+                "holdings_value": float(r[3]),
+                "total_nav":      float(r[4]),
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        logger.warning("get_portfolio_nav_history_failed", extra={"error": str(exc)})
+        return []
 
 
 # ── Historical data ingestion ─────────────────────────────────────────────────

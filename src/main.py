@@ -53,9 +53,11 @@ from src.database import (
     get_connection,
     get_latest_prices,
     get_portfolio_holdings,
+    get_portfolio_nav_history,
     get_virtual_accounts,
     init_db,
     init_milvus,
+    record_portfolio_nav,
     search_milvus_news,
     seed_mock_data,
 )
@@ -227,6 +229,9 @@ _FUND_NAV_COLLECTOR_TASK: asyncio.Task[None] | None = None
 
 # Daily historical-data collector — backfills historical_prices on startup
 _HISTORICAL_COLLECTOR_TASK: asyncio.Task[None] | None = None
+
+# Daily NAV snapshot loop — records portfolio_nav_snapshots once per day
+_NAV_SNAPSHOT_TASK: asyncio.Task[None] | None = None
 
 # ── Slack webhook (optional) ──────────────────────────────────────────────────
 _SLACK_WEBHOOK_URL: str = _os.getenv("SLACK_WEBHOOK_URL", "")
@@ -1397,10 +1402,34 @@ async def _historical_collector_loop() -> None:
             raise
 
 
+async def _nav_snapshot_loop() -> None:
+    """Background task: record portfolio NAV once per day at market close.
+
+    Runs once immediately on startup (so there is always at least one snapshot),
+    then sleeps 86400 s before the next snapshot.  Uses ``_PRICE_STATE`` for
+    mark-to-market valuation so the snapshot reflects the most-recent live tick.
+    """
+    logger.info("nav_snapshot_loop_started")
+    while True:
+        try:
+            nav = await asyncio.to_thread(record_portfolio_nav, dict(_PRICE_STATE))
+            logger.info("portfolio_nav_snapshot_recorded", extra={"nav": nav})
+        except asyncio.CancelledError:
+            logger.info("nav_snapshot_loop_stopped")
+            raise
+        except Exception as exc:
+            logger.warning("nav_snapshot_error", extra={"error": str(exc)})
+        try:
+            await asyncio.sleep(86400)
+        except asyncio.CancelledError:
+            logger.info("nav_snapshot_loop_stopped")
+            raise
+
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     """Startup: DB init → seed → load history → cache regime. Shutdown: close pool."""
-    global _MACRO_COLLECTOR_TASK, _FUND_NAV_COLLECTOR_TASK, _HISTORICAL_COLLECTOR_TASK
+    global _MACRO_COLLECTOR_TASK, _FUND_NAV_COLLECTOR_TASK, _HISTORICAL_COLLECTOR_TASK, _NAV_SNAPSHOT_TASK
 
     logger.info("aleph_one_startup")
     try:
@@ -1439,6 +1468,9 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     # Backfill 2-year EOD history on startup so BacktestEngine has real data
     _HISTORICAL_COLLECTOR_TASK = asyncio.create_task(_historical_collector_loop())
 
+    # Record daily NAV snapshots (mark-to-market portfolio value + cash)
+    _NAV_SNAPSHOT_TASK = asyncio.create_task(_nav_snapshot_loop())
+
     logger.info("aleph_one_ready")
     yield
 
@@ -1448,6 +1480,8 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
         _FUND_NAV_COLLECTOR_TASK.cancel()
     if _HISTORICAL_COLLECTOR_TASK is not None:
         _HISTORICAL_COLLECTOR_TASK.cancel()
+    if _NAV_SNAPSHOT_TASK is not None:
+        _NAV_SNAPSHOT_TASK.cancel()
     _PoolManager.close()
     logger.info("aleph_one_shutdown")
 
@@ -1952,6 +1986,26 @@ async def portfolio_summary() -> dict[str, Any]:
             "status":    "ERROR",
             "error":     str(exc),
         }
+
+
+@app.get("/api/v1/portfolio/nav-history", tags=["portfolio"])
+async def portfolio_nav_history(days: int = 30) -> dict[str, Any]:
+    """Return the last *days* daily NAV snapshots.
+
+    Each snapshot records ``cash_balance``, ``holdings_value``, and
+    ``total_nav`` per currency, captured once daily by the background
+    ``_nav_snapshot_loop``.  The first snapshot is written at server startup.
+
+    Args:
+        days: Number of calendar days to look back (default 30).
+    """
+    snapshots = await asyncio.to_thread(get_portfolio_nav_history, days)
+    return {
+        "timestamp": datetime.now(tz=_KST).isoformat(),
+        "status":    "ok",
+        "days":      days,
+        "snapshots": snapshots,
+    }
 
 
 @app.get("/api/v1/risk/summary", tags=["risk"])
