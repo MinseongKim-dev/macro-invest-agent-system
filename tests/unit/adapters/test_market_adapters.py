@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib
 from datetime import datetime
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -23,18 +24,18 @@ def _make_alpaca_bar(
     low: float,
     c: float,
     v: int,
-) -> dict:
+) -> dict[str, Any]:
     return {"t": f"{date_str}T00:00:00Z", "o": o, "h": h, "l": low, "c": c, "v": v}
 
 
-def _mock_alpaca_response(bars: list[dict]) -> MagicMock:
+def _mock_alpaca_response(bars: list[dict[str, Any]]) -> MagicMock:
     resp = MagicMock()
     resp.json.return_value = {"bars": bars}
     resp.raise_for_status.return_value = None
     return resp
 
 
-def _mock_finnhub_response(data: dict) -> MagicMock:
+def _mock_finnhub_response(data: dict[str, Any]) -> MagicMock:
     resp = MagicMock()
     resp.json.return_value = data
     resp.raise_for_status.return_value = None
