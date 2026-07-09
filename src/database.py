@@ -26,6 +26,7 @@ Run standalone::
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -534,6 +535,157 @@ _MACRO_MOCK_FALLBACK: dict[str, float] = {
     "VIX":      18.5,
     "FED_RATE": 5.33,
 }
+
+# Optional BLS API key — raises daily request limit from 25 to 500.
+# Free registration: https://www.bls.gov/developers/api_signature_v2.htm
+BLS_API_KEY: str = os.environ.get("BLS_API_KEY", "")
+
+# Optional 한국은행 ECOS Open API key — required for KR macro data.
+# Free registration: https://ecos.bok.or.kr/
+BOK_API_KEY: str = os.environ.get("BOK_API_KEY", "")
+
+# ── BLS helper ────────────────────────────────────────────────────────────────
+
+def _fetch_bls_macro() -> dict[str, float]:
+    """Fetch US macro from BLS Data API v2 (free; ≤25 req/day without key).
+
+    Series fetched:
+      CUUR0000SA0 → US_CPI_BLS  (CPI-U All Items, not seasonally adjusted)
+      LNS14000000 → US_UNRATE_BLS  (civilian unemployment rate)
+
+    Returns {} on any failure — caller falls back to FRED / yfinance proxies.
+    """
+    now_yr = str(datetime.now(_KST).year)
+    body: dict[str, Any] = {
+        "seriesid":  ["CUUR0000SA0", "LNS14000000"],
+        "startyear": str(int(now_yr) - 1),
+        "endyear":   now_yr,
+    }
+    if BLS_API_KEY:
+        body["registrationkey"] = BLS_API_KEY
+
+    try:
+        with httpx.Client(timeout=12.0) as http:
+            data = http.post(
+                "https://api.bls.gov/publicAPI/v2/timeseries/data/",
+                json=body,
+            ).raise_for_status().json()
+    except Exception as exc:
+        logger.warning("bls_fetch_failed", extra={"error": str(exc)})
+        return {}
+
+    bls_map: dict[str, str] = {
+        "CUUR0000SA0": "US_CPI_BLS",
+        "LNS14000000": "US_UNRATE_BLS",
+    }
+    results: dict[str, float] = {}
+    for series in data.get("Results", {}).get("series", []):
+        sid   = series.get("seriesID", "")
+        items = series.get("data", [])
+        if items and sid in bls_map:
+            with contextlib.suppress(ValueError, KeyError, IndexError):
+                results[bls_map[sid]] = round(float(items[0]["value"]), 4)
+
+    if results:
+        logger.debug("bls_macro_fetched", extra={"series": list(results.keys())})
+    return results
+
+
+# ── ECB helper ────────────────────────────────────────────────────────────────
+
+_ECB_BASE = "https://data-api.ecb.europa.eu/service/data"
+
+# ECB SDMX-REST series keys → internal series_id
+_ECB_SERIES: dict[str, str] = {
+    "ICP/M.U2.N.000000.4.ANR": "EU_HICP",  # Euro area HICP annual inflation %
+}
+
+
+def _fetch_ecb_macro() -> dict[str, float]:
+    """Fetch Eurozone macro from ECB Data Portal (public SDMX-REST, no key needed).
+
+    Returns {} on any failure.
+    """
+    results: dict[str, float] = {}
+    for ecb_key, series_id in _ECB_SERIES.items():
+        try:
+            with httpx.Client(timeout=12.0) as http:
+                resp = http.get(
+                    f"{_ECB_BASE}/{ecb_key}",
+                    params={"format": "csvdata", "lastNObservations": "1"},
+                    headers={"Accept": "text/csv"},
+                ).raise_for_status()
+            # CSV layout: optional comment lines (#), then header, then data rows
+            lines = [ln for ln in resp.text.splitlines() if ln and not ln.startswith("#")]
+            if len(lines) < 2:
+                continue
+            header = [h.strip() for h in lines[0].split(",")]
+            row    = [v.strip() for v in lines[-1].split(",")]
+            col = header.index("OBS_VALUE") if "OBS_VALUE" in header else 8
+            results[series_id] = round(float(row[col]), 4)
+        except Exception as exc:
+            logger.warning("ecb_fetch_failed", extra={"series": series_id, "error": str(exc)})
+
+    if results:
+        logger.debug("ecb_macro_fetched", extra={"series": list(results.keys())})
+    return results
+
+
+# ── BOK helper ────────────────────────────────────────────────────────────────
+
+_BOK_BASE = "https://ecos.bok.or.kr/api"
+
+# (series_id, stat_table, cycle, item_code)
+# BOK ECOS stat tables: 722Y001 = 기준금리, 901Y062 = 소비자물가지수(2020=100)
+_BOK_QUERIES: list[tuple[str, str, str, str]] = [
+    ("KR_BASE_RATE", "722Y001", "D", "0101000"),   # 한국은행 기준금리 (daily)
+    ("KR_CPI",       "901Y062", "M", "0"),          # 소비자물가지수 총지수 (monthly)
+]
+
+
+def _fetch_bok_macro() -> dict[str, float]:
+    """Fetch Korean macro from 한국은행 ECOS Open API (requires BOK_API_KEY).
+
+    Free API key registration: https://ecos.bok.or.kr/
+
+    Series fetched:
+      722Y001 / 0101000 → KR_BASE_RATE  (한국은행 기준금리 %)
+      901Y062 / 0       → KR_CPI        (소비자물가지수, 2020=100)
+
+    Returns {} when BOK_API_KEY is unset or all fetches fail.
+    """
+    if not BOK_API_KEY:
+        return {}
+
+    now   = datetime.now(_KST)
+    today = now.strftime("%Y%m%d")
+    last_month = (now.replace(day=1) - timedelta(days=1)).strftime("%Y%m")
+
+    # Map cycle → (start, end) dates
+    _dates: dict[str, tuple[str, str]] = {
+        "D": (today, today),
+        "M": (last_month, last_month),
+    }
+
+    results: dict[str, float] = {}
+    for series_id, table, cycle, item in _BOK_QUERIES:
+        start, end = _dates.get(cycle, (today, today))
+        url = (
+            f"{_BOK_BASE}/StatisticSearch/{BOK_API_KEY}/json/kr"
+            f"/1/1/{table}/{cycle}/{start}/{end}/{item}"
+        )
+        try:
+            with httpx.Client(timeout=12.0) as http:
+                payload = http.get(url).raise_for_status().json()
+            rows = payload.get("StatisticSearch", {}).get("row", [])
+            if rows:
+                results[series_id] = round(float(rows[0]["DATA_VALUE"]), 4)
+        except Exception as exc:
+            logger.warning("bok_fetch_failed", extra={"series": series_id, "error": str(exc)})
+
+    if results:
+        logger.debug("bok_macro_fetched", extra={"series": list(results.keys())})
+    return results
 
 # ── Price-change tracking for Milvus sync bridge ──────────────────────────────
 # Stores the most recent close price per ticker; used to detect significant moves.
@@ -1112,19 +1264,26 @@ def fetch_ticker_detail(ticker: str) -> dict[str, float | None]:
 
 
 def fetch_macro_indicators() -> dict[str, float]:
-    """Fetch macro economic indicators.
+    """Fetch macro economic indicators from all configured sources.
 
-    Priority:
+    Source priority (US):
     1. FRED API (authoritative, monthly cadence) when FRED_API_KEY is set.
     2. yfinance real-time proxies (T10Y, T3M, VIX) as always-on fallback.
+    3. BLS Data API (supplement: US_CPI_BLS, US_UNRATE_BLS).
 
-    Returns a dict of series_id → latest float value.
-    Writes each successful fetch to the macro_indicators hypertable.
+    Additional sources (no US overlap):
+    4. ECB Data Portal (EU_HICP — Eurozone inflation, no key required).
+    5. 한국은행 ECOS API (KR_BASE_RATE, KR_CPI — requires BOK_API_KEY).
+
+    Each series is stored with its own source and country in macro_indicators.
+    Returns a flat dict of series_id → latest value for all collected series.
     """
-    results: dict[str, float] = {}
+    # (series_id → value) and (series_id → (source, country))
+    results:    dict[str, float]         = {}
+    source_map: dict[str, tuple[str, str]] = {}
     now_kst = datetime.now(_KST)
 
-    # ── FRED path ─────────────────────────────────────────────────────────────
+    # ── 1. FRED (US authoritative) ────────────────────────────────────────────
     if FRED_API_KEY:
         for series_id, fred_id in MACRO_FRED_SERIES.items():
             url = (
@@ -1138,40 +1297,56 @@ def fetch_macro_indicators() -> dict[str, float]:
                 obs = payload.get("observations", [])
                 if obs and obs[0].get("value", ".") != ".":
                     results[series_id] = round(float(obs[0]["value"]), 4)
+                    source_map[series_id] = ("FRED", "US")
             except Exception as exc:
                 logger.warning("fred_fetch_failed", extra={"series": fred_id, "error": str(exc)})
 
-    # ── yfinance proxy path ───────────────────────────────────────────────────
+    # ── 2. yfinance proxies (US, always-on fallback) ──────────────────────────
     for series_id, yf_symbol in MACRO_YF_PROXIES.items():
         if series_id in results:
-            continue  # already fetched from FRED
+            continue
         try:
             df = yf.Ticker(yf_symbol).history(period="2d", interval="1d")
             if not df.empty:
                 results[series_id] = round(float(df["Close"].iloc[-1]), 4)
+                source_map[series_id] = ("yfinance", "US")
         except Exception as exc:
             logger.warning("macro_yf_fetch_failed", extra={"series": series_id, "error": str(exc)})
 
-    # ── Mock fallback — dashboard stays coherent even when all live feeds fail ──
+    # ── 3. BLS (US supplement — does not override FRED) ──────────────────────
+    for series_id, value in _fetch_bls_macro().items():
+        if series_id not in results:
+            results[series_id] = value
+            source_map[series_id] = ("bls", "US")
+
+    # ── 4. ECB (EU — independent series, no overlap with US) ─────────────────
+    for series_id, value in _fetch_ecb_macro().items():
+        results[series_id] = value
+        source_map[series_id] = ("ecb", "EU")
+
+    # ── 5. BOK (KR — independent series) ─────────────────────────────────────
+    for series_id, value in _fetch_bok_macro().items():
+        results[series_id] = value
+        source_map[series_id] = ("bok", "KR")
+
+    # ── Mock fallback — US dashboard stays coherent when all live feeds fail ──
     if not results:
         logger.warning("macro_fetch_all_failed_using_mock")
         results = dict(_MACRO_MOCK_FALLBACK)
+        source_map = dict.fromkeys(results, ("mock", "US"))
 
     # ── Persist to DB ─────────────────────────────────────────────────────────
-    # ON CONFLICT target requires the UNIQUE (snapshot_time, series_id) constraint
-    # added by _DDL_MACRO_BACKFILL on first startup.
     try:
-        source  = "FRED" if FRED_API_KEY else "yfinance"
-        country = "US"
         with get_connection() as conn:
             for series_id, value in results.items():
+                src, cty = source_map.get(series_id, ("unknown", "US"))
                 conn.execute(
                     "INSERT INTO macro_indicators "
                     "    (snapshot_time, series_id, value, source, country) "
                     "VALUES (%s, %s, %s, %s, %s) "
                     "ON CONFLICT (snapshot_time, series_id) "
                     "DO UPDATE SET value = EXCLUDED.value, source = EXCLUDED.source",
-                    (now_kst, series_id, value, source, country),
+                    (now_kst, series_id, value, src, cty),
                 )
             conn.commit()
         logger.info("macro_indicators_upserted", extra={"count": len(results)})
