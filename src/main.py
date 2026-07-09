@@ -42,6 +42,7 @@ from src.database import (
     _PoolManager,
     execute_virtual_order,
     fetch_fund_nav,
+    fetch_historical_data,
     fetch_live_index_data,
     fetch_live_market_data,
     fetch_live_news,
@@ -223,6 +224,9 @@ _MACRO_COLLECTOR_TASK: asyncio.Task[None] | None = None
 _FUND_NAV_CACHE: dict[str, float] = {}
 _FUND_NAV_COLLECTOR_TASK: asyncio.Task[None] | None = None
 
+# Daily historical-data collector — backfills historical_prices on startup
+_HISTORICAL_COLLECTOR_TASK: asyncio.Task[None] | None = None
+
 # ── Slack webhook (optional) ──────────────────────────────────────────────────
 _SLACK_WEBHOOK_URL: str = _os.getenv("SLACK_WEBHOOK_URL", "")
 
@@ -269,6 +273,29 @@ def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | Non
 
     _DB_PRICE_CACHE[ticker] = (df, now)
     return df
+
+
+def _fetch_historical_price_df(ticker: str, n_rows: int = 500) -> pd.DataFrame | None:
+    """Return up to n_rows close prices from historical_prices for use in backtesting.
+
+    historical_prices holds 2 years of EOD data (populated by
+    _historical_collector_loop on startup). Returns None when the table is
+    empty for this ticker so callers can fall back to market_ticks.
+    """
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT close_price FROM ("
+                "  SELECT close_price, timestamp FROM historical_prices"
+                "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT %s"
+                ") sub ORDER BY timestamp ASC",
+                (ticker, n_rows),
+            ).fetchall()
+        if rows:
+            return pd.DataFrame({"close_price": [float(r[0]) for r in rows]})
+    except Exception as exc:
+        logger.warning("historical_price_fetch_failed", extra={"ticker": ticker, "error": str(exc)})
+    return None
 
 
 _PortfolioCacheEntry = tuple[dict[str, dict[str, float]], list[dict[str, Any]]]
@@ -1012,10 +1039,13 @@ def run_backtest_tool(ticker: str) -> str:
         ticker: Internal ticker ID. Valid values: AAPL, MSFT, TSLA, QQQ, BND,
                  GLD, 005930, 000660, 035420, 051910, 006400, 122630
     """
-    price_df = _fetch_price_df_from_db(ticker, n_rows=60)
+    # Prefer historical_prices (2 years EOD) — much better signal for SMA(20)
+    price_df = _fetch_historical_price_df(ticker, n_rows=500)
+    if price_df is None or len(price_df) < 20:
+        price_df = _fetch_price_df_from_db(ticker, n_rows=60)
     if price_df is None or len(price_df) < 20:
         price_df = pd.DataFrame({"close_price": _PRICE_HISTORY.get(ticker, [])})
-    if price_df.empty or len(price_df) < 20:
+    if price_df is None or price_df.empty or len(price_df) < 20:
         return json.dumps({"error": f"insufficient_price_history_for_{ticker}", "ticker": ticker})
 
     try:
@@ -1230,10 +1260,36 @@ async def _fund_nav_collector_loop() -> None:
             raise
 
 
+async def _historical_collector_loop() -> None:
+    """Background task: populate historical_prices on startup, then refresh daily.
+
+    Downloads 2 years of EOD close prices for all LIVE_TICKERS via yfinance
+    and upserts them into the historical_prices hypertable.  This gives
+    BacktestEngine enough data for SMA(20) crossover signals (instead of
+    relying on the 5-day rolling market_ticks window).  The first run
+    executes immediately on startup; subsequent runs fire every 86400 s.
+    """
+    logger.info("historical_collector_started")
+    while True:
+        try:
+            n = await asyncio.to_thread(fetch_historical_data)
+            logger.info("historical_data_collected", extra={"rows": n})
+        except asyncio.CancelledError:
+            logger.info("historical_collector_stopped")
+            raise
+        except Exception as exc:
+            logger.warning("historical_collector_error", extra={"error": str(exc)})
+        try:
+            await asyncio.sleep(86400)
+        except asyncio.CancelledError:
+            logger.info("historical_collector_stopped")
+            raise
+
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     """Startup: DB init → seed → load history → cache regime. Shutdown: close pool."""
-    global _MACRO_COLLECTOR_TASK, _FUND_NAV_COLLECTOR_TASK
+    global _MACRO_COLLECTOR_TASK, _FUND_NAV_COLLECTOR_TASK, _HISTORICAL_COLLECTOR_TASK
 
     logger.info("aleph_one_startup")
     try:
@@ -1269,6 +1325,9 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     # Start daily fund NAV collector (dormant no-op until KOFIA adapter is real)
     _FUND_NAV_COLLECTOR_TASK = asyncio.create_task(_fund_nav_collector_loop())
 
+    # Backfill 2-year EOD history on startup so BacktestEngine has real data
+    _HISTORICAL_COLLECTOR_TASK = asyncio.create_task(_historical_collector_loop())
+
     logger.info("aleph_one_ready")
     yield
 
@@ -1276,6 +1335,8 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
         _MACRO_COLLECTOR_TASK.cancel()
     if _FUND_NAV_COLLECTOR_TASK is not None:
         _FUND_NAV_COLLECTOR_TASK.cancel()
+    if _HISTORICAL_COLLECTOR_TASK is not None:
+        _HISTORICAL_COLLECTOR_TASK.cancel()
     _PoolManager.close()
     logger.info("aleph_one_shutdown")
 

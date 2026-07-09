@@ -18,6 +18,7 @@ Tri-File Architecture — this file owns:
   - execute_virtual_order()   : virtual broker BUY/SELL transaction (cash + holdings + order log)
   - get_portfolio_holdings()  : current portfolio_holdings rows
   - get_virtual_accounts()    : current KRW/USD virtual_accounts cash balances
+  - fetch_historical_data()   : 2-year EOD close prices → historical_prices hypertable
 
 Run standalone::
 
@@ -234,6 +235,25 @@ SELECT create_hypertable(
 );
 """
 
+_DDL_HISTORICAL_PRICES = """
+CREATE TABLE IF NOT EXISTS historical_prices (
+    timestamp   TIMESTAMPTZ   NOT NULL,
+    ticker      VARCHAR(10)   NOT NULL,
+    close_price NUMERIC(15,4) NOT NULL,
+    source      VARCHAR(20)   NOT NULL DEFAULT 'yfinance',
+    UNIQUE (timestamp, ticker)
+);
+"""
+
+_DDL_HISTORICAL_PRICES_HYPERTABLE = """
+SELECT create_hypertable(
+    'historical_prices',
+    'timestamp',
+    chunk_time_interval => INTERVAL '30 days',
+    if_not_exists       => TRUE
+);
+"""
+
 # Virtual broker — current-state tables, not hypertables (one row per
 # currency/ticker, mutated in place; virtual_orders is an append-only log
 # but at simulation order volumes a plain SERIAL PK table is sufficient).
@@ -313,6 +333,9 @@ def init_db(config: DatabaseConfig | None = None) -> None:
             conn.execute(_DDL_FUND_NAV_TICKS)
             conn.execute(_DDL_FUND_NAV_HYPERTABLE)
             logger.debug("db_table_ensured", extra={"table": "fund_nav_ticks"})
+            conn.execute(_DDL_HISTORICAL_PRICES)
+            conn.execute(_DDL_HISTORICAL_PRICES_HYPERTABLE)
+            logger.debug("db_table_ensured", extra={"table": "historical_prices"})
             conn.execute(_DDL_VIRTUAL_ACCOUNTS)
             conn.execute(_DDL_VIRTUAL_ORDERS)
             conn.execute(_DDL_PORTFOLIO_HOLDINGS)
@@ -1708,6 +1731,58 @@ def get_virtual_accounts(config: DatabaseConfig | None = None) -> dict[str, dict
     except Exception as exc:
         logger.warning("get_virtual_accounts_failed", extra={"error": str(exc)})
         return {}
+
+
+# ── Historical data ingestion ─────────────────────────────────────────────────
+
+
+def fetch_historical_data(
+    tickers: dict[str, str] | None = None,
+    years: int = 2,
+    config: DatabaseConfig | None = None,
+) -> int:
+    """Download EOD close prices into the historical_prices hypertable.
+
+    Fetches ``years`` years of daily close prices for every ticker in
+    ``tickers`` (defaults to ``LIVE_TICKERS``) via yfinance and upserts
+    each row with ``ON CONFLICT (timestamp, ticker) DO NOTHING``, so
+    repeated calls are idempotent. Returns the total number of rows written.
+
+    Errors per ticker are logged and swallowed — a partial result is still
+    useful for the BacktestEngine. Callers should handle ``0`` returned rows
+    gracefully.
+    """
+    if tickers is None:
+        tickers = LIVE_TICKERS
+    total_inserted = 0
+    for internal_id, yf_symbol in tickers.items():
+        try:
+            df = yf.Ticker(yf_symbol).history(period=f"{years}y")
+            if df.empty:
+                logger.warning("historical_data_empty", extra={"ticker": internal_id})
+                continue
+            rows: list[tuple[datetime, str, float, str]] = []
+            for idx, row in df.iterrows():
+                with contextlib.suppress(Exception):
+                    rows.append((_to_kst(idx), internal_id, float(row["Close"]), "yfinance"))
+            if not rows:
+                continue
+            with get_connection(config) as conn:
+                for ts_kst, tid, close, src in rows:
+                    conn.execute(
+                        "INSERT INTO historical_prices"
+                        " (timestamp, ticker, close_price, source)"
+                        " VALUES (%s, %s, %s, %s)"
+                        " ON CONFLICT (timestamp, ticker) DO NOTHING",
+                        (ts_kst, tid, close, src),
+                    )
+                conn.commit()
+            total_inserted += len(rows)
+            logger.debug("historical_data_upserted", extra={"ticker": internal_id, "rows": len(rows)})
+        except Exception as exc:
+            logger.warning("historical_data_fetch_failed", extra={"ticker": internal_id, "error": str(exc)})
+    logger.info("historical_data_complete", extra={"total_rows": total_inserted})
+    return total_inserted
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────
