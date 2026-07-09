@@ -39,6 +39,7 @@ from sse_starlette.sse import EventSourceResponse
 from src import config
 from src.database import (
     FRED_API_KEY,
+    LIVE_TICKERS,
     _PoolManager,
     execute_virtual_order,
     fetch_fund_nav,
@@ -1065,6 +1066,49 @@ def run_backtest_tool(ticker: str) -> str:
     })
 
 
+@tool
+def get_risk_summary_tool() -> str:
+    """Return VaR (95 %), max drawdown, annualised volatility, cross-ticker
+    correlation, and portfolio sector concentration for all tracked tickers.
+
+    Data is sourced from the historical_prices table (2-year EOD window).
+    Returns an error JSON when historical data is not yet available
+    (server has not finished its startup backfill).
+    """
+    from src.domain.risk.engine import compute_risk_summary
+
+    prices_by_ticker: dict[str, pd.Series] = {}
+    try:
+        with get_connection() as conn:
+            for ticker in LIVE_TICKERS:
+                rows = conn.execute(
+                    "SELECT close_price FROM ("
+                    "  SELECT close_price, timestamp FROM historical_prices"
+                    "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT 500"
+                    ") sub ORDER BY timestamp ASC",
+                    (ticker,),
+                ).fetchall()
+                if rows:
+                    prices_by_ticker[ticker] = pd.Series(
+                        [float(r[0]) for r in rows], dtype=float
+                    )
+    except Exception as exc:
+        return json.dumps({"error": "db_unavailable", "detail": str(exc)})
+
+    if not prices_by_ticker:
+        return json.dumps({"error": "awaiting_historical_data_backfill"})
+
+    holdings_data = get_portfolio_holdings()
+    holdings: dict[str, float] = {
+        h["ticker"]: h["quantity"] * _PRICE_STATE.get(h["ticker"], h["avg_cost"])
+        for h in holdings_data
+        if h["quantity"] > 0
+    }
+
+    summary = compute_risk_summary(prices_by_ticker, holdings, TICKER_GROUPS)
+    return json.dumps(summary.model_dump())
+
+
 def _build_lc_agent() -> Any:  # noqa: ANN401
     """Construct a LangChain 1.x tool-calling agent (provider from config).
 
@@ -1088,6 +1132,7 @@ def _build_lc_agent() -> Any:  # noqa: ANN401
         run_backtest_tool,
         get_portfolio_summary_tool,
         execute_virtual_order_tool,
+        get_risk_summary_tool,
     ]
     agent = create_react_agent(llm, tools, prompt=_AGENT_SYSTEM_PROMPT)
     logger.info("lc_agent_built", extra={"tools": len(tools)})
@@ -1841,6 +1886,66 @@ async def portfolio_summary() -> dict[str, Any]:
             "status":    "ERROR",
             "error":     str(exc),
         }
+
+
+@app.get("/api/v1/risk/summary", tags=["risk"])
+async def risk_summary() -> dict[str, Any]:
+    """Compute VaR, MDD, correlation matrix, and sector concentration.
+
+    Reads the last 500 trading days of close prices from the
+    ``historical_prices`` table (populated on startup by
+    ``_historical_collector_loop``), then delegates all computation to
+    the pure functions in :mod:`src.domain.risk.engine`.
+
+    Returns HTTP 503 when the historical-prices table is empty or the DB
+    is unreachable — callers should retry after the server has finished its
+    startup historical-data backfill (~30 s per 16 tickers on first boot).
+    """
+    from src.domain.risk.engine import compute_risk_summary
+
+    prices_by_ticker: dict[str, pd.Series] = {}
+    try:
+        with get_connection() as conn:
+            for ticker in LIVE_TICKERS:
+                rows = conn.execute(
+                    "SELECT close_price FROM ("
+                    "  SELECT close_price, timestamp FROM historical_prices"
+                    "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT 500"
+                    ") sub ORDER BY timestamp ASC",
+                    (ticker,),
+                ).fetchall()
+                if rows:
+                    prices_by_ticker[ticker] = pd.Series(
+                        [float(r[0]) for r in rows], dtype=float
+                    )
+    except Exception as exc:
+        logger.warning("risk_summary_db_error", extra={"error": str(exc)})
+        return {
+            "timestamp": datetime.now(tz=_KST).isoformat(),
+            "status":    "ERROR",
+            "error":     "historical data unavailable",
+        }
+
+    if not prices_by_ticker:
+        return {
+            "timestamp": datetime.now(tz=_KST).isoformat(),
+            "status":    "AWAITING_DATA",
+            "message":   "historical_prices table is empty; backfill in progress",
+        }
+
+    holdings_data = await asyncio.to_thread(get_portfolio_holdings)
+    holdings: dict[str, float] = {
+        h["ticker"]: h["quantity"] * _PRICE_STATE.get(h["ticker"], h["avg_cost"])
+        for h in holdings_data
+        if h["quantity"] > 0
+    }
+
+    summary = compute_risk_summary(prices_by_ticker, holdings, TICKER_GROUPS)
+    return {
+        "timestamp": datetime.now(tz=_KST).isoformat(),
+        "status":    "ok",
+        **summary.model_dump(),
+    }
 
 
 @app.get("/api/v1/intelligence/stream", tags=["intelligence"])
