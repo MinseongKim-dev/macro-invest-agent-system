@@ -1,5 +1,5 @@
 """Aleph-One database layer — connection pool, schema init, mock data seeding,
-live market data fetch via yfinance, Milvus news vector store.
+live market data fetch (yfinance + optional Alpaca/Finnhub/KIS adapters), Milvus news vector store.
 
 Tri-File Architecture — this file owns:
   - DatabaseConfig            : env-var backed config dataclass
@@ -8,8 +8,9 @@ Tri-File Architecture — this file owns:
   - get_connection()          : context manager (lease → auto-return)
   - init_db()                 : DDL — market_ticks hypertable + macro_regimes
   - seed_mock_data()          : pandas GBM OHLCV + dummy regimes via COPY (bulk)
-  - LIVE_TICKERS              : yfinance symbol → internal ticker ID mapping
-  - fetch_live_market_data()  : yfinance OHLCV → market_ticks (DELETE + COPY, retried)
+  - LIVE_TICKERS              : internal ticker ID → yfinance symbol mapping
+  - _US_TICKERS               : US-listed ticker IDs eligible for Alpaca / Finnhub adapters
+  - fetch_live_market_data()  : OHLCV → market_ticks (Alpaca for US, yfinance fallback)
   - fetch_live_news()         : yfinance .news → headlines per ticker + Milvus upsert
   - init_milvus()             : Milvus connection + news_collection schema + HNSW index
   - search_milvus_news()      : semantic ANN search over ingested news headlines
@@ -17,6 +18,9 @@ Tri-File Architecture — this file owns:
   - execute_virtual_order()   : virtual broker BUY/SELL transaction (cash + holdings + order log)
   - get_portfolio_holdings()  : current portfolio_holdings rows
   - get_virtual_accounts()    : current KRW/USD virtual_accounts cash balances
+  - record_portfolio_nav()    : mark-to-market portfolio NAV snapshot → portfolio_nav_snapshots
+  - get_portfolio_nav_history(): last N days of NAV snapshots
+  - fetch_historical_data()   : 2-year EOD close prices → historical_prices hypertable
 
 Run standalone::
 
@@ -25,6 +29,7 @@ Run standalone::
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import logging
 import os
@@ -45,6 +50,8 @@ import psycopg_pool
 import pytz
 import yfinance as yf
 from psycopg.rows import TupleRow
+
+from src.adapters import alpaca_available, fetch_alpaca_bars, fetch_kis_bars, kis_available
 
 logger = logging.getLogger(__name__)
 
@@ -230,6 +237,25 @@ SELECT create_hypertable(
 );
 """
 
+_DDL_HISTORICAL_PRICES = """
+CREATE TABLE IF NOT EXISTS historical_prices (
+    timestamp   TIMESTAMPTZ   NOT NULL,
+    ticker      VARCHAR(10)   NOT NULL,
+    close_price NUMERIC(15,4) NOT NULL,
+    source      VARCHAR(20)   NOT NULL DEFAULT 'yfinance',
+    UNIQUE (timestamp, ticker)
+);
+"""
+
+_DDL_HISTORICAL_PRICES_HYPERTABLE = """
+SELECT create_hypertable(
+    'historical_prices',
+    'timestamp',
+    chunk_time_interval => INTERVAL '30 days',
+    if_not_exists       => TRUE
+);
+"""
+
 # Virtual broker — current-state tables, not hypertables (one row per
 # currency/ticker, mutated in place; virtual_orders is an append-only log
 # but at simulation order volumes a plain SERIAL PK table is sufficient).
@@ -278,6 +304,35 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 """
 
+# Commission and slippage columns added in L3-3 (idempotent via IF NOT EXISTS).
+_DDL_VIRTUAL_ORDERS_V2 = """
+ALTER TABLE virtual_orders
+    ADD COLUMN IF NOT EXISTS slippage_pct   NUMERIC(10,6) NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS commission     NUMERIC(20,4) NOT NULL DEFAULT 0;
+"""
+
+# Daily NAV snapshots — one row per currency per snapshot.
+_DDL_PORTFOLIO_NAV_SNAPSHOTS = """
+CREATE TABLE IF NOT EXISTS portfolio_nav_snapshots (
+    snapshot_at    TIMESTAMPTZ   NOT NULL,
+    currency       VARCHAR(3)    NOT NULL,
+    cash_balance   NUMERIC(20,4) NOT NULL,
+    holdings_value NUMERIC(20,4) NOT NULL,
+    total_nav      NUMERIC(20,4) NOT NULL,
+    UNIQUE (snapshot_at, currency)
+);
+"""
+
+_DDL_PUSH_SUBSCRIPTIONS = """
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id           SERIAL        PRIMARY KEY,
+    endpoint     TEXT          NOT NULL UNIQUE,
+    p256dh       TEXT          NOT NULL,
+    auth         TEXT          NOT NULL,
+    created_at   TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+);
+"""
+
 # Starting paper-trading balances, seeded once per currency on first init_db().
 _VIRTUAL_ACCOUNT_SEED: dict[str, float] = {
     "KRW": 100_000_000.0,
@@ -309,10 +364,16 @@ def init_db(config: DatabaseConfig | None = None) -> None:
             conn.execute(_DDL_FUND_NAV_TICKS)
             conn.execute(_DDL_FUND_NAV_HYPERTABLE)
             logger.debug("db_table_ensured", extra={"table": "fund_nav_ticks"})
+            conn.execute(_DDL_HISTORICAL_PRICES)
+            conn.execute(_DDL_HISTORICAL_PRICES_HYPERTABLE)
+            logger.debug("db_table_ensured", extra={"table": "historical_prices"})
             conn.execute(_DDL_VIRTUAL_ACCOUNTS)
             conn.execute(_DDL_VIRTUAL_ORDERS)
+            conn.execute(_DDL_VIRTUAL_ORDERS_V2)
             conn.execute(_DDL_PORTFOLIO_HOLDINGS)
             conn.execute(_DDL_AUDIT_LOG)
+            conn.execute(_DDL_PORTFOLIO_NAV_SNAPSHOTS)
+            conn.execute(_DDL_PUSH_SUBSCRIPTIONS)
             logger.debug("db_table_ensured", extra={"table": "audit_log"})
             for currency, balance in _VIRTUAL_ACCOUNT_SEED.items():
                 conn.execute(
@@ -468,6 +529,12 @@ LIVE_TICKERS: dict[str, str] = {
     "105560": "105560.KS",   # KB금융
 }
 
+# US-listed tickers eligible for Alpaca / Finnhub adapters.
+# KR tickers (.KS suffix) use yfinance or KIS as primary source.
+_US_TICKERS: frozenset[str] = frozenset({
+    "AAPL", "MSFT", "TSLA", "QQQ", "BND", "GLD",
+})
+
 def _normalize_yf_symbol(ticker: str) -> str:
     """Map any internal ticker ID to its Yahoo Finance symbol.
 
@@ -525,6 +592,157 @@ _MACRO_MOCK_FALLBACK: dict[str, float] = {
     "VIX":      18.5,
     "FED_RATE": 5.33,
 }
+
+# Optional BLS API key — raises daily request limit from 25 to 500.
+# Free registration: https://www.bls.gov/developers/api_signature_v2.htm
+BLS_API_KEY: str = os.environ.get("BLS_API_KEY", "")
+
+# Optional 한국은행 ECOS Open API key — required for KR macro data.
+# Free registration: https://ecos.bok.or.kr/
+BOK_API_KEY: str = os.environ.get("BOK_API_KEY", "")
+
+# ── BLS helper ────────────────────────────────────────────────────────────────
+
+def _fetch_bls_macro() -> dict[str, float]:
+    """Fetch US macro from BLS Data API v2 (free; ≤25 req/day without key).
+
+    Series fetched:
+      CUUR0000SA0 → US_CPI_BLS  (CPI-U All Items, not seasonally adjusted)
+      LNS14000000 → US_UNRATE_BLS  (civilian unemployment rate)
+
+    Returns {} on any failure — caller falls back to FRED / yfinance proxies.
+    """
+    now_yr = str(datetime.now(_KST).year)
+    body: dict[str, Any] = {
+        "seriesid":  ["CUUR0000SA0", "LNS14000000"],
+        "startyear": str(int(now_yr) - 1),
+        "endyear":   now_yr,
+    }
+    if BLS_API_KEY:
+        body["registrationkey"] = BLS_API_KEY
+
+    try:
+        with httpx.Client(timeout=12.0) as http:
+            data = http.post(
+                "https://api.bls.gov/publicAPI/v2/timeseries/data/",
+                json=body,
+            ).raise_for_status().json()
+    except Exception as exc:
+        logger.warning("bls_fetch_failed", extra={"error": str(exc)})
+        return {}
+
+    bls_map: dict[str, str] = {
+        "CUUR0000SA0": "US_CPI_BLS",
+        "LNS14000000": "US_UNRATE_BLS",
+    }
+    results: dict[str, float] = {}
+    for series in data.get("Results", {}).get("series", []):
+        sid   = series.get("seriesID", "")
+        items = series.get("data", [])
+        if items and sid in bls_map:
+            with contextlib.suppress(ValueError, KeyError, IndexError):
+                results[bls_map[sid]] = round(float(items[0]["value"]), 4)
+
+    if results:
+        logger.debug("bls_macro_fetched", extra={"series": list(results.keys())})
+    return results
+
+
+# ── ECB helper ────────────────────────────────────────────────────────────────
+
+_ECB_BASE = "https://data-api.ecb.europa.eu/service/data"
+
+# ECB SDMX-REST series keys → internal series_id
+_ECB_SERIES: dict[str, str] = {
+    "ICP/M.U2.N.000000.4.ANR": "EU_HICP",  # Euro area HICP annual inflation %
+}
+
+
+def _fetch_ecb_macro() -> dict[str, float]:
+    """Fetch Eurozone macro from ECB Data Portal (public SDMX-REST, no key needed).
+
+    Returns {} on any failure.
+    """
+    results: dict[str, float] = {}
+    for ecb_key, series_id in _ECB_SERIES.items():
+        try:
+            with httpx.Client(timeout=12.0) as http:
+                resp = http.get(
+                    f"{_ECB_BASE}/{ecb_key}",
+                    params={"format": "csvdata", "lastNObservations": "1"},
+                    headers={"Accept": "text/csv"},
+                ).raise_for_status()
+            # CSV layout: optional comment lines (#), then header, then data rows
+            lines = [ln for ln in resp.text.splitlines() if ln and not ln.startswith("#")]
+            if len(lines) < 2:
+                continue
+            header = [h.strip() for h in lines[0].split(",")]
+            row    = [v.strip() for v in lines[-1].split(",")]
+            col = header.index("OBS_VALUE") if "OBS_VALUE" in header else 8
+            results[series_id] = round(float(row[col]), 4)
+        except Exception as exc:
+            logger.warning("ecb_fetch_failed", extra={"series": series_id, "error": str(exc)})
+
+    if results:
+        logger.debug("ecb_macro_fetched", extra={"series": list(results.keys())})
+    return results
+
+
+# ── BOK helper ────────────────────────────────────────────────────────────────
+
+_BOK_BASE = "https://ecos.bok.or.kr/api"
+
+# (series_id, stat_table, cycle, item_code)
+# BOK ECOS stat tables: 722Y001 = 기준금리, 901Y062 = 소비자물가지수(2020=100)
+_BOK_QUERIES: list[tuple[str, str, str, str]] = [
+    ("KR_BASE_RATE", "722Y001", "D", "0101000"),   # 한국은행 기준금리 (daily)
+    ("KR_CPI",       "901Y062", "M", "0"),          # 소비자물가지수 총지수 (monthly)
+]
+
+
+def _fetch_bok_macro() -> dict[str, float]:
+    """Fetch Korean macro from 한국은행 ECOS Open API (requires BOK_API_KEY).
+
+    Free API key registration: https://ecos.bok.or.kr/
+
+    Series fetched:
+      722Y001 / 0101000 → KR_BASE_RATE  (한국은행 기준금리 %)
+      901Y062 / 0       → KR_CPI        (소비자물가지수, 2020=100)
+
+    Returns {} when BOK_API_KEY is unset or all fetches fail.
+    """
+    if not BOK_API_KEY:
+        return {}
+
+    now   = datetime.now(_KST)
+    today = now.strftime("%Y%m%d")
+    last_month = (now.replace(day=1) - timedelta(days=1)).strftime("%Y%m")
+
+    # Map cycle → (start, end) dates
+    _dates: dict[str, tuple[str, str]] = {
+        "D": (today, today),
+        "M": (last_month, last_month),
+    }
+
+    results: dict[str, float] = {}
+    for series_id, table, cycle, item in _BOK_QUERIES:
+        start, end = _dates.get(cycle, (today, today))
+        url = (
+            f"{_BOK_BASE}/StatisticSearch/{BOK_API_KEY}/json/kr"
+            f"/1/1/{table}/{cycle}/{start}/{end}/{item}"
+        )
+        try:
+            with httpx.Client(timeout=12.0) as http:
+                payload = http.get(url).raise_for_status().json()
+            rows = payload.get("StatisticSearch", {}).get("row", [])
+            if rows:
+                results[series_id] = round(float(rows[0]["DATA_VALUE"]), 4)
+        except Exception as exc:
+            logger.warning("bok_fetch_failed", extra={"series": series_id, "error": str(exc)})
+
+    if results:
+        logger.debug("bok_macro_fetched", extra={"series": list(results.keys())})
+    return results
 
 # ── Price-change tracking for Milvus sync bridge ──────────────────────────────
 # Stores the most recent close price per ticker; used to detect significant moves.
@@ -833,12 +1051,13 @@ def _fetch_latest_close_from_db(internal_id: str) -> list[tuple[Any, ...]]:
 
     Used as a market-closed / network-error fallback inside ``_fetch_ticker_ohlcv``.
     The row tuple layout matches the COPY schema:
-    (timestamp, ticker, open, high, low, close, volume).
+    (timestamp, ticker, open, high, low, close, volume, source).
     """
     try:
         with get_connection() as conn:
             row = conn.execute(
-                "SELECT timestamp, ticker, open_price, high_price, low_price, close_price, volume "
+                "SELECT timestamp, ticker, open_price, high_price, low_price, close_price, "
+                "volume, source "
                 "FROM market_ticks WHERE ticker = %s ORDER BY timestamp DESC LIMIT 1",
                 (internal_id,),
             ).fetchone()
@@ -851,11 +1070,33 @@ def _fetch_latest_close_from_db(internal_id: str) -> list[tuple[Any, ...]]:
 
 
 def _fetch_ticker_ohlcv(internal_id: str, yf_symbol: str) -> list[tuple[Any, ...]]:
-    """Download the last 5 trading days of daily OHLCV from Yahoo Finance.
+    """Download the last 5 trading days of daily OHLCV for a ticker.
+
+    Adapter dispatch order (each step falls back to the next on failure):
+      1. Alpaca Markets — US-listed tickers when ALPACA_API_KEY is set
+      2. KIS Developers — KR-listed tickers when KIS_APP_KEY is set [stub]
+      3. yfinance       — always-on fallback for all tickers
 
     Returns a list of DB row tuples ready for COPY:
-        (timestamp_utc, internal_id, open, high, low, close, volume)
+        (timestamp_kst, internal_id, open, high, low, close, volume, source)
     """
+    # ── 1. Alpaca for US tickers ──────────────────────────────────────────────
+    if internal_id in _US_TICKERS and alpaca_available():
+        rows = fetch_alpaca_bars(internal_id, yf_symbol, days=5)
+        if rows:
+            return rows
+        logger.info(
+            "alpaca_fallback_to_yf",
+            extra={"ticker": internal_id, "reason": "empty_or_error"},
+        )
+
+    # ── 2. KIS for KR tickers (stub — falls through immediately) ─────────────
+    if internal_id not in _US_TICKERS and kis_available():
+        rows_kis = fetch_kis_bars(internal_id, yf_symbol, days=5)
+        if rows_kis:
+            return rows_kis
+
+    # ── 3. yfinance (always-on fallback) ─────────────────────────────────────
     ticker_obj = yf.Ticker(yf_symbol)
     hist: pd.DataFrame = ticker_obj.history(
         period="5d",
@@ -866,16 +1107,14 @@ def _fetch_ticker_ohlcv(internal_id: str, yf_symbol: str) -> list[tuple[Any, ...
 
     if hist.empty:
         logger.warning("yf_history_empty", extra={"ticker": internal_id, "symbol": yf_symbol})
-        # Market closed or transient network error — return last known row from DB.
         return _fetch_latest_close_from_db(internal_id)
 
     hist = hist.dropna(subset=["Open", "High", "Low", "Close", "Volume"])
 
-    rows: list[tuple[Any, ...]] = []
+    rows_yf: list[tuple[Any, ...]] = []
     for idx, row in hist.iterrows():
-        ts = pd.Timestamp(idx)
-        ts_kst = _to_kst(ts)   # normalise to KST before DB insert
-        rows.append((
+        ts_kst = _to_kst(pd.Timestamp(idx))
+        rows_yf.append((
             ts_kst,
             internal_id,
             float(row["Open"]),
@@ -883,8 +1122,9 @@ def _fetch_ticker_ohlcv(internal_id: str, yf_symbol: str) -> list[tuple[Any, ...
             float(row["Low"]),
             float(row["Close"]),
             int(row["Volume"]),
+            "yfinance",
         ))
-    return rows
+    return rows_yf
 
 
 # ── Live Data Fetchers ────────────────────────────────────────────────────────
@@ -936,7 +1176,7 @@ def fetch_live_market_data(config: DatabaseConfig | None = None) -> int:
             )
             with conn.cursor() as cur, cur.copy(
                 "COPY market_ticks "
-                "(timestamp, ticker, open_price, high_price, low_price, close_price, volume) "
+                "(timestamp, ticker, open_price, high_price, low_price, close_price, volume, source) "
                 "FROM STDIN"
             ) as copy:
                 for r in all_rows:
@@ -1081,19 +1321,26 @@ def fetch_ticker_detail(ticker: str) -> dict[str, float | None]:
 
 
 def fetch_macro_indicators() -> dict[str, float]:
-    """Fetch macro economic indicators.
+    """Fetch macro economic indicators from all configured sources.
 
-    Priority:
+    Source priority (US):
     1. FRED API (authoritative, monthly cadence) when FRED_API_KEY is set.
     2. yfinance real-time proxies (T10Y, T3M, VIX) as always-on fallback.
+    3. BLS Data API (supplement: US_CPI_BLS, US_UNRATE_BLS).
 
-    Returns a dict of series_id → latest float value.
-    Writes each successful fetch to the macro_indicators hypertable.
+    Additional sources (no US overlap):
+    4. ECB Data Portal (EU_HICP — Eurozone inflation, no key required).
+    5. 한국은행 ECOS API (KR_BASE_RATE, KR_CPI — requires BOK_API_KEY).
+
+    Each series is stored with its own source and country in macro_indicators.
+    Returns a flat dict of series_id → latest value for all collected series.
     """
-    results: dict[str, float] = {}
+    # (series_id → value) and (series_id → (source, country))
+    results:    dict[str, float]         = {}
+    source_map: dict[str, tuple[str, str]] = {}
     now_kst = datetime.now(_KST)
 
-    # ── FRED path ─────────────────────────────────────────────────────────────
+    # ── 1. FRED (US authoritative) ────────────────────────────────────────────
     if FRED_API_KEY:
         for series_id, fred_id in MACRO_FRED_SERIES.items():
             url = (
@@ -1107,40 +1354,56 @@ def fetch_macro_indicators() -> dict[str, float]:
                 obs = payload.get("observations", [])
                 if obs and obs[0].get("value", ".") != ".":
                     results[series_id] = round(float(obs[0]["value"]), 4)
+                    source_map[series_id] = ("FRED", "US")
             except Exception as exc:
                 logger.warning("fred_fetch_failed", extra={"series": fred_id, "error": str(exc)})
 
-    # ── yfinance proxy path ───────────────────────────────────────────────────
+    # ── 2. yfinance proxies (US, always-on fallback) ──────────────────────────
     for series_id, yf_symbol in MACRO_YF_PROXIES.items():
         if series_id in results:
-            continue  # already fetched from FRED
+            continue
         try:
             df = yf.Ticker(yf_symbol).history(period="2d", interval="1d")
             if not df.empty:
                 results[series_id] = round(float(df["Close"].iloc[-1]), 4)
+                source_map[series_id] = ("yfinance", "US")
         except Exception as exc:
             logger.warning("macro_yf_fetch_failed", extra={"series": series_id, "error": str(exc)})
 
-    # ── Mock fallback — dashboard stays coherent even when all live feeds fail ──
+    # ── 3. BLS (US supplement — does not override FRED) ──────────────────────
+    for series_id, value in _fetch_bls_macro().items():
+        if series_id not in results:
+            results[series_id] = value
+            source_map[series_id] = ("bls", "US")
+
+    # ── 4. ECB (EU — independent series, no overlap with US) ─────────────────
+    for series_id, value in _fetch_ecb_macro().items():
+        results[series_id] = value
+        source_map[series_id] = ("ecb", "EU")
+
+    # ── 5. BOK (KR — independent series) ─────────────────────────────────────
+    for series_id, value in _fetch_bok_macro().items():
+        results[series_id] = value
+        source_map[series_id] = ("bok", "KR")
+
+    # ── Mock fallback — US dashboard stays coherent when all live feeds fail ──
     if not results:
         logger.warning("macro_fetch_all_failed_using_mock")
         results = dict(_MACRO_MOCK_FALLBACK)
+        source_map = dict.fromkeys(results, ("mock", "US"))
 
     # ── Persist to DB ─────────────────────────────────────────────────────────
-    # ON CONFLICT target requires the UNIQUE (snapshot_time, series_id) constraint
-    # added by _DDL_MACRO_BACKFILL on first startup.
     try:
-        source  = "FRED" if FRED_API_KEY else "yfinance"
-        country = "US"
         with get_connection() as conn:
             for series_id, value in results.items():
+                src, cty = source_map.get(series_id, ("unknown", "US"))
                 conn.execute(
                     "INSERT INTO macro_indicators "
                     "    (snapshot_time, series_id, value, source, country) "
                     "VALUES (%s, %s, %s, %s, %s) "
                     "ON CONFLICT (snapshot_time, series_id) "
                     "DO UPDATE SET value = EXCLUDED.value, source = EXCLUDED.source",
-                    (now_kst, series_id, value, source, country),
+                    (now_kst, series_id, value, src, cty),
                 )
             conn.commit()
         logger.info("macro_indicators_upserted", extra={"count": len(results)})
@@ -1340,15 +1603,33 @@ def execute_virtual_order(
     side: Literal["BUY", "SELL"],
     quantity: float,
     price: float,
+    commission_rate: float = 0.00025,
+    slippage_pct: float = 0.001,
     config: DatabaseConfig | None = None,
 ) -> dict[str, Any]:
-    """Execute an immediate-fill virtual order against the given price.
+    """Execute an immediate-fill virtual order with commission and slippage.
 
     BUY debits ``virtual_accounts.cash_balance`` for the ticker's currency and
     upserts a weighted-average-cost ``portfolio_holdings`` row. SELL credits
     cash and decrements the holding (deleting the row once quantity reaches
     zero). Insufficient cash or insufficient holdings rejects the order
     (status="REJECTED") without mutating any balance.
+
+    Slippage is applied to the fill price before commission:
+    - BUY : ``fill_price = price × (1 + slippage_pct)``
+    - SELL: ``fill_price = price × (1 - slippage_pct)``
+
+    Commission is charged on top of the fill notional:
+    ``commission = fill_price × quantity × commission_rate``
+
+    Total cash deducted on BUY = ``notional + commission``.
+    Total cash credited on SELL = ``notional − commission``.
+
+    Args:
+        commission_rate: Fraction of notional charged as broker commission
+                         (default 0.00025 = 0.025 %).
+        slippage_pct:    One-way market-impact fraction applied to fill price
+                         (default 0.001 = 0.1 %).
 
     Single DB transaction — rows are locked with SELECT ... FOR UPDATE so
     concurrent orders against the same account/ticker serialize correctly.
@@ -1359,7 +1640,15 @@ def execute_virtual_order(
         return {"status": "REJECTED", "reason": "invalid_price"}
 
     currency = _ticker_currency(ticker)
-    notional = round(quantity * price, 4)
+
+    # Apply slippage to the fill price
+    if side == "BUY":
+        fill_price = round(price * (1.0 + slippage_pct), 6)
+    else:
+        fill_price = round(price * (1.0 - slippage_pct), 6)
+
+    notional   = round(quantity * fill_price, 4)
+    commission = round(notional * commission_rate, 4)
 
     try:
         with get_connection(config) as conn:
@@ -1379,11 +1668,12 @@ def execute_virtual_order(
             held_cost = float(holding_row[1]) if holding_row else 0.0
 
             if side == "BUY":
-                if notional > cash_balance:
+                total_debit = round(notional + commission, 4)
+                if total_debit > cash_balance:
                     return {
                         "status":    "REJECTED",
                         "reason":    "insufficient_cash",
-                        "required":  notional,
+                        "required":  total_debit,
                         "available": cash_balance,
                     }
                 new_qty  = held_qty + quantity
@@ -1398,7 +1688,7 @@ def execute_virtual_order(
                 conn.execute(
                     "UPDATE virtual_accounts SET cash_balance = cash_balance - %s, updated_at = NOW() "
                     "WHERE currency = %s",
-                    (notional, currency),
+                    (total_debit, currency),
                 )
             else:  # SELL
                 if quantity > held_qty:
@@ -1416,16 +1706,18 @@ def execute_virtual_order(
                         "UPDATE portfolio_holdings SET quantity = %s, updated_at = NOW() WHERE ticker = %s",
                         (remaining, ticker),
                     )
+                net_proceeds = round(notional - commission, 4)
                 conn.execute(
                     "UPDATE virtual_accounts SET cash_balance = cash_balance + %s, updated_at = NOW() "
                     "WHERE currency = %s",
-                    (notional, currency),
+                    (net_proceeds, currency),
                 )
 
             order_row = conn.execute(
-                "INSERT INTO virtual_orders (ticker, side, quantity, fill_price, currency, status) "
-                "VALUES (%s, %s, %s, %s, %s, 'FILLED') RETURNING id",
-                (ticker, side, quantity, price, currency),
+                "INSERT INTO virtual_orders"
+                " (ticker, side, quantity, fill_price, currency, status, slippage_pct, commission)"
+                " VALUES (%s, %s, %s, %s, %s, 'FILLED', %s, %s) RETURNING id",
+                (ticker, side, quantity, fill_price, currency, slippage_pct, commission),
             ).fetchone()
             order_id = order_row[0] if order_row else None
 
@@ -1436,13 +1728,16 @@ def execute_virtual_order(
                 (
                     "virtual_order_filled",
                     _json.dumps({
-                        "order_id":  order_id,
-                        "ticker":    ticker,
-                        "side":      side,
-                        "quantity":  quantity,
-                        "price":     price,
-                        "currency":  currency,
-                        "notional":  notional,
+                        "order_id":     order_id,
+                        "ticker":       ticker,
+                        "side":         side,
+                        "quantity":     quantity,
+                        "price":        price,
+                        "fill_price":   fill_price,
+                        "currency":     currency,
+                        "notional":     notional,
+                        "commission":   commission,
+                        "slippage_pct": slippage_pct,
                     }),
                 ),
             )
@@ -1450,17 +1745,26 @@ def execute_virtual_order(
 
         logger.info(
             "virtual_order_filled",
-            extra={"ticker": ticker, "side": side, "quantity": quantity, "price": price, "order_id": order_id},
+            extra={
+                "ticker":     ticker,
+                "side":       side,
+                "quantity":   quantity,
+                "fill_price": fill_price,
+                "commission": commission,
+                "order_id":   order_id,
+            },
         )
         return {
-            "status":     "FILLED",
-            "order_id":   order_id,
-            "ticker":     ticker,
-            "side":       side,
-            "quantity":   quantity,
-            "fill_price": price,
-            "currency":   currency,
-            "notional":   notional,
+            "status":       "FILLED",
+            "order_id":     order_id,
+            "ticker":       ticker,
+            "side":         side,
+            "quantity":     quantity,
+            "fill_price":   fill_price,
+            "currency":     currency,
+            "notional":     notional,
+            "commission":   commission,
+            "slippage_pct": slippage_pct,
         }
     except Exception as exc:
         logger.error("virtual_order_failed", extra={"ticker": ticker, "error": str(exc)})
@@ -1502,6 +1806,184 @@ def get_virtual_accounts(config: DatabaseConfig | None = None) -> dict[str, dict
     except Exception as exc:
         logger.warning("get_virtual_accounts_failed", extra={"error": str(exc)})
         return {}
+
+
+def record_portfolio_nav(
+    prices: dict[str, float],
+    config: DatabaseConfig | None = None,
+) -> dict[str, float]:
+    """Compute portfolio NAV and insert a snapshot into portfolio_nav_snapshots.
+
+    Args:
+        prices: ``{ticker: current_price}`` — used to mark holdings to market.
+
+    Returns:
+        ``{currency: total_nav}`` for the snapshotted currencies.
+        Returns ``{}`` and logs a warning on DB error.
+    """
+    try:
+        holdings = get_portfolio_holdings(config)
+        accounts = get_virtual_accounts(config)
+        if not accounts:
+            return {}
+
+        # Group holdings by currency and compute mark-to-market value
+        holdings_value_by_currency: dict[str, float] = {}
+        for h in holdings:
+            currency = str(h["currency"])
+            ticker   = str(h["ticker"])
+            qty      = float(h["quantity"])
+            mark     = prices.get(ticker, float(h["avg_cost"]))
+            holdings_value_by_currency[currency] = (
+                holdings_value_by_currency.get(currency, 0.0) + qty * mark
+            )
+
+        now = datetime.now(tz=_KST)
+        result: dict[str, float] = {}
+
+        with get_connection(config) as conn:
+            for currency, acct in accounts.items():
+                cash    = acct["cash_balance"]
+                h_value = holdings_value_by_currency.get(currency, 0.0)
+                total   = round(cash + h_value, 4)
+                conn.execute(
+                    "INSERT INTO portfolio_nav_snapshots"
+                    " (snapshot_at, currency, cash_balance, holdings_value, total_nav)"
+                    " VALUES (%s, %s, %s, %s, %s)"
+                    " ON CONFLICT (snapshot_at, currency) DO NOTHING",
+                    (now, currency, round(cash, 4), round(h_value, 4), total),
+                )
+                result[currency] = total
+            conn.commit()
+
+        logger.info("portfolio_nav_recorded", extra={"nav": result})
+        return result
+    except Exception as exc:
+        logger.warning("portfolio_nav_record_failed", extra={"error": str(exc)})
+        return {}
+
+
+def get_portfolio_nav_history(
+    days: int = 30,
+    config: DatabaseConfig | None = None,
+) -> list[dict[str, Any]]:
+    """Return the last *days* NAV snapshots, newest first.
+
+    Returns a list of ``{snapshot_at, currency, cash_balance, holdings_value, total_nav}``
+    dicts, or ``[]`` on error.
+    """
+    try:
+        with get_connection(config) as conn:
+            rows = conn.execute(
+                "SELECT snapshot_at, currency, cash_balance, holdings_value, total_nav"
+                " FROM portfolio_nav_snapshots"
+                " WHERE snapshot_at >= NOW() - (%s || ' days')::INTERVAL"
+                " ORDER BY snapshot_at DESC",
+                (str(days),),
+            ).fetchall()
+        return [
+            {
+                "snapshot_at":    str(r[0]),
+                "currency":       str(r[1]),
+                "cash_balance":   float(r[2]),
+                "holdings_value": float(r[3]),
+                "total_nav":      float(r[4]),
+            }
+            for r in rows
+        ]
+    except Exception as exc:
+        logger.warning("get_portfolio_nav_history_failed", extra={"error": str(exc)})
+        return []
+
+
+# ── Historical data ingestion ─────────────────────────────────────────────────
+
+
+def fetch_historical_data(
+    tickers: dict[str, str] | None = None,
+    years: int = 2,
+    config: DatabaseConfig | None = None,
+) -> int:
+    """Download EOD close prices into the historical_prices hypertable.
+
+    Fetches ``years`` years of daily close prices for every ticker in
+    ``tickers`` (defaults to ``LIVE_TICKERS``) via yfinance and upserts
+    each row with ``ON CONFLICT (timestamp, ticker) DO NOTHING``, so
+    repeated calls are idempotent. Returns the total number of rows written.
+
+    Errors per ticker are logged and swallowed — a partial result is still
+    useful for the BacktestEngine. Callers should handle ``0`` returned rows
+    gracefully.
+    """
+    if tickers is None:
+        tickers = LIVE_TICKERS
+    total_inserted = 0
+    for internal_id, yf_symbol in tickers.items():
+        try:
+            df = yf.Ticker(yf_symbol).history(period=f"{years}y")
+            if df.empty:
+                logger.warning("historical_data_empty", extra={"ticker": internal_id})
+                continue
+            rows: list[tuple[datetime, str, float, str]] = []
+            for idx, row in df.iterrows():
+                with contextlib.suppress(Exception):
+                    rows.append((_to_kst(idx), internal_id, float(row["Close"]), "yfinance"))
+            if not rows:
+                continue
+            with get_connection(config) as conn:
+                for ts_kst, tid, close, src in rows:
+                    conn.execute(
+                        "INSERT INTO historical_prices"
+                        " (timestamp, ticker, close_price, source)"
+                        " VALUES (%s, %s, %s, %s)"
+                        " ON CONFLICT (timestamp, ticker) DO NOTHING",
+                        (ts_kst, tid, close, src),
+                    )
+                conn.commit()
+            total_inserted += len(rows)
+            logger.debug("historical_data_upserted", extra={"ticker": internal_id, "rows": len(rows)})
+        except Exception as exc:
+            logger.warning("historical_data_fetch_failed", extra={"ticker": internal_id, "error": str(exc)})
+    logger.info("historical_data_complete", extra={"total_rows": total_inserted})
+    return total_inserted
+
+
+# ── Push subscription store ────────────────────────────────────────────────────
+
+def upsert_push_subscription(endpoint: str, p256dh: str, auth: str, config: DatabaseConfig | None = None) -> None:
+    """Insert or replace a browser push subscription."""
+    try:
+        with get_connection(config) as conn:
+            conn.execute(
+                "INSERT INTO push_subscriptions (endpoint, p256dh, auth) "
+                "VALUES (%s, %s, %s) "
+                "ON CONFLICT (endpoint) DO UPDATE SET p256dh = EXCLUDED.p256dh, auth = EXCLUDED.auth",
+                (endpoint, p256dh, auth),
+            )
+    except Exception as exc:
+        logger.warning("push_subscription_upsert_failed", extra={"error": str(exc)})
+
+
+def delete_push_subscription(endpoint: str, config: DatabaseConfig | None = None) -> None:
+    """Remove a push subscription by endpoint URL."""
+    try:
+        with get_connection(config) as conn:
+            conn.execute("DELETE FROM push_subscriptions WHERE endpoint = %s", (endpoint,))
+    except Exception as exc:
+        logger.warning("push_subscription_delete_failed", extra={"error": str(exc)})
+
+
+def list_push_subscriptions(config: DatabaseConfig | None = None) -> list[dict[str, Any]]:
+    """Return all stored push subscriptions as a list of dicts."""
+    try:
+        with get_connection(config) as conn:
+            rows = conn.execute(
+                "SELECT endpoint, p256dh, auth FROM push_subscriptions ORDER BY id"
+            ).fetchall()
+        return [{"endpoint": r[0], "keys": {"p256dh": r[1], "auth": r[2]}} for r in rows]
+    except Exception as exc:
+        logger.warning("push_subscription_list_failed", extra={"error": str(exc)})
+        return []
 
 
 # ── Entrypoint ────────────────────────────────────────────────────────────────

@@ -39,9 +39,12 @@ from sse_starlette.sse import EventSourceResponse
 from src import config
 from src.database import (
     FRED_API_KEY,
+    LIVE_TICKERS,
     _PoolManager,
+    delete_push_subscription,
     execute_virtual_order,
     fetch_fund_nav,
+    fetch_historical_data,
     fetch_live_index_data,
     fetch_live_market_data,
     fetch_live_news,
@@ -51,11 +54,21 @@ from src.database import (
     get_connection,
     get_latest_prices,
     get_portfolio_holdings,
+    get_portfolio_nav_history,
     get_virtual_accounts,
     init_db,
     init_milvus,
+    list_push_subscriptions,
+    record_portfolio_nav,
     search_milvus_news,
     seed_mock_data,
+    upsert_push_subscription,
+)
+from src.domain.notifications.service import (
+    build_regime_email_html,
+    generate_vapid_keys,
+    send_email_alert,
+    send_web_push,
 )
 from src.engines import (
     DISPLAY_NAMES,
@@ -116,6 +129,9 @@ _REGIME_CACHE: dict[str, Any] = {
     "market_phase":     "LATE_CYCLE",
     "confidence_score": 0.85,
 }
+
+# Tracks the last regime name seen by the collector loop to detect transitions
+_LAST_NOTIFIED_REGIME: str = ""
 
 # Per-ticker placeholder news (seed for SentimentEngine)
 _TICKER_NEWS: dict[str, list[str]] = {
@@ -223,6 +239,12 @@ _MACRO_COLLECTOR_TASK: asyncio.Task[None] | None = None
 _FUND_NAV_CACHE: dict[str, float] = {}
 _FUND_NAV_COLLECTOR_TASK: asyncio.Task[None] | None = None
 
+# Daily historical-data collector — backfills historical_prices on startup
+_HISTORICAL_COLLECTOR_TASK: asyncio.Task[None] | None = None
+
+# Daily NAV snapshot loop — records portfolio_nav_snapshots once per day
+_NAV_SNAPSHOT_TASK: asyncio.Task[None] | None = None
+
 # ── Slack webhook (optional) ──────────────────────────────────────────────────
 _SLACK_WEBHOOK_URL: str = _os.getenv("SLACK_WEBHOOK_URL", "")
 
@@ -237,6 +259,35 @@ async def _slack_alert(msg: str) -> None:
             await client.post(_SLACK_WEBHOOK_URL, json={"text": f":aleph-one: {msg}"})
     except Exception:
         pass  # Never let alerting crash the collector
+
+
+async def _broadcast_regime_alert(old_regime: str, new_regime: str) -> None:
+    """Fire email + web push alerts for a regime transition.
+
+    Both channels are attempted independently; a failure in one does not
+    suppress the other.
+    """
+    confidence   = float(_REGIME_CACHE.get("confidence_score", 0.85))
+    market_phase = str(_REGIME_CACHE.get("market_phase", "UNKNOWN"))
+    subject      = f"[Aleph-One] Regime Transition: {old_regime} → {new_regime}"
+    html_body    = build_regime_email_html(old_regime, new_regime, confidence, market_phase)
+    await send_email_alert(subject, html_body)
+    push_title = f"Regime Transition: {new_regime}"
+    push_body  = f"{old_regime} → {new_regime} (confidence {confidence:.0%})"
+    subscriptions = await asyncio.to_thread(list_push_subscriptions)
+    stale: list[str] = []
+    for sub in subscriptions:
+        ok = await send_web_push(sub, push_title, push_body)
+        if not ok:
+            stale.append(sub.get("endpoint", ""))
+    # Remove subscriptions that responded with 410 Gone
+    for endpoint in stale:
+        if endpoint:
+            await asyncio.to_thread(delete_push_subscription, endpoint)
+    logger.info(
+        "regime_alert_broadcast",
+        extra={"old": old_regime, "new": new_regime, "push_count": len(subscriptions)},
+    )
 
 
 def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | None:
@@ -269,6 +320,29 @@ def _fetch_price_df_from_db(ticker: str, n_rows: int = 20) -> pd.DataFrame | Non
 
     _DB_PRICE_CACHE[ticker] = (df, now)
     return df
+
+
+def _fetch_historical_price_df(ticker: str, n_rows: int = 500) -> pd.DataFrame | None:
+    """Return up to n_rows close prices from historical_prices for use in backtesting.
+
+    historical_prices holds 2 years of EOD data (populated by
+    _historical_collector_loop on startup). Returns None when the table is
+    empty for this ticker so callers can fall back to market_ticks.
+    """
+    try:
+        with get_connection() as conn:
+            rows = conn.execute(
+                "SELECT close_price FROM ("
+                "  SELECT close_price, timestamp FROM historical_prices"
+                "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT %s"
+                ") sub ORDER BY timestamp ASC",
+                (ticker, n_rows),
+            ).fetchall()
+        if rows:
+            return pd.DataFrame({"close_price": [float(r[0]) for r in rows]})
+    except Exception as exc:
+        logger.warning("historical_price_fetch_failed", extra={"ticker": ticker, "error": str(exc)})
+    return None
 
 
 _PortfolioCacheEntry = tuple[dict[str, dict[str, float]], list[dict[str, Any]]]
@@ -593,6 +667,12 @@ def _build_payload(rng: random.Random, persona: PersonaProfile = "AGGRESSIVE") -
     else:
         live_regime_name   = _REGIME_CACHE.get("regime_name", "POLICY_TIGHTENING")
         live_regime_conf   = _REGIME_CACHE.get("confidence_score", 0.85)
+
+    # Regime transition detection — fire alerts when label changes
+    global _LAST_NOTIFIED_REGIME
+    if _LAST_NOTIFIED_REGIME and live_regime_name != _LAST_NOTIFIED_REGIME:
+        asyncio.create_task(_broadcast_regime_alert(_LAST_NOTIFIED_REGIME, live_regime_name))
+    _LAST_NOTIFIED_REGIME = live_regime_name
 
     # Derive active_signals from risk_matrix (top 3 by confidence)
     sorted_rows = sorted(
@@ -1012,10 +1092,13 @@ def run_backtest_tool(ticker: str) -> str:
         ticker: Internal ticker ID. Valid values: AAPL, MSFT, TSLA, QQQ, BND,
                  GLD, 005930, 000660, 035420, 051910, 006400, 122630
     """
-    price_df = _fetch_price_df_from_db(ticker, n_rows=60)
+    # Prefer historical_prices (2 years EOD) — much better signal for SMA(20)
+    price_df = _fetch_historical_price_df(ticker, n_rows=500)
+    if price_df is None or len(price_df) < 20:
+        price_df = _fetch_price_df_from_db(ticker, n_rows=60)
     if price_df is None or len(price_df) < 20:
         price_df = pd.DataFrame({"close_price": _PRICE_HISTORY.get(ticker, [])})
-    if price_df.empty or len(price_df) < 20:
+    if price_df is None or price_df.empty or len(price_df) < 20:
         return json.dumps({"error": f"insufficient_price_history_for_{ticker}", "ticker": ticker})
 
     try:
@@ -1033,6 +1116,114 @@ def run_backtest_tool(ticker: str) -> str:
         "num_trades":       result.num_trades,
         "final_value":      round(result.final_value, 2),
     })
+
+
+@tool
+def get_risk_summary_tool() -> str:
+    """Return VaR (95 %), max drawdown, annualised volatility, cross-ticker
+    correlation, and portfolio sector concentration for all tracked tickers.
+
+    Data is sourced from the historical_prices table (2-year EOD window).
+    Returns an error JSON when historical data is not yet available
+    (server has not finished its startup backfill).
+    """
+    from src.domain.risk.engine import compute_risk_summary
+
+    prices_by_ticker: dict[str, pd.Series] = {}
+    try:
+        with get_connection() as conn:
+            for ticker in LIVE_TICKERS:
+                rows = conn.execute(
+                    "SELECT close_price FROM ("
+                    "  SELECT close_price, timestamp FROM historical_prices"
+                    "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT 500"
+                    ") sub ORDER BY timestamp ASC",
+                    (ticker,),
+                ).fetchall()
+                if rows:
+                    prices_by_ticker[ticker] = pd.Series(
+                        [float(r[0]) for r in rows], dtype=float
+                    )
+    except Exception as exc:
+        return json.dumps({"error": "db_unavailable", "detail": str(exc)})
+
+    if not prices_by_ticker:
+        return json.dumps({"error": "awaiting_historical_data_backfill"})
+
+    holdings_data = get_portfolio_holdings()
+    holdings: dict[str, float] = {
+        h["ticker"]: h["quantity"] * _PRICE_STATE.get(h["ticker"], h["avg_cost"])
+        for h in holdings_data
+        if h["quantity"] > 0
+    }
+
+    summary = compute_risk_summary(prices_by_ticker, holdings, TICKER_GROUPS)
+    return json.dumps(summary.model_dump())
+
+
+@tool
+def get_synthesis_view_tool() -> str:
+    """Return the cross-engine synthesis view: status, risk-adjusted conviction,
+    and dominant concern derived from macro regime, quant signals, conflict
+    surface, and portfolio risk metrics.
+    """
+    from src.domain.synthesis.engine import compute_synthesis_view
+
+    regime_name  = str(_REGIME_CACHE.get("regime_name", "unknown"))
+    confidence   = float(_REGIME_CACHE.get("confidence_score", 0.5))
+    regime_label = _SYNTHESIS_REGIME_MAP.get(regime_name.upper(), "unknown")
+
+    vix    = float(_MACRO_CACHE.get("VIX",  20.0))
+    t10y   = float(_MACRO_CACHE.get("T10Y",  4.35))
+    t3m    = float(_MACRO_CACHE.get("T3M",   5.28))
+    spread = round(t10y - t3m, 4)
+
+    quant_support = _derive_quant_support(vix, spread)
+    conflict_str  = _derive_conflict_status(regime_label, vix, spread)
+
+    prices_by_ticker: dict[str, pd.Series] = {}
+    avg_var_95    = 0.0
+    worst_mdd_pct = 0.0
+    try:
+        from src.domain.risk.engine import compute_risk_summary
+        with get_connection() as conn:
+            for ticker in LIVE_TICKERS:
+                rows = conn.execute(
+                    "SELECT close_price FROM ("
+                    "  SELECT close_price, timestamp FROM historical_prices"
+                    "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT 500"
+                    ") sub ORDER BY timestamp ASC",
+                    (ticker,),
+                ).fetchall()
+                if rows:
+                    prices_by_ticker[ticker] = pd.Series(
+                        [float(r[0]) for r in rows], dtype=float
+                    )
+        if prices_by_ticker:
+            holdings_data = get_portfolio_holdings()
+            holdings: dict[str, float] = {
+                h["ticker"]: h["quantity"] * _PRICE_STATE.get(h["ticker"], h["avg_cost"])
+                for h in holdings_data
+                if h["quantity"] > 0
+            }
+            risk_s = compute_risk_summary(prices_by_ticker, holdings, TICKER_GROUPS)
+            if risk_s.ticker_risks:
+                var_vals = [tr.var_95_pct       for tr in risk_s.ticker_risks.values()]
+                mdd_vals = [tr.max_drawdown_pct  for tr in risk_s.ticker_risks.values()]
+                avg_var_95    = round(sum(var_vals) / len(var_vals), 4)
+                worst_mdd_pct = round(min(mdd_vals), 4)
+    except Exception as exc:
+        logger.warning("synthesis_tool_risk_error", extra={"error": str(exc)})
+
+    view = compute_synthesis_view(
+        regime_label=regime_label,
+        macro_confidence=confidence,
+        quant_overall_support=quant_support,
+        conflict_status=conflict_str,
+        avg_var_95=avg_var_95,
+        worst_mdd_pct=worst_mdd_pct,
+    )
+    return json.dumps({**view.model_dump(), "regime_name": regime_name})
 
 
 def _build_lc_agent() -> Any:  # noqa: ANN401
@@ -1058,6 +1249,8 @@ def _build_lc_agent() -> Any:  # noqa: ANN401
         run_backtest_tool,
         get_portfolio_summary_tool,
         execute_virtual_order_tool,
+        get_risk_summary_tool,
+        get_synthesis_view_tool,
     ]
     agent = create_react_agent(llm, tools, prompt=_AGENT_SYSTEM_PROMPT)
     logger.info("lc_agent_built", extra={"tools": len(tools)})
@@ -1230,10 +1423,60 @@ async def _fund_nav_collector_loop() -> None:
             raise
 
 
+async def _historical_collector_loop() -> None:
+    """Background task: populate historical_prices on startup, then refresh daily.
+
+    Downloads 2 years of EOD close prices for all LIVE_TICKERS via yfinance
+    and upserts them into the historical_prices hypertable.  This gives
+    BacktestEngine enough data for SMA(20) crossover signals (instead of
+    relying on the 5-day rolling market_ticks window).  The first run
+    executes immediately on startup; subsequent runs fire every 86400 s.
+    """
+    logger.info("historical_collector_started")
+    while True:
+        try:
+            n = await asyncio.to_thread(fetch_historical_data)
+            logger.info("historical_data_collected", extra={"rows": n})
+        except asyncio.CancelledError:
+            logger.info("historical_collector_stopped")
+            raise
+        except Exception as exc:
+            logger.warning("historical_collector_error", extra={"error": str(exc)})
+        try:
+            await asyncio.sleep(86400)
+        except asyncio.CancelledError:
+            logger.info("historical_collector_stopped")
+            raise
+
+
+async def _nav_snapshot_loop() -> None:
+    """Background task: record portfolio NAV once per day at market close.
+
+    Runs once immediately on startup (so there is always at least one snapshot),
+    then sleeps 86400 s before the next snapshot.  Uses ``_PRICE_STATE`` for
+    mark-to-market valuation so the snapshot reflects the most-recent live tick.
+    """
+    logger.info("nav_snapshot_loop_started")
+    while True:
+        try:
+            nav = await asyncio.to_thread(record_portfolio_nav, dict(_PRICE_STATE))
+            logger.info("portfolio_nav_snapshot_recorded", extra={"nav": nav})
+        except asyncio.CancelledError:
+            logger.info("nav_snapshot_loop_stopped")
+            raise
+        except Exception as exc:
+            logger.warning("nav_snapshot_error", extra={"error": str(exc)})
+        try:
+            await asyncio.sleep(86400)
+        except asyncio.CancelledError:
+            logger.info("nav_snapshot_loop_stopped")
+            raise
+
+
 @asynccontextmanager
 async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     """Startup: DB init → seed → load history → cache regime. Shutdown: close pool."""
-    global _MACRO_COLLECTOR_TASK, _FUND_NAV_COLLECTOR_TASK
+    global _MACRO_COLLECTOR_TASK, _FUND_NAV_COLLECTOR_TASK, _HISTORICAL_COLLECTOR_TASK, _NAV_SNAPSHOT_TASK
 
     logger.info("aleph_one_startup")
     try:
@@ -1269,6 +1512,12 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
     # Start daily fund NAV collector (dormant no-op until KOFIA adapter is real)
     _FUND_NAV_COLLECTOR_TASK = asyncio.create_task(_fund_nav_collector_loop())
 
+    # Backfill 2-year EOD history on startup so BacktestEngine has real data
+    _HISTORICAL_COLLECTOR_TASK = asyncio.create_task(_historical_collector_loop())
+
+    # Record daily NAV snapshots (mark-to-market portfolio value + cash)
+    _NAV_SNAPSHOT_TASK = asyncio.create_task(_nav_snapshot_loop())
+
     logger.info("aleph_one_ready")
     yield
 
@@ -1276,6 +1525,10 @@ async def _lifespan(application: FastAPI) -> AsyncGenerator[None, None]:
         _MACRO_COLLECTOR_TASK.cancel()
     if _FUND_NAV_COLLECTOR_TASK is not None:
         _FUND_NAV_COLLECTOR_TASK.cancel()
+    if _HISTORICAL_COLLECTOR_TASK is not None:
+        _HISTORICAL_COLLECTOR_TASK.cancel()
+    if _NAV_SNAPSHOT_TASK is not None:
+        _NAV_SNAPSHOT_TASK.cancel()
     _PoolManager.close()
     logger.info("aleph_one_shutdown")
 
@@ -1780,6 +2033,390 @@ async def portfolio_summary() -> dict[str, Any]:
             "status":    "ERROR",
             "error":     str(exc),
         }
+
+
+@app.get("/api/v1/portfolio/nav-history", tags=["portfolio"])
+async def portfolio_nav_history(days: int = 30) -> dict[str, Any]:
+    """Return the last *days* daily NAV snapshots.
+
+    Each snapshot records ``cash_balance``, ``holdings_value``, and
+    ``total_nav`` per currency, captured once daily by the background
+    ``_nav_snapshot_loop``.  The first snapshot is written at server startup.
+
+    Args:
+        days: Number of calendar days to look back (default 30).
+    """
+    snapshots = await asyncio.to_thread(get_portfolio_nav_history, days)
+    return {
+        "timestamp": datetime.now(tz=_KST).isoformat(),
+        "status":    "ok",
+        "days":      days,
+        "snapshots": snapshots,
+    }
+
+
+@app.get("/api/v1/risk/summary", tags=["risk"])
+async def risk_summary() -> dict[str, Any]:
+    """Compute VaR, MDD, correlation matrix, and sector concentration.
+
+    Reads the last 500 trading days of close prices from the
+    ``historical_prices`` table (populated on startup by
+    ``_historical_collector_loop``), then delegates all computation to
+    the pure functions in :mod:`src.domain.risk.engine`.
+
+    Returns HTTP 503 when the historical-prices table is empty or the DB
+    is unreachable — callers should retry after the server has finished its
+    startup historical-data backfill (~30 s per 16 tickers on first boot).
+    """
+    from src.domain.risk.engine import compute_risk_summary
+
+    prices_by_ticker: dict[str, pd.Series] = {}
+    try:
+        with get_connection() as conn:
+            for ticker in LIVE_TICKERS:
+                rows = conn.execute(
+                    "SELECT close_price FROM ("
+                    "  SELECT close_price, timestamp FROM historical_prices"
+                    "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT 500"
+                    ") sub ORDER BY timestamp ASC",
+                    (ticker,),
+                ).fetchall()
+                if rows:
+                    prices_by_ticker[ticker] = pd.Series(
+                        [float(r[0]) for r in rows], dtype=float
+                    )
+    except Exception as exc:
+        logger.warning("risk_summary_db_error", extra={"error": str(exc)})
+        return {
+            "timestamp": datetime.now(tz=_KST).isoformat(),
+            "status":    "ERROR",
+            "error":     "historical data unavailable",
+        }
+
+    if not prices_by_ticker:
+        return {
+            "timestamp": datetime.now(tz=_KST).isoformat(),
+            "status":    "AWAITING_DATA",
+            "message":   "historical_prices table is empty; backfill in progress",
+        }
+
+    holdings_data = await asyncio.to_thread(get_portfolio_holdings)
+    holdings: dict[str, float] = {
+        h["ticker"]: h["quantity"] * _PRICE_STATE.get(h["ticker"], h["avg_cost"])
+        for h in holdings_data
+        if h["quantity"] > 0
+    }
+
+    summary = compute_risk_summary(prices_by_ticker, holdings, TICKER_GROUPS)
+    return {
+        "timestamp": datetime.now(tz=_KST).isoformat(),
+        "status":    "ok",
+        **summary.model_dump(),
+    }
+
+
+# ── Regime name → synthesis vocabulary ────────────────────────────────────────
+_SYNTHESIS_REGIME_MAP: dict[str, str] = {
+    "EXPANSION":         "expansion",
+    "RECOVERY":          "recovery",
+    "POLICY_EASING":     "expansion",
+    "EARLY_CYCLE":       "expansion",
+    "MID_CYCLE":         "expansion",
+    "LATE_CYCLE":        "slowdown",
+    "POLICY_TIGHTENING": "slowdown",
+    "SLOWDOWN":          "slowdown",
+    "CONTRACTION":       "contraction",
+    "RECESSION":         "contraction",
+    "CRISIS_MODE":       "contraction",
+    "VOLATILITY_REGIME": "stagflation",
+    "STAGFLATION":       "stagflation",
+}
+
+
+def _derive_quant_support(vix: float, spread: float) -> str:
+    """Derive a quant-support label from VIX and 10Y-3M yield spread."""
+    if vix < 15 and spread > 0.5:
+        return "strong_positive"
+    if vix < 20 and spread > 0.0:
+        return "moderate_positive"
+    if vix > 30 or spread < -0.5:
+        return "strong_negative"
+    if vix > 25 or spread < 0.0:
+        return "moderate_negative"
+    return "neutral"
+
+
+def _derive_conflict_status(regime_label: str, vix: float, spread: float) -> str:
+    if regime_label == "contraction" and vix > 25:
+        return "high_conflict"
+    if vix > 20 or spread < 0.0:
+        return "medium_conflict"
+    return "low_conflict"
+
+
+@app.get("/api/v1/synthesis/view", tags=["synthesis"])
+async def synthesis_view() -> dict[str, Any]:
+    """Cross-engine synthesis — risk-adjusted conviction score and status.
+
+    Aggregates:
+    - Macro regime from ``_REGIME_CACHE``
+    - Quant support derived from ``_MACRO_CACHE`` (VIX + yield curve)
+    - Conflict status derived from regime + volatility
+    - Risk metrics (VaR, MDD) from ``historical_prices``
+
+    Returns a :class:`~domain.synthesis.models.SynthesisView` plus raw
+    input values so callers can trace the derivation.
+    """
+    from src.domain.risk.engine import compute_risk_summary
+    from src.domain.synthesis.engine import compute_synthesis_view
+
+    regime_name = str(_REGIME_CACHE.get("regime_name", "unknown"))
+    confidence  = float(_REGIME_CACHE.get("confidence_score", 0.5))
+    regime_label = _SYNTHESIS_REGIME_MAP.get(regime_name.upper(), "unknown")
+
+    vix    = float(_MACRO_CACHE.get("VIX",  20.0))
+    t10y   = float(_MACRO_CACHE.get("T10Y",  4.35))
+    t3m    = float(_MACRO_CACHE.get("T3M",   5.28))
+    spread = round(t10y - t3m, 4)
+
+    quant_support = _derive_quant_support(vix, spread)
+    conflict_str  = _derive_conflict_status(regime_label, vix, spread)
+
+    # Risk from historical prices
+    avg_var_95    = 0.0
+    worst_mdd_pct = 0.0
+    prices_by_ticker: dict[str, pd.Series] = {}
+    try:
+        with get_connection() as conn:
+            for ticker in LIVE_TICKERS:
+                rows = conn.execute(
+                    "SELECT close_price FROM ("
+                    "  SELECT close_price, timestamp FROM historical_prices"
+                    "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT 500"
+                    ") sub ORDER BY timestamp ASC",
+                    (ticker,),
+                ).fetchall()
+                if rows:
+                    prices_by_ticker[ticker] = pd.Series(
+                        [float(r[0]) for r in rows], dtype=float
+                    )
+    except Exception as exc:
+        logger.warning("synthesis_risk_db_error", extra={"error": str(exc)})
+
+    if prices_by_ticker:
+        holdings_data = await asyncio.to_thread(get_portfolio_holdings)
+        holdings = {
+            h["ticker"]: h["quantity"] * _PRICE_STATE.get(h["ticker"], h["avg_cost"])
+            for h in holdings_data
+            if h["quantity"] > 0
+        }
+        risk_s = compute_risk_summary(prices_by_ticker, holdings, TICKER_GROUPS)
+        if risk_s.ticker_risks:
+            var_vals = [tr.var_95_pct    for tr in risk_s.ticker_risks.values()]
+            mdd_vals = [tr.max_drawdown_pct for tr in risk_s.ticker_risks.values()]
+            avg_var_95    = round(sum(var_vals) / len(var_vals), 4)
+            worst_mdd_pct = round(min(mdd_vals), 4)
+
+    view = compute_synthesis_view(
+        regime_label=regime_label,
+        macro_confidence=confidence,
+        quant_overall_support=quant_support,
+        conflict_status=conflict_str,
+        avg_var_95=avg_var_95,
+        worst_mdd_pct=worst_mdd_pct,
+    )
+    return {
+        "timestamp":      datetime.now(tz=_KST).isoformat(),
+        "status":         "ok",
+        "regime_name":    regime_name,
+        "avg_var_95":     avg_var_95,
+        "worst_mdd_pct":  worst_mdd_pct,
+        **view.model_dump(),
+    }
+
+
+# Named preset scenarios for GET /api/v1/synthesis/whatif
+_WHATIF_PRESETS: dict[str, dict[str, object]] = {
+    "vix_spike": {
+        "label":               "vix_spike",
+        "quant_support_override": "strong_negative",
+        "avg_var_95_override": 6.5,
+    },
+    "yield_inversion": {
+        "label":                  "yield_inversion",
+        "quant_support_override": "moderate_negative",
+        "conflict_status_override": "medium_conflict",
+    },
+    "market_crash": {
+        "label":                "market_crash",
+        "quant_support_override": "strong_negative",
+        "avg_var_95_override":  8.0,
+        "worst_mdd_pct_override": -45.0,
+        "conflict_status_override": "high_conflict",
+    },
+    "soft_landing": {
+        "label":                   "soft_landing",
+        "regime_label_override":   "expansion",
+        "quant_support_override":  "strong_positive",
+        "conflict_status_override": "low_conflict",
+        "avg_var_95_override":     0.8,
+    },
+    "stagflation": {
+        "label":                    "stagflation",
+        "regime_label_override":    "stagflation",
+        "quant_support_override":   "strong_negative",
+        "conflict_status_override": "high_conflict",
+        "avg_var_95_override":      5.5,
+    },
+}
+
+
+@app.get("/api/v1/synthesis/whatif", tags=["synthesis"])
+async def synthesis_whatif(scenario: str = "vix_spike") -> dict[str, Any]:
+    """Run a named what-if scenario against the current synthesis baseline.
+
+    Applies pre-defined input overrides to the synthesis engine and returns
+    the before/after comparison so callers can see how conviction and status
+    would change under the hypothetical conditions.
+
+    Available scenarios (``?scenario=``):
+    - ``vix_spike``     — VaR jumps to 6.5 %, quant turns negative.
+    - ``yield_inversion`` — Yield curve inverts; moderate quant/conflict drag.
+    - ``market_crash``  — Severe VaR + MDD + high conflict.
+    - ``soft_landing``  — Expansion regime, strong quant, low conflict.
+    - ``stagflation``   — Stagflation regime with elevated VaR.
+    """
+    from src.domain.synthesis.engine import compute_synthesis_view
+    from src.domain.whatif.engine import compute_whatif_result
+    from src.domain.whatif.models import WhatIfScenario
+
+    if scenario not in _WHATIF_PRESETS:
+        available = list(_WHATIF_PRESETS)
+        return {
+            "timestamp": datetime.now(tz=_KST).isoformat(),
+            "status":    "ERROR",
+            "error":     f"unknown scenario '{scenario}'. Available: {available}",
+        }
+
+    regime_name  = str(_REGIME_CACHE.get("regime_name", "unknown"))
+    confidence   = float(_REGIME_CACHE.get("confidence_score", 0.5))
+    regime_label = _SYNTHESIS_REGIME_MAP.get(regime_name.upper(), "unknown")
+
+    vix    = float(_MACRO_CACHE.get("VIX",  20.0))
+    t10y   = float(_MACRO_CACHE.get("T10Y",  4.35))
+    t3m    = float(_MACRO_CACHE.get("T3M",   5.28))
+    spread = round(t10y - t3m, 4)
+
+    quant_support = _derive_quant_support(vix, spread)
+    conflict_str  = _derive_conflict_status(regime_label, vix, spread)
+
+    avg_var_95    = 0.0
+    worst_mdd_pct = 0.0
+    try:
+        from src.domain.risk.engine import compute_risk_summary
+        prices_by_ticker: dict[str, pd.Series] = {}
+        with get_connection() as conn:
+            for ticker in LIVE_TICKERS:
+                rows = conn.execute(
+                    "SELECT close_price FROM ("
+                    "  SELECT close_price, timestamp FROM historical_prices"
+                    "  WHERE ticker = %s ORDER BY timestamp DESC LIMIT 500"
+                    ") sub ORDER BY timestamp ASC",
+                    (ticker,),
+                ).fetchall()
+                if rows:
+                    prices_by_ticker[ticker] = pd.Series(
+                        [float(r[0]) for r in rows], dtype=float
+                    )
+        if prices_by_ticker:
+            holdings_data = await asyncio.to_thread(get_portfolio_holdings)
+            holdings: dict[str, float] = {
+                h["ticker"]: h["quantity"] * _PRICE_STATE.get(h["ticker"], h["avg_cost"])
+                for h in holdings_data
+                if h["quantity"] > 0
+            }
+            risk_s = compute_risk_summary(prices_by_ticker, holdings, TICKER_GROUPS)
+            if risk_s.ticker_risks:
+                var_vals = [tr.var_95_pct       for tr in risk_s.ticker_risks.values()]
+                mdd_vals = [tr.max_drawdown_pct  for tr in risk_s.ticker_risks.values()]
+                avg_var_95    = round(sum(var_vals) / len(var_vals), 4)
+                worst_mdd_pct = round(min(mdd_vals), 4)
+    except Exception as exc:
+        logger.warning("whatif_risk_db_error", extra={"error": str(exc)})
+
+    baseline_view = compute_synthesis_view(
+        regime_label=regime_label,
+        macro_confidence=confidence,
+        quant_overall_support=quant_support,
+        conflict_status=conflict_str,
+        avg_var_95=avg_var_95,
+        worst_mdd_pct=worst_mdd_pct,
+    )
+
+    preset = WhatIfScenario(**_WHATIF_PRESETS[scenario])  # type: ignore[arg-type]
+    result = compute_whatif_result(
+        scenario=preset,
+        baseline=baseline_view,
+        regime_label=regime_label,
+        macro_confidence=confidence,
+        quant_overall_support=quant_support,
+        conflict_status=conflict_str,
+        avg_var_95=avg_var_95,
+        worst_mdd_pct=worst_mdd_pct,
+    )
+
+    return {
+        "timestamp":     datetime.now(tz=_KST).isoformat(),
+        "status":        "ok",
+        "scenario":      scenario,
+        **result.model_dump(),
+    }
+
+
+# ── Notification endpoints ─────────────────────────────────────────────────────
+
+@app.get("/api/v1/notifications/vapid-public-key", tags=["notifications"])
+async def get_vapid_public_key() -> dict[str, str]:
+    """Return the VAPID public key for browser push subscription.
+
+    The browser calls ``PushManager.subscribe({ applicationServerKey: <key> })``
+    with this value to create a push subscription.
+    """
+    pub_key = _os.getenv("VAPID_PUBLIC_KEY", "")
+    if not pub_key:
+        # Generate an ephemeral pair for dev — not persisted across restarts
+        keys = generate_vapid_keys()
+        pub_key = keys["public_key"]
+    return {"public_key": pub_key}
+
+
+@app.post("/api/v1/notifications/subscribe", tags=["notifications"])
+async def subscribe_push(body: dict[str, Any]) -> dict[str, str]:
+    """Store a browser push subscription for regime-transition alerts.
+
+    Body must follow ``PushSubscription.toJSON()``::
+
+        {
+            "endpoint": "https://fcm.googleapis.com/fcm/send/…",
+            "keys": {"p256dh": "…", "auth": "…"}
+        }
+    """
+    endpoint = body.get("endpoint", "")
+    keys     = body.get("keys", {})
+    p256dh   = keys.get("p256dh", "") if isinstance(keys, dict) else ""
+    auth     = keys.get("auth", "")   if isinstance(keys, dict) else ""
+    if not endpoint or not p256dh or not auth:
+        from fastapi import HTTPException  # noqa: PLC0415
+        raise HTTPException(status_code=400, detail="endpoint, keys.p256dh, and keys.auth are required")
+    await asyncio.to_thread(upsert_push_subscription, endpoint, p256dh, auth)
+    return {"status": "subscribed"}
+
+
+@app.delete("/api/v1/notifications/unsubscribe", tags=["notifications"])
+async def unsubscribe_push(endpoint: str) -> dict[str, str]:
+    """Remove a push subscription by endpoint URL."""
+    await asyncio.to_thread(delete_push_subscription, endpoint)
+    return {"status": "unsubscribed"}
 
 
 @app.get("/api/v1/intelligence/stream", tags=["intelligence"])
