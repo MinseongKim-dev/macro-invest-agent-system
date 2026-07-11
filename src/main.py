@@ -60,6 +60,7 @@ from src.database import (
     init_milvus,
     list_push_subscriptions,
     record_portfolio_nav,
+    reset_virtual_portfolio,
     search_milvus_news,
     seed_mock_data,
     upsert_push_subscription,
@@ -2033,6 +2034,19 @@ async def portfolio_summary() -> dict[str, Any]:
             "status":    "ERROR",
             "error":     str(exc),
         }
+
+
+@app.post("/api/v1/portfolio/reset", tags=["portfolio"])
+async def portfolio_reset() -> dict[str, Any]:
+    """Reset the virtual portfolio: restore initial cash balances, clear all holdings and orders."""
+    global _PORTFOLIO_SUMMARY_CACHE
+    try:
+        await asyncio.to_thread(reset_virtual_portfolio)
+        _PORTFOLIO_SUMMARY_CACHE = None
+        return {"timestamp": datetime.now(tz=_KST).isoformat(), "status": "ok"}
+    except Exception as exc:
+        logger.error("portfolio_reset_failed", extra={"error": str(exc)})
+        return {"timestamp": datetime.now(tz=_KST).isoformat(), "status": "ERROR", "error": str(exc)}
 
 
 @app.get("/api/v1/portfolio/nav-history", tags=["portfolio"])

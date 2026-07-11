@@ -19,6 +19,8 @@ export const endpoints = {
   tickerDetail:     (ticker: string)   => `/api/tickers/${ticker}/detail`,
   portfolioHistory: (period: string)   => `/api/tickers/portfolio/history?period=${period}`,
   portfolioMetrics: '/api/tickers/portfolio/metrics',
+  portfolioSummary: '/api/v1/portfolio/summary',
+  portfolioReset:   '/api/v1/portfolio/reset',
   sectorSummary:    '/api/tickers/sector/summary',
   newsSummarize:    '/api/news/summarize',
 } as const
