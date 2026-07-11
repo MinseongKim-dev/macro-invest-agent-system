@@ -23,4 +23,6 @@ export const endpoints = {
   portfolioReset:   '/api/v1/portfolio/reset',
   sectorSummary:    '/api/tickers/sector/summary',
   newsSummarize:    '/api/news/summarize',
+  scenarioPresets:  '/api/scenarios/presets',
+  scenarioRun:      '/api/scenarios/run',
 } as const

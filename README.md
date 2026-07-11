@@ -1,6 +1,6 @@
 # Aleph-One
 
-**v0.4.4** · Open-source, zero-cost financial intelligence terminal
+**v0.4.5** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
 
@@ -342,6 +342,7 @@ macro-invest-agent-system/
 | **v0.4.3** | ✅ Released | Fixed missing holdings rows, real news source/link/timestamp, 52-week range on ticker detail |
 | **v0.4.4** | ✅ Released | Chart period tabs (1D/1W/1M/3M), live sector heatmap, news AI analysis, ANALYZE wired to OMNI, real Sharpe metric |
 | **v0.4.4-q** | ✅ Released | Quality pass: API hook unification, trust-badge error states, freshness UI, legacy cleanup |
+| **v0.4.5** | ✅ Released | What-If Scenario Engine — 5 built-in presets (골디락스/공황/스태그플레이션/연준긴축/소프트랜딩), conviction delta, strategy pivot detection, OMNI `run_scenario_tool` |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |

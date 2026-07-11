@@ -9,6 +9,9 @@ import type {
   AlertsRecentResponse,
   MacroSnapshot,
   VirtualPortfolioSummary,
+  ScenarioPresetsResponse,
+  ScenarioRunResponse,
+  WhatIfScenario,
 } from '@/lib/types'
 
 const POLL_FAST = 30_000   // 30s — regime + signals
@@ -97,4 +100,29 @@ export function usePortfolio(period: '1D' | '1W' | '1M' | '3M' = '1D') {
     { refreshInterval: 300_000 },
   )
   return { history, histLoading, metrics }
+}
+
+export function useScenarioPresets() {
+  return useSWR<ScenarioPresetsResponse>(
+    endpoints.scenarioPresets,
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 0 },
+  )
+}
+
+export async function runScenario(
+  preset_id: string | null,
+  scenario: WhatIfScenario | null,
+): Promise<ScenarioRunResponse> {
+  const res = await fetch(endpoints.scenarioRun, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ preset_id, scenario }),
+    cache: 'no-store',
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Scenario run failed ${res.status}: ${text}`)
+  }
+  return res.json() as Promise<ScenarioRunResponse>
 }

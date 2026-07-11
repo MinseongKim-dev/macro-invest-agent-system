@@ -1227,6 +1227,85 @@ def get_synthesis_view_tool() -> str:
     return json.dumps({**view.model_dump(), "regime_name": regime_name})
 
 
+@tool
+def run_scenario_tool(preset: str = "", regime_override: str = "", confidence_override: float = -1.0, quant_override: str = "", conflict_override: str = "", var_override: float = -1.0, mdd_override: float = 0.0) -> str:
+    """Run a what-if scenario on the current synthesis baseline and return the
+    projected regime/conviction compared to the current state.
+
+    Use this when the user asks "만약 X면 어떻게 될까?", "If VIX spikes to 40, what changes?",
+    "What if we enter a recession?", or any hypothetical scenario question.
+
+    Args:
+        preset: One of: goldilocks, crisis, stagflation, fed_tightening, soft_landing
+        regime_override: Override regime label (e.g. "contraction", "expansion")
+        confidence_override: Override macro confidence 0.0–1.0 (-1 = keep current)
+        quant_override: Override quant support (e.g. "strong_negative", "moderate_positive")
+        conflict_override: Override conflict status (e.g. "high", "low", "moderate")
+        var_override: Override avg VaR % (-1 = keep current)
+        mdd_override: Override worst MDD % (0 = keep current, use negative values like -35.0)
+    """
+    from src.domain.synthesis.engine import compute_synthesis_view  # noqa: PLC0415
+    from src.domain.whatif.engine import compute_whatif_result      # noqa: PLC0415
+    from src.domain.whatif.models import WhatIfScenario             # noqa: PLC0415
+
+    _SCENARIO_PRESETS = {
+        "goldilocks":    WhatIfScenario(label="골디락스",  regime_label_override="expansion",             macro_confidence_override=0.85, quant_support_override="strong_positive",   conflict_status_override="low",      avg_var_95_override=1.5,  worst_mdd_pct_override=-8.0),
+        "crisis":        WhatIfScenario(label="공황 리스크", regime_label_override="contraction",          macro_confidence_override=0.3,  quant_support_override="strong_negative",   conflict_status_override="high",     avg_var_95_override=8.0,  worst_mdd_pct_override=-45.0),
+        "stagflation":   WhatIfScenario(label="스태그플레이션", regime_label_override="stagflation",      macro_confidence_override=0.55, quant_support_override="moderate_negative", conflict_status_override="elevated", avg_var_95_override=4.5,  worst_mdd_pct_override=-28.0),
+        "fed_tightening":WhatIfScenario(label="연준 긴축",  regime_label_override="policy_tightening_drag", macro_confidence_override=0.6, quant_support_override="neutral",          conflict_status_override="moderate", avg_var_95_override=3.2,  worst_mdd_pct_override=-20.0),
+        "soft_landing":  WhatIfScenario(label="소프트랜딩", regime_label_override="recovery",             macro_confidence_override=0.72, quant_support_override="moderate_positive", conflict_status_override="low",      avg_var_95_override=2.0,  worst_mdd_pct_override=-12.0),
+    }
+
+    regime_name  = str(_REGIME_CACHE.get("regime_name", "unknown"))
+    confidence   = float(_REGIME_CACHE.get("confidence_score", 0.5))
+    regime_label = _SYNTHESIS_REGIME_MAP.get(regime_name.upper(), "unknown")
+    vix    = float(_MACRO_CACHE.get("VIX",  20.0))
+    t10y   = float(_MACRO_CACHE.get("T10Y",  4.35))
+    t3m    = float(_MACRO_CACHE.get("T3M",   5.28))
+    spread = round(t10y - t3m, 4)
+    quant_support = _derive_quant_support(vix, spread)
+    conflict_str  = _derive_conflict_status(regime_label, vix, spread)
+    cur_var, cur_mdd = 2.5, -15.0
+
+    baseline = compute_synthesis_view(
+        regime_label=regime_label, macro_confidence=confidence,
+        quant_overall_support=quant_support, conflict_status=conflict_str,
+        avg_var_95=cur_var, worst_mdd_pct=cur_mdd,
+    )
+
+    if preset in _SCENARIO_PRESETS:
+        scenario = _SCENARIO_PRESETS[preset]
+    else:
+        scenario = WhatIfScenario(
+            label=f"custom: {regime_override or regime_label}",
+            regime_label_override=regime_override or None,
+            macro_confidence_override=confidence_override if confidence_override >= 0 else None,
+            quant_support_override=quant_override or None,
+            conflict_status_override=conflict_override or None,
+            avg_var_95_override=var_override if var_override >= 0 else None,
+            worst_mdd_pct_override=mdd_override if mdd_override < 0 else None,
+        )
+
+    result = compute_whatif_result(
+        scenario=scenario, baseline=baseline,
+        regime_label=regime_label, macro_confidence=confidence,
+        quant_overall_support=quant_support, conflict_status=conflict_str,
+        avg_var_95=cur_var, worst_mdd_pct=cur_mdd,
+    )
+    return json.dumps({
+        "scenario":          result.scenario_label,
+        "baseline_status":   result.baseline.synthesis_status,
+        "projected_status":  result.projected.synthesis_status,
+        "status_changed":    result.status_changed,
+        "conviction_delta":  result.conviction_delta,
+        "baseline_conviction":  result.baseline.conviction_score,
+        "projected_conviction": result.projected.conviction_score,
+        "projected_note":    result.projected.note,
+        "dominant_concern":  result.projected.dominant_concern,
+        "baseline_regime":   regime_name,
+    })
+
+
 def _build_lc_agent() -> Any:  # noqa: ANN401
     """Construct a LangChain 1.x tool-calling agent (provider from config).
 
@@ -1252,6 +1331,7 @@ def _build_lc_agent() -> Any:  # noqa: ANN401
         execute_virtual_order_tool,
         get_risk_summary_tool,
         get_synthesis_view_tool,
+        run_scenario_tool,
     ]
     agent = create_react_agent(llm, tools, prompt=_AGENT_SYSTEM_PROMPT)
     logger.info("lc_agent_built", extra={"tools": len(tools)})
