@@ -8,6 +8,7 @@ import type {
   EventsRecentResponse,
   AlertsRecentResponse,
   MacroSnapshot,
+  VirtualPortfolioSummary,
 } from '@/lib/types'
 
 const POLL_FAST = 30_000   // 30s — regime + signals
@@ -66,6 +67,14 @@ export function useSectorSummary() {
     endpoints.sectorSummary,
     fetchJson,
     { ...SWR_OPT, refreshInterval: 30_000 },
+  )
+}
+
+export function useVirtualPortfolio() {
+  return useSWR<VirtualPortfolioSummary & { status: string; timestamp: string }>(
+    endpoints.portfolioSummary,
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 5_000 },
   )
 }
 

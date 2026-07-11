@@ -6,7 +6,7 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals, usePortfolio, useSectorSummary } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
@@ -308,8 +308,16 @@ export default function AlephDashboard() {
   const { data: signalsData, isLoading: signalsLoading }                   = useSignals()
   const { data: sectorData }                                                = useSectorSummary()
   const { history: histData, metrics: metricsData }                         = usePortfolio(chartPeriod)
+  const { data: vpData, mutate: vpMutate }                                   = useVirtualPortfolio()
   const omni                                                                 = useOmniStream()
   const { user, signOut }                                                    = useAuth()
+
+  // Order execution toast
+  const [orderToast, setOrderToast] = useState<string | null>(null)
+  const showToast = (msg: string) => {
+    setOrderToast(msg)
+    setTimeout(() => setOrderToast(null), 4000)
+  }
 
   // Portfolio value rolling history → drives the KRX chart
   const [chartData, setChartData] = useState<Array<{ t: number; v: number }>>([])
@@ -474,6 +482,22 @@ export default function AlephDashboard() {
     if (!forceQuery) setQuery('')
   }
 
+  const handleApply = () => {
+    handleExec('현재 포트폴리오 리스크를 분석하고 최적 리밸런싱을 실행해줘. execute_virtual_order 툴을 사용해서 실제로 가상 매매를 실행하고 결과를 알려줘.')
+    showToast('가상 매매 명령 전송 중…')
+  }
+
+  const handlePortfolioReset = async () => {
+    if (!confirm('가상 포트폴리오를 초기 잔고로 리셋하시겠습니까?')) return
+    try {
+      await fetch('/api/v1/portfolio/reset', { method: 'POST' })
+      await vpMutate()
+      showToast('포트폴리오가 초기 상태로 리셋됐습니다.')
+    } catch {
+      showToast('리셋 실패 — 잠시 후 다시 시도해주세요.')
+    }
+  }
+
   const openTickerDetail = (h: TickerDetail) => {
     setPanelOpen(false)
     setDetailNews(null)
@@ -491,6 +515,12 @@ export default function AlephDashboard() {
   // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#020b18', display: 'flex', flexDirection: 'column', overflow: 'hidden', position: 'relative' }}>
+      {/* Order toast */}
+      {orderToast && (
+        <div style={{ position: 'fixed', bottom: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 9999, padding: '10px 20px', background: 'rgba(0,20,45,.95)', border: '1px solid rgba(0,229,255,.4)', borderRadius: 10, fontFamily: "'Orbitron',sans-serif", fontSize: 10, color: '#00e5ff', letterSpacing: '1px', boxShadow: '0 0 20px rgba(0,229,255,.2)', animation: 'slide-up .3s ease-out', whiteSpace: 'nowrap' }}>
+          {orderToast}
+        </div>
+      )}
       <ResearchPanel
         open={panelOpen}
         onClose={() => setPanelOpen(false)}
@@ -887,18 +917,61 @@ export default function AlephDashboard() {
 
           {/* Performance */}
           <div className="glass" style={{ padding: 12 }}>
-            <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff', marginBottom: 10 }}>PERFORMANCE</div>
-            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-              {([
-                [vpHoldingPct != null ? `${vpHoldingPct.toFixed(1)}%` : '—', '#00e5ff', 'HOLDING'],
-                [vpCashPct    != null ? `${vpCashPct.toFixed(1)}%`    : '—', '#a855f7', 'CASH'],
-              ] as [string, string, string][]).map(([v, c, l]) => (
-                <div key={l} style={{ flex: 1, textAlign: 'center', padding: '8px 4px', background: `${c}08`, borderRadius: 8, border: `1px solid ${c}20` }}>
-                  <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 20, fontWeight: 900, color: c, textShadow: `0 0 14px ${c}88` }}>{v}</div>
-                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.3)', letterSpacing: '1px' }}>{l}</div>
-                </div>
-              ))}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff' }}>PERFORMANCE</div>
+              <button onClick={handlePortfolioReset} title="초기 잔고로 리셋" style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '1px', padding: '2px 7px', borderRadius: 4, border: '1px solid rgba(255,77,109,.35)', background: 'transparent', color: 'rgba(255,77,109,.6)', cursor: 'pointer' }}>RESET</button>
             </div>
+            {/* Virtual Portfolio accounts */}
+            {vpData?.accounts && Object.entries(vpData.accounts).map(([currency, acc]) => {
+              const plColor = acc.total_pl >= 0 ? '#00ff88' : '#ff4d6d'
+              const fmt = (n: number) => currency === 'KRW' ? `₩${Math.round(n).toLocaleString('ko-KR')}` : `$${n.toFixed(0)}`
+              return (
+                <div key={currency} style={{ marginBottom: 8, padding: '7px 9px', background: 'rgba(0,229,255,.04)', border: '1px solid rgba(0,229,255,.1)', borderRadius: 8 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, color: 'rgba(255,255,255,.5)', letterSpacing: '1px' }}>{currency} 계좌</span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: plColor }}>{acc.total_pl >= 0 ? '+' : ''}{acc.total_pl_pct.toFixed(1)}%</span>
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'rgba(255,255,255,.3)', marginBottom: 1 }}>현금</div>
+                      <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, color: '#a855f7' }}>{fmt(acc.cash_balance)}</div>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'rgba(255,255,255,.3)', marginBottom: 1 }}>평가금액</div>
+                      <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, color: '#00e5ff' }}>{fmt(acc.total_value)}</div>
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'rgba(255,255,255,.3)', marginBottom: 1 }}>손익</div>
+                      <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, color: plColor }}>{fmt(acc.total_pl)}</div>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+            {/* Holdings holdings P&L mini-list */}
+            {vpData?.holdings && vpData.holdings.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                {vpData.holdings.slice(0, 3).map(h => (
+                  <div key={h.ticker} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.5)' }}>{h.display_name}</span>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: h.unrealized_pl >= 0 ? '#00ff88' : '#ff4d6d' }}>{h.unrealized_pl >= 0 ? '+' : ''}{h.unrealized_pl.toFixed(0)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!vpData?.accounts && (
+              <div style={{ display: 'flex', gap: 10, marginBottom: 8 }}>
+                {([
+                  [vpHoldingPct != null ? `${vpHoldingPct.toFixed(1)}%` : '—', '#00e5ff', 'HOLDING'],
+                  [vpCashPct    != null ? `${vpCashPct.toFixed(1)}%`    : '—', '#a855f7', 'CASH'],
+                ] as [string, string, string][]).map(([v, c, l]) => (
+                  <div key={l} style={{ flex: 1, textAlign: 'center', padding: '8px 4px', background: `${c}08`, borderRadius: 8, border: `1px solid ${c}20` }}>
+                    <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 20, fontWeight: 900, color: c, textShadow: `0 0 14px ${c}88` }}>{v}</div>
+                    <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.3)', letterSpacing: '1px' }}>{l}</div>
+                  </div>
+                ))}
+              </div>
+            )}
             {riskDist ? (
               <>
                 <PBar lbl="HIGH Risk" pct={riskDist.high} col="#ff4d6d" />
@@ -931,9 +1004,10 @@ export default function AlephDashboard() {
             </div>
             <div style={{ display: 'flex', gap: 6 }}>
               <button
-                title="Coming soon — Virtual Broker execution (v0.5.0)"
-                disabled
-                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'not-allowed', opacity: 0.38, background: 'rgba(168,85,247,.18)', border: '1px solid rgba(168,85,247,.38)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7' }}>APPLY</button>
+                onClick={handleApply}
+                disabled={omni.busy}
+                title="AI가 포트폴리오 최적화를 분석하고 가상 매매를 실행합니다"
+                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: omni.busy ? 'default' : 'pointer', opacity: omni.busy ? 0.5 : 1, background: 'rgba(168,85,247,.18)', border: '1px solid rgba(168,85,247,.55)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7', transition: 'all .2s', boxShadow: omni.busy ? 'none' : '0 0 8px rgba(168,85,247,.25)' }}>APPLY</button>
               <button
                 onClick={() => handleExec('현재 포트폴리오 리스크를 분석하고 최적 리밸런싱 전략을 제시해줘. 섹터 집중도, 변동성, 리스크 대비 수익률을 고려해서 구체적인 조언을 해줘.')}
                 disabled={omni.busy}

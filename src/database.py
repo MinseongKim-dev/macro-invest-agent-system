@@ -1948,6 +1948,16 @@ def fetch_historical_data(
     return total_inserted
 
 
+# ── Virtual portfolio reset ────────────────────────────────────────────────────
+
+def reset_virtual_portfolio(config: DatabaseConfig | None = None) -> None:
+    """Reset virtual portfolio to initial state: restore cash, clear holdings/orders."""
+    with get_connection(config) as conn:
+        conn.execute("UPDATE virtual_accounts SET cash_balance = initial_balance, updated_at = NOW()")
+        conn.execute("DELETE FROM portfolio_holdings")
+        conn.execute("DELETE FROM virtual_orders")
+
+
 # ── Push subscription store ────────────────────────────────────────────────────
 
 def upsert_push_subscription(endpoint: str, p256dh: str, auth: str, config: DatabaseConfig | None = None) -> None:
