@@ -6,16 +6,16 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
-import type { AlephStreamData, ExternalEventDTO } from '@/lib/types'
+import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.4'
+export const APP_VERSION = 'v0.4.5'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -299,6 +299,11 @@ export default function AlephDashboard() {
   const [indexHistory, setIndexHistory] = useState<Record<string, Array<{t: number; v: number}>>>({})
   const indexIdxRef = useRef(0)
   const [chartPeriod, setChartPeriod] = useState<'1D' | '1W' | '1M' | '3M'>('1D')
+  const [whatifOpen,  setWhatifOpen]  = useState(false)
+  const [whatifPreset, setWhatifPreset] = useState<string | null>(null)
+  const [whatifResult, setWhatifResult] = useState<ScenarioRunResponse | null>(null)
+  const [whatifRunning, setWhatifRunning] = useState(false)
+  const [whatifError, setWhatifError] = useState<string | null>(null)
 
   // ── Real backend data ──────────────────────────────────────────────────────
   const { data: streamData }                          = useAlephStream()
@@ -309,6 +314,7 @@ export default function AlephDashboard() {
   const { data: sectorData }                                                = useSectorSummary()
   const { history: histData, metrics: metricsData }                         = usePortfolio(chartPeriod)
   const { data: vpData, mutate: vpMutate }                                   = useVirtualPortfolio()
+  const { data: presetsData }                                                = useScenarioPresets()
   const omni                                                                 = useOmniStream()
   const { user, signOut }                                                    = useAuth()
 
@@ -498,6 +504,21 @@ export default function AlephDashboard() {
     }
   }
 
+  const handleWhatifRun = async (presetId: string) => {
+    setWhatifPreset(presetId)
+    setWhatifRunning(true)
+    setWhatifResult(null)
+    setWhatifError(null)
+    try {
+      const res = await runScenario(presetId, null)
+      setWhatifResult(res)
+    } catch (e) {
+      setWhatifError(e instanceof Error ? e.message : '시나리오 실행 실패')
+    } finally {
+      setWhatifRunning(false)
+    }
+  }
+
   const openTickerDetail = (h: TickerDetail) => {
     setPanelOpen(false)
     setDetailNews(null)
@@ -535,6 +556,163 @@ export default function AlephDashboard() {
         ticker={detailTicker}
         news={detailNews}
       />
+
+      {/* ── WHAT-IF SCENARIO PANEL ─────────────────────────────────────────── */}
+      {whatifOpen && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 800, pointerEvents: 'none' }}>
+          {/* Backdrop */}
+          <div
+            onClick={() => setWhatifOpen(false)}
+            style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,.55)', pointerEvents: 'all' }}
+          />
+          {/* Panel */}
+          <div style={{
+            position: 'absolute', top: 48, right: 0, bottom: 0, width: 380,
+            background: 'rgba(2,8,22,.97)', backdropFilter: 'blur(28px)',
+            borderLeft: '1px solid rgba(251,191,36,.2)',
+            display: 'flex', flexDirection: 'column',
+            pointerEvents: 'all', animation: 'slide-up .25s ease-out',
+            overflow: 'hidden',
+          }}>
+            {/* Header */}
+            <div style={{ padding: '12px 16px 10px', borderBottom: '1px solid rgba(251,191,36,.12)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#fbbf24', boxShadow: '0 0 7px #fbbf24' }} />
+                <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, letterSpacing: '2.5px', color: '#fbbf24' }}>WHAT-IF SCENARIO</span>
+              </div>
+              <button
+                onClick={() => setWhatifOpen(false)}
+                style={{ background: 'transparent', border: 'none', color: 'rgba(255,255,255,.4)', cursor: 'pointer', fontFamily: "'JetBrains Mono',monospace", fontSize: 14, lineHeight: 1 }}>✕</button>
+            </div>
+
+            {/* Preset grid */}
+            <div style={{ padding: '12px 14px', flexShrink: 0 }}>
+              <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1.5px', color: 'rgba(251,191,36,.55)', textTransform: 'uppercase', marginBottom: 8 }}>시나리오 선택</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                {(presetsData?.presets ?? ([] as ScenarioPreset[])).map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => handleWhatifRun(p.id)}
+                    disabled={whatifRunning}
+                    style={{
+                      padding: '8px 10px', borderRadius: 8, cursor: whatifRunning ? 'default' : 'pointer',
+                      textAlign: 'left', transition: 'all .2s',
+                      background: whatifPreset === p.id ? 'rgba(251,191,36,.18)' : 'rgba(251,191,36,.05)',
+                      border: `1px solid rgba(251,191,36,${whatifPreset === p.id ? '.5' : '.15'})`,
+                      opacity: whatifRunning && whatifPreset !== p.id ? 0.45 : 1,
+                    }}
+                  >
+                    <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, color: '#fbbf24', letterSpacing: '1px', marginBottom: 3 }}>{p.label}</div>
+                    <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.42)', lineHeight: 1.4 }}>{p.description}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Loading */}
+            {whatifRunning && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px' }}>
+                {[0,1,2,3].map(i => (
+                  <div key={i} style={{ width: 4, height: 4, borderRadius: '50%', background: '#fbbf24', animation: `glow-pulse .7s ${i * 0.15}s ease-in-out infinite` }} />
+                ))}
+                <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(251,191,36,.7)', letterSpacing: '1px' }}>시나리오 분석 중…</span>
+              </div>
+            )}
+
+            {/* Error */}
+            {whatifError && (
+              <div style={{ margin: '0 14px 10px', padding: '8px 12px', background: 'rgba(255,77,109,.08)', border: '1px solid rgba(255,77,109,.3)', borderRadius: 8, fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: '#ff4d6d' }}>
+                {whatifError}
+              </div>
+            )}
+
+            {/* Result */}
+            {whatifResult && !whatifRunning && (
+              <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 14px' }}>
+                <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '1.5px', color: 'rgba(251,191,36,.55)', textTransform: 'uppercase', marginBottom: 8 }}>
+                  시나리오 결과 — {whatifResult.result.scenario_label}
+                </div>
+
+                {/* Before / After comparison */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 10 }}>
+                  {([
+                    ['현재', whatifResult.result.baseline, 'rgba(0,229,255,.7)'],
+                    ['시나리오', whatifResult.result.projected, '#fbbf24'],
+                  ] as [string, typeof whatifResult.result.baseline, string][]).map(([lbl, view, col]) => {
+                    const statusColor = view.synthesis_status.includes('bullish') ? '#00ff88'
+                      : view.synthesis_status.includes('cautious') ? '#fbbf24'
+                      : view.synthesis_status.includes('risk') ? '#ff4d6d'
+                      : '#a855f7'
+                    return (
+                      <div key={lbl} style={{ padding: '10px', background: 'rgba(0,0,0,.3)', border: `1px solid ${col}22`, borderRadius: 9 }}>
+                        <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: col, letterSpacing: '1px', marginBottom: 6 }}>{lbl}</div>
+                        <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, color: statusColor, marginBottom: 4, letterSpacing: '1px', lineHeight: 1.4 }}>{view.synthesis_status.toUpperCase().replace(/_/g, ' ')}</div>
+                        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 14, fontWeight: 700, color: col }}>{(view.conviction_score * 100).toFixed(0)}</div>
+                        <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.3)', marginTop: 1 }}>CONVICTION</div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Delta badge */}
+                <div style={{
+                  padding: '9px 12px', borderRadius: 8, marginBottom: 10,
+                  background: whatifResult.result.conviction_delta >= 0 ? 'rgba(0,255,136,.07)' : 'rgba(255,77,109,.07)',
+                  border: `1px solid ${whatifResult.result.conviction_delta >= 0 ? 'rgba(0,255,136,.3)' : 'rgba(255,77,109,.3)'}`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                  <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.5)' }}>컨빅션 변화</span>
+                  <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 14, fontWeight: 700, color: whatifResult.result.conviction_delta >= 0 ? '#00ff88' : '#ff4d6d' }}>
+                    {whatifResult.result.conviction_delta >= 0 ? '+' : ''}{(whatifResult.result.conviction_delta * 100).toFixed(1)}pts
+                  </span>
+                </div>
+
+                {/* Status changed indicator */}
+                {whatifResult.result.status_changed && (
+                  <div style={{ padding: '7px 12px', borderRadius: 7, background: 'rgba(168,85,247,.1)', border: '1px solid rgba(168,85,247,.35)', fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: '#a855f7', marginBottom: 10, letterSpacing: '1px' }}>
+                    ◈ 투자 전략 전환 감지 — 레짐 재평가 권고
+                  </div>
+                )}
+
+                {/* Notes */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                  {([
+                    ['베이스라인', whatifResult.result.baseline.note],
+                    ['시나리오', whatifResult.result.projected.note],
+                  ] as [string, string][]).map(([lbl, note]) => (
+                    <div key={lbl} style={{ padding: '7px 10px', background: 'rgba(255,255,255,.03)', borderRadius: 7, borderLeft: '2px solid rgba(251,191,36,.3)' }}>
+                      <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(251,191,36,.5)', marginBottom: 3, letterSpacing: '1px' }}>{lbl}</div>
+                      <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.6)', lineHeight: 1.5 }}>{note}</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Baseline regime info */}
+                <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                  <div style={{ flex: 1, padding: '6px 9px', background: 'rgba(0,0,0,.3)', borderRadius: 7, border: '1px solid rgba(255,255,255,.07)' }}>
+                    <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.3)', marginBottom: 2 }}>베이스라인 레짐</div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: '#00e5ff' }}>{whatifResult.baseline_regime}</div>
+                  </div>
+                  <div style={{ flex: 1, padding: '6px 9px', background: 'rgba(0,0,0,.3)', borderRadius: 7, border: '1px solid rgba(255,255,255,.07)' }}>
+                    <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.3)', marginBottom: 2 }}>매크로 신뢰도</div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: '#a855f7' }}>{(whatifResult.baseline_confidence * 100).toFixed(0)}%</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Empty state */}
+            {!whatifRunning && !whatifResult && !whatifError && (
+              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, padding: 24 }}>
+                <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, color: 'rgba(251,191,36,.4)', letterSpacing: '2px' }}>시나리오를 선택하세요</div>
+                <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.22)', textAlign: 'center', lineHeight: 1.6 }}>
+                  현재 포트폴리오 기준 베이스라인과<br />가상 시나리오를 비교 분석합니다
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* BG grid */}
       <div style={{
@@ -1008,6 +1186,9 @@ export default function AlephDashboard() {
                 disabled={omni.busy}
                 title="AI가 포트폴리오 최적화를 분석하고 가상 매매를 실행합니다"
                 style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: omni.busy ? 'default' : 'pointer', opacity: omni.busy ? 0.5 : 1, background: 'rgba(168,85,247,.18)', border: '1px solid rgba(168,85,247,.55)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7', transition: 'all .2s', boxShadow: omni.busy ? 'none' : '0 0 8px rgba(168,85,247,.25)' }}>APPLY</button>
+              <button
+                onClick={() => { setWhatifOpen(o => !o); setWhatifResult(null); setWhatifError(null) }}
+                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: whatifOpen ? 'rgba(251,191,36,.18)' : 'rgba(251,191,36,.07)', border: `1px solid rgba(251,191,36,${whatifOpen ? '.55' : '.25'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#fbbf24', transition: 'all .2s', boxShadow: whatifOpen ? '0 0 8px rgba(251,191,36,.25)' : 'none' }}>WHAT-IF</button>
               <button
                 onClick={() => handleExec('현재 포트폴리오 리스크를 분석하고 최적 리밸런싱 전략을 제시해줘. 섹터 집중도, 변동성, 리스크 대비 수익률을 고려해서 구체적인 조언을 해줘.')}
                 disabled={omni.busy}

@@ -274,3 +274,50 @@ export interface MacroFeature {
 
 /** Virtual portfolio summary — alias for use in consumer components */
 export type PortfolioData = VirtualPortfolioSummary
+
+// ── What-If Scenarios ──────────────────────────────────────────────────────
+
+export interface WhatIfScenario {
+  label: string
+  regime_label_override?: string | null
+  macro_confidence_override?: number | null
+  quant_support_override?: string | null
+  conflict_status_override?: string | null
+  avg_var_95_override?: number | null
+  worst_mdd_pct_override?: number | null
+}
+
+export interface ScenarioPreset {
+  id: string
+  label: string
+  description: string
+  scenario: WhatIfScenario
+}
+
+export interface ScenarioPresetsResponse {
+  presets: ScenarioPreset[]
+}
+
+export interface SynthesisViewDTO {
+  synthesis_status: string
+  conviction_score: number
+  risk_penalty: number
+  quant_support: string
+  conflict_status: string
+  dominant_concern: string | null
+  note: string
+}
+
+export interface WhatIfResultDTO {
+  scenario_label: string
+  baseline: SynthesisViewDTO
+  projected: SynthesisViewDTO
+  status_changed: boolean
+  conviction_delta: number
+}
+
+export interface ScenarioRunResponse {
+  result: WhatIfResultDTO
+  baseline_regime: string
+  baseline_confidence: number
+}
