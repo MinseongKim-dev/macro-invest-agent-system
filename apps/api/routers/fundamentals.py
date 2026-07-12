@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 from time import monotonic
-from typing import Union, cast
+from typing import Any, cast
 
 from fastapi import APIRouter, HTTPException
 
@@ -33,7 +33,7 @@ from apps.api.dto.fundamentals import (
     TickerFundamentalsDTO,
 )
 
-_CacheValue = Union[TickerFundamentalsDTO, PortfolioAllocationDTO, CorrelationMatrixDTO]
+_CacheValue = TickerFundamentalsDTO | PortfolioAllocationDTO | CorrelationMatrixDTO
 
 router = APIRouter(prefix="/api", tags=["fundamentals"])
 
