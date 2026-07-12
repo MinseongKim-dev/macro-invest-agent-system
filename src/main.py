@@ -252,6 +252,11 @@ _BRIEF_CACHE: dict[str, Any] = {}
 _BRIEF_CACHE_TS: float = 0.0
 _BRIEF_TTL: float = 300.0  # 5 min
 
+# Live alert ring buffer — stores the last 30 regime-transition events in memory.
+# Populated by _record_regime_alert(); served by GET /api/v1/alerts/live.
+_ALERT_RING: list[dict[str, Any]] = []
+_ALERT_RING_MAX = 30
+
 # ── Slack webhook (optional) ──────────────────────────────────────────────────
 _SLACK_WEBHOOK_URL: str = _os.getenv("SLACK_WEBHOOK_URL", "")
 
@@ -268,12 +273,31 @@ async def _slack_alert(msg: str) -> None:
         pass  # Never let alerting crash the collector
 
 
+def _record_regime_alert(old_regime: str, new_regime: str) -> None:
+    """Append a regime-transition event to the in-memory alert ring buffer."""
+    confidence = float(_REGIME_CACHE.get("confidence_score", 0.85))
+    entry: dict[str, Any] = {
+        "alert_id":   f"regime:{datetime.now(_KST).strftime('%Y%m%dT%H%M%S')}",
+        "trigger":    "regime_transition",
+        "severity":   "critical" if "CRISIS" in new_regime else "warning",
+        "old_regime": old_regime,
+        "new_regime": new_regime,
+        "confidence": confidence,
+        "message":    f"레짐 전환: {old_regime} → {new_regime} (신뢰도 {confidence:.0%})",
+        "occurred_at": datetime.now(_KST).isoformat(),
+    }
+    _ALERT_RING.insert(0, entry)
+    if len(_ALERT_RING) > _ALERT_RING_MAX:
+        _ALERT_RING.pop()
+
+
 async def _broadcast_regime_alert(old_regime: str, new_regime: str) -> None:
     """Fire email + web push alerts for a regime transition.
 
     Both channels are attempted independently; a failure in one does not
     suppress the other.
     """
+    _record_regime_alert(old_regime, new_regime)
     confidence   = float(_REGIME_CACHE.get("confidence_score", 0.85))
     market_phase = str(_REGIME_CACHE.get("market_phase", "UNKNOWN"))
     subject      = f"[Aleph-One] Regime Transition: {old_regime} → {new_regime}"
@@ -1843,6 +1867,17 @@ async def get_narrative_brief() -> dict[str, Any]:
     _BRIEF_CACHE.update(result)
     _BRIEF_CACHE_TS = monotonic()
     return dict(_BRIEF_CACHE)
+
+
+@app.get("/api/v1/alerts/live", tags=["intelligence"])
+async def get_live_alerts(limit: int = 20) -> dict[str, Any]:
+    """Return recent in-memory regime-transition alerts (newest first).
+
+    Populated each time a regime transition is detected by the live collector.
+    Returns an empty list when no transitions have occurred since startup.
+    """
+    items = _ALERT_RING[:min(limit, _ALERT_RING_MAX)]
+    return {"alerts": items, "total": len(items)}
 
 
 @app.get("/api/events/recent", tags=["intelligence"])
