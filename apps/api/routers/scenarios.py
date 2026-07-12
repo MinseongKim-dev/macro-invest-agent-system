@@ -112,6 +112,19 @@ _PRESET_MAP = {p.id: p for p in _PRESETS}
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
+def _overall_support_to_label(score: float) -> str:
+    """Map Quant overall_support float [0,1] to synthesis-engine categorical label."""
+    if score >= 0.65:
+        return "strong_positive"
+    if score >= 0.45:
+        return "moderate_positive"
+    if score >= 0.30:
+        return "neutral"
+    if score >= 0.15:
+        return "moderate_negative"
+    return "strong_negative"
+
+
 def _to_synthesis_dto(view: object) -> SynthesisViewDTO:
     from src.domain.synthesis.models import SynthesisView  # noqa: PLC0415
     assert isinstance(view, SynthesisView)
@@ -173,8 +186,10 @@ async def run_scenario(
 
     confidence_map = {"high": 0.85, "medium": 0.6, "low": 0.35}
     baseline_confidence = confidence_map.get(regime.confidence.value, 0.6)
-    baseline_quant = (
-        regime.quant_scores.overall_support if regime.quant_scores else "no_data"
+    baseline_quant: str = (
+        _overall_support_to_label(regime.quant_scores.overall_support)
+        if regime.quant_scores
+        else "no_data"
     )
 
     baseline = compute_synthesis_view(

@@ -1245,15 +1245,15 @@ def run_scenario_tool(preset: str = "", regime_override: str = "", confidence_ov
         mdd_override: Override worst MDD % (0 = keep current, use negative values like -35.0)
     """
     from src.domain.synthesis.engine import compute_synthesis_view  # noqa: PLC0415
-    from src.domain.whatif.engine import compute_whatif_result      # noqa: PLC0415
-    from src.domain.whatif.models import WhatIfScenario             # noqa: PLC0415
+    from src.domain.whatif.engine import compute_whatif_result  # noqa: PLC0415
+    from src.domain.whatif.models import WhatIfScenario  # noqa: PLC0415
 
-    _SCENARIO_PRESETS = {
-        "goldilocks":    WhatIfScenario(label="골디락스",  regime_label_override="expansion",             macro_confidence_override=0.85, quant_support_override="strong_positive",   conflict_status_override="low",      avg_var_95_override=1.5,  worst_mdd_pct_override=-8.0),
-        "crisis":        WhatIfScenario(label="공황 리스크", regime_label_override="contraction",          macro_confidence_override=0.3,  quant_support_override="strong_negative",   conflict_status_override="high",     avg_var_95_override=8.0,  worst_mdd_pct_override=-45.0),
-        "stagflation":   WhatIfScenario(label="스태그플레이션", regime_label_override="stagflation",      macro_confidence_override=0.55, quant_support_override="moderate_negative", conflict_status_override="elevated", avg_var_95_override=4.5,  worst_mdd_pct_override=-28.0),
-        "fed_tightening":WhatIfScenario(label="연준 긴축",  regime_label_override="policy_tightening_drag", macro_confidence_override=0.6, quant_support_override="neutral",          conflict_status_override="moderate", avg_var_95_override=3.2,  worst_mdd_pct_override=-20.0),
-        "soft_landing":  WhatIfScenario(label="소프트랜딩", regime_label_override="recovery",             macro_confidence_override=0.72, quant_support_override="moderate_positive", conflict_status_override="low",      avg_var_95_override=2.0,  worst_mdd_pct_override=-12.0),
+    scenario_presets = {
+        "goldilocks":     WhatIfScenario(label="골디락스", regime_label_override="expansion", macro_confidence_override=0.85, quant_support_override="strong_positive", conflict_status_override="low", avg_var_95_override=1.5, worst_mdd_pct_override=-8.0),
+        "crisis":         WhatIfScenario(label="공황 리스크", regime_label_override="contraction", macro_confidence_override=0.3, quant_support_override="strong_negative", conflict_status_override="high", avg_var_95_override=8.0, worst_mdd_pct_override=-45.0),
+        "stagflation":    WhatIfScenario(label="스태그플레이션", regime_label_override="stagflation", macro_confidence_override=0.55, quant_support_override="moderate_negative", conflict_status_override="elevated", avg_var_95_override=4.5, worst_mdd_pct_override=-28.0),
+        "fed_tightening": WhatIfScenario(label="연준 긴축", regime_label_override="policy_tightening_drag", macro_confidence_override=0.6, quant_support_override="neutral", conflict_status_override="moderate", avg_var_95_override=3.2, worst_mdd_pct_override=-20.0),
+        "soft_landing":   WhatIfScenario(label="소프트랜딩", regime_label_override="recovery", macro_confidence_override=0.72, quant_support_override="moderate_positive", conflict_status_override="low", avg_var_95_override=2.0, worst_mdd_pct_override=-12.0),
     }
 
     regime_name  = str(_REGIME_CACHE.get("regime_name", "unknown"))
@@ -1273,8 +1273,8 @@ def run_scenario_tool(preset: str = "", regime_override: str = "", confidence_ov
         avg_var_95=cur_var, worst_mdd_pct=cur_mdd,
     )
 
-    if preset in _SCENARIO_PRESETS:
-        scenario = _SCENARIO_PRESETS[preset]
+    if preset in scenario_presets:
+        scenario = scenario_presets[preset]
     else:
         scenario = WhatIfScenario(
             label=f"custom: {regime_override or regime_label}",

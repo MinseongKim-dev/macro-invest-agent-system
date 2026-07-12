@@ -45,10 +45,10 @@ from apps.api.routers import events as events_router
 from apps.api.routers import explanations as explanations_router
 from apps.api.routers import quant as quant_router
 from apps.api.routers import regimes as regimes_router
+from apps.api.routers import scenarios as scenarios_router
 from apps.api.routers import sessions as sessions_router
 from apps.api.routers import signals as signals_router
 from apps.api.routers import snapshots as snapshots_router
-from apps.api.routers import scenarios as scenarios_router
 from apps.api.routers import stream as stream_router
 from apps.api.startup_seeder import SeedStatus, seed_regime_from_synthetic_observations
 from src.core.config.settings import get_settings
