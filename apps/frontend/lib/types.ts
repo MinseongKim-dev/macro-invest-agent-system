@@ -365,3 +365,12 @@ export interface CorrelationMatrixDTO {
   matrix: number[][]
   period_days: number
 }
+
+export interface DailyBriefDTO {
+  headline: string
+  signal: 'RISK-ON' | 'RISK-OFF' | 'NEUTRAL'
+  bullets: string[]
+  body: string
+  source: string
+  generated_at: string
+}

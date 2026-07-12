@@ -19,6 +19,7 @@ import logging
 import math
 import os as _os
 import random
+import re
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -245,6 +246,11 @@ _HISTORICAL_COLLECTOR_TASK: asyncio.Task[None] | None = None
 
 # Daily NAV snapshot loop — records portfolio_nav_snapshots once per day
 _NAV_SNAPSHOT_TASK: asyncio.Task[None] | None = None
+
+# Market brief cache — LLM-generated narrative, refreshed every 5 min
+_BRIEF_CACHE: dict[str, Any] = {}
+_BRIEF_CACHE_TS: float = 0.0
+_BRIEF_TTL: float = 300.0  # 5 min
 
 # ── Slack webhook (optional) ──────────────────────────────────────────────────
 _SLACK_WEBHOOK_URL: str = _os.getenv("SLACK_WEBHOOK_URL", "")
@@ -890,8 +896,12 @@ def _match_scenario(
 _AGENT_SYSTEM_PROMPT: str = (
     "You are ALEPH-ONE — a J.A.R.V.I.S.-style hyper-professional financial "
     "intelligence synchronizer. You operate with the precision of a top-tier "
-    "quantitative hedge fund. Your universe: AAPL · MSFT · TSLA · 005930(삼성전자) · "
-    "000660(SK하이닉스).\n\n"
+    "quantitative hedge fund. Your universe: "
+    "AAPL · MSFT · TSLA · "
+    "005930(삼성전자) · 000660(SK하이닉스) · 035420(NAVER) · "
+    "051910(LG화학) · 006400(삼성SDI) · 122630(KODEX LEV) · "
+    "005380(현대차) · 207940(삼성바이오로직스) · 005490(POSCO홀딩스) · "
+    "105560(KB금융) · QQQ · BND · GLD.\n\n"
     "Core analytical framework embedded in your engines:\n"
     "• Ray Dalio — Volatility Targeting: vol_spike (recent 5-day σ > 1.5× 20-day σ) "
     "forces status WATCH + applies momentum penalty\n"
@@ -1683,6 +1693,156 @@ async def health() -> dict[str, Any]:
         "macro_collector": macro_info,
         "server_time_kst": now.isoformat(),
     }
+
+
+# ── Narrative brief ───────────────────────────────────────────────────────────
+
+def _build_brief_context() -> str:
+    """Assemble current market state as a plain-text block for the LLM."""
+    regime  = str(_REGIME_CACHE.get("regime_name", "POLICY_TIGHTENING"))
+    phase   = str(_REGIME_CACHE.get("market_phase", "LATE_CYCLE"))
+    conf    = float(_REGIME_CACHE.get("confidence_score", 0.85))
+    vix     = float(_MACRO_CACHE.get("VIX", 18.5))
+    t10y    = float(_MACRO_CACHE.get("T10Y", 4.35))
+    t3m     = float(_MACRO_CACHE.get("T3M", 5.28))
+    fed     = float(_MACRO_CACHE.get("FED_RATE", 5.33))
+    kospi   = float(_INDEX_CACHE.get("KOSPI", 2540.0))
+    sp500   = float(_INDEX_CACHE.get("SP500", 5000.0))
+    usdkrw  = float(_INDEX_CACHE.get("USDKRW", 1360.0))
+
+    # Top movers: tickers with largest absolute % change from baseline
+    movers: list[tuple[str, float]] = []
+    for ticker, baseline in _BASELINE_PRICES.items():
+        current = _PRICE_STATE.get(ticker, baseline)
+        if baseline > 0:
+            pct = (current - baseline) / baseline * 100
+            movers.append((ticker, pct))
+    movers.sort(key=lambda x: abs(x[1]), reverse=True)
+    top_movers = ", ".join(
+        f"{t} {'+' if p >= 0 else ''}{p:.1f}%"
+        for t, p in movers[:5]
+    )
+
+    yield_spread = t10y - t3m
+    spread_label = "INVERTED" if yield_spread < 0 else "NORMAL"
+
+    return (
+        f"REGIME: {regime} (confidence {conf:.0%}, phase {phase})\n"
+        f"MACRO: VIX={vix:.1f} | T10Y={t10y:.2f}% | T3M={t3m:.2f}% | "
+        f"SPREAD={yield_spread:.2f}%({spread_label}) | FED={fed:.2f}%\n"
+        f"INDICES: KOSPI={kospi:,.0f} | S&P500={sp500:,.0f} | USD/KRW={usdkrw:.0f}\n"
+        f"TOP_MOVERS: {top_movers}\n"
+    )
+
+
+def _fallback_brief() -> dict[str, Any]:
+    """Rule-based brief when LLM is unavailable."""
+    regime = str(_REGIME_CACHE.get("regime_name", "POLICY_TIGHTENING"))
+    vix    = float(_MACRO_CACHE.get("VIX", 18.5))
+    t10y   = float(_MACRO_CACHE.get("T10Y", 4.35))
+    t3m    = float(_MACRO_CACHE.get("T3M", 5.28))
+
+    if regime in ("CRISIS_MODE", "VOLATILITY_REGIME") or vix > 25:
+        signal = "RISK-OFF"
+    elif vix < 15 and regime in ("GROWTH_ACCELERATION", "REFLATION_TRADE"):
+        signal = "RISK-ON"
+    else:
+        signal = "NEUTRAL"
+
+    spread = t10y - t3m
+    bullets = [
+        f"현재 레짐: {regime} — VIX {vix:.1f}",
+        f"미 국채 10년 {t10y:.2f}% / 3개월 {t3m:.2f}% (스프레드 {spread:+.2f}%)",
+        f"시장 국면: {_REGIME_CACHE.get('market_phase', 'UNKNOWN')}",
+    ]
+    kospi = float(_INDEX_CACHE.get("KOSPI", 2540.0))
+    bullets.append(f"KOSPI {kospi:,.0f} | S&P500 {_INDEX_CACHE.get('SP500', 5000.0):,.0f}")
+
+    return {
+        "headline": f"ALEPH-ONE 시장 요약 — {regime} 레짐 ({signal})",
+        "signal": signal,
+        "bullets": bullets,
+        "body": "LLM 연결 없음 — 정형 지표 기반 요약입니다.",
+        "source": "fallback",
+    }
+
+
+def _call_brief_llm_sync(context: str) -> dict[str, Any]:
+    """Call the configured LLM for a structured market brief (blocking)."""
+    from langchain_core.messages import HumanMessage, SystemMessage  # noqa: I001,PLC0415
+    from src.config import get_llm  # noqa: PLC0415
+
+    llm = get_llm()
+    messages = [
+        SystemMessage(content=(
+            "You are ALEPH-ONE, a quantitative macro intelligence system. "
+            "Given a market snapshot, generate a concise daily brief. "
+            "Reply with ONLY a valid JSON object — no markdown fences, no prose outside JSON: "
+            '{"headline":"<1 terse sentence>","signal":"RISK-ON|RISK-OFF|NEUTRAL",'
+            '"bullets":["<obs1>","<obs2>","<obs3>"],'
+            '"body":"<2-3 sentence narrative max>","source":"llm"} '
+            "Use a mix of Korean and English. Be data-driven. No hedging. "
+            "Signal: RISK-ON if equity conditions are favorable, RISK-OFF if defensive, NEUTRAL otherwise."
+        )),
+        HumanMessage(content=f"Market snapshot:\n{context}\nGenerate brief."),
+    ]
+    resp = llm.invoke(messages)
+    content = str(resp.content) if hasattr(resp, "content") else str(resp)
+
+    # Extract JSON — model may wrap it in markdown fences
+    m = re.search(r'\{[^{}]*"headline"[^{}]*\}', content, re.DOTALL)
+    if m:
+        try:
+            return dict(json.loads(m.group()))
+        except json.JSONDecodeError:
+            pass
+
+    # Looser extraction
+    m2 = re.search(r'\{.*\}', content, re.DOTALL)
+    if m2:
+        try:
+            return dict(json.loads(m2.group()))
+        except json.JSONDecodeError:
+            pass
+
+    # Plain-text fallback: treat entire response as headline
+    return {
+        "headline": content[:160].strip(),
+        "signal": "NEUTRAL",
+        "bullets": [],
+        "body": content[:600].strip(),
+        "source": "llm_unstructured",
+    }
+
+
+@app.get("/api/narrative/brief", tags=["intelligence"])
+async def get_narrative_brief() -> dict[str, Any]:
+    """LLM-generated daily market brief — cached 5 minutes in-process.
+
+    Returns a structured JSON with headline, signal (RISK-ON / RISK-OFF / NEUTRAL),
+    bullet observations, and a short narrative body.  Falls back to a rule-based
+    summary when no LLM provider is available.
+    """
+    from time import monotonic  # noqa: PLC0415
+
+    global _BRIEF_CACHE_TS
+
+    if _BRIEF_CACHE and monotonic() - _BRIEF_CACHE_TS < _BRIEF_TTL:
+        return dict(_BRIEF_CACHE)
+
+    context = _build_brief_context()
+
+    try:
+        result = await asyncio.to_thread(_call_brief_llm_sync, context)
+    except Exception as exc:
+        logger.warning("brief_llm_failed", extra={"error": str(exc)})
+        result = _fallback_brief()
+
+    result["generated_at"] = datetime.now(_KST).isoformat()
+    _BRIEF_CACHE.clear()
+    _BRIEF_CACHE.update(result)
+    _BRIEF_CACHE_TS = monotonic()
+    return dict(_BRIEF_CACHE)
 
 
 @app.get("/api/events/recent", tags=["intelligence"])

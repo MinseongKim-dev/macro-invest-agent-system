@@ -15,6 +15,7 @@ import type {
   TickerFundamentalsDTO,
   PortfolioAllocationDTO,
   CorrelationMatrixDTO,
+  DailyBriefDTO,
 } from '@/lib/types'
 
 const POLL_FAST = 30_000   // 30s — regime + signals
@@ -151,5 +152,13 @@ export function useCorrelationMatrix(periodDays = 30) {
     endpoints.portfolioCorrelation(periodDays),
     fetchJson,
     { ...SWR_OPT, refreshInterval: 900_000 },  // 15-min cache matches backend TTL
+  )
+}
+
+export function useDailyBrief() {
+  return useSWR<DailyBriefDTO>(
+    endpoints.narrativeBrief,
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 300_000 },  // 5-min cache matches backend TTL
   )
 }

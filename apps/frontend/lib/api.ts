@@ -28,4 +28,5 @@ export const endpoints = {
   fundamentals:     (ticker: string) => `/api/fundamentals/${ticker}`,
   portfolioAllocation: '/api/portfolio/allocation',
   portfolioCorrelation: (days = 30) => `/api/portfolio/correlation?period_days=${days}`,
+  narrativeBrief: '/api/narrative/brief',
 } as const
