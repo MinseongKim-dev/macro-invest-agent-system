@@ -1,0 +1,83 @@
+name: Auto Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: release-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from pyproject.toml
+        id: version
+        run: |
+          VERSION=$(python3 -c "
+          import re, pathlib
+          txt = pathlib.Path('pyproject.toml').read_text()
+          m = re.search(r'^version\s*=\s*\"([^\"]+)\"', txt, re.MULTILINE)
+          print(m.group(1))
+          ")
+          echo "version=v${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Detected version: v${VERSION}"
+
+      - name: Check if release already exists
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.version }}"
+          if gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG already exists — skipping."
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Release $TAG does not exist — will create."
+          fi
+
+      - name: Extract release notes from README
+        id: notes
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          # Extract the "What's New in <version>" section from README
+          NOTES=$(python3 - <<'PYEOF'
+          import re, pathlib, sys
+
+          version = "${{ steps.version.outputs.version }}"
+          readme = pathlib.Path("README.md").read_text()
+
+          # Match the section header "## What's New in <version>"
+          pattern = rf"## What's New in {re.escape(version)}\n(.*?)(?=\n## |\Z)"
+          m = re.search(pattern, readme, re.DOTALL)
+          if m:
+              print(m.group(1).strip())
+          else:
+              print(f"Release {version}\n\nSee CLAUDE.md for full release notes.")
+          PYEOF
+          )
+          # Write to a temp file to avoid shell quoting issues
+          echo "$NOTES" > /tmp/release_notes.md
+          cat /tmp/release_notes.md
+
+      - name: Create release
+        if: steps.check.outputs.exists == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.version }}"
+          gh release create "$TAG" \
+            --repo "${{ github.repository }}" \
+            --title "Aleph-One $TAG" \
+            --notes-file /tmp/release_notes.md \
+            --latest
+          echo "Created release $TAG"
