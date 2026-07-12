@@ -6,16 +6,16 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
-import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO } from '@/lib/types'
+import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.6'
+export const APP_VERSION = 'v0.4.7'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -326,6 +326,107 @@ const SectorAllocationView = ({
   )
 }
 
+// ─── Daily Brief Panel (slide-out) ────────────────────────────────────────────
+
+const SIGNAL_COLOR: Record<string, string> = {
+  'RISK-ON':  '#00ff88',
+  'RISK-OFF': '#ff4d6d',
+  'NEUTRAL':  '#fbbf24',
+}
+
+const DailyBriefPanel = ({
+  open,
+  onClose,
+  brief,
+  loading,
+}: {
+  open: boolean
+  onClose: () => void
+  brief: import('@/lib/types').DailyBriefDTO | undefined
+  loading: boolean
+}) => {
+  const PANEL_W = 400
+  const sigCol = brief ? (SIGNAL_COLOR[brief.signal] ?? '#fbbf24') : '#fbbf24'
+  return (
+    <>
+      {open && (
+        <div
+          onClick={onClose}
+          style={{ position: 'fixed', inset: 0, zIndex: 88, background: 'rgba(2,6,18,.5)', backdropFilter: 'blur(2px)' }}
+        />
+      )}
+      <div style={{
+        position: 'fixed', top: 0, right: open ? 0 : -PANEL_W, bottom: 0,
+        width: PANEL_W, zIndex: 89,
+        background: 'rgba(2,9,22,0.98)', backdropFilter: 'blur(28px)',
+        borderLeft: '1px solid rgba(168,85,247,.2)',
+        display: 'flex', flexDirection: 'column',
+        transition: 'right .35s cubic-bezier(.4,0,.2,1)',
+      }}>
+        <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid rgba(168,85,247,.15)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#a855f7', boxShadow: '0 0 8px #a855f7', animation: 'glow-pulse 2s ease-in-out infinite' }} />
+          <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, letterSpacing: '3px', color: '#a855f7', flex: 1 }}>◈ DAILY MARKET BRIEF</span>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: 5, color: 'rgba(255,255,255,.38)', fontSize: 11, cursor: 'pointer', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px', scrollbarWidth: 'thin' }}>
+          {loading || !brief ? (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: 160, gap: 12 }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[0,1,2].map(i => (
+                  <div key={i} style={{ width: 6, height: 6, borderRadius: '50%', background: '#a855f7', animation: `glow-pulse .7s ${i * 0.2}s ease-in-out infinite` }} />
+                ))}
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(255,255,255,.25)' }}>AI ANALYZING MARKETS…</div>
+            </div>
+          ) : (
+            <>
+              {/* Signal badge + headline */}
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 10px', background: `${sigCol}14`, border: `1px solid ${sigCol}44`, borderRadius: 20, marginBottom: 10 }}>
+                  <div style={{ width: 5, height: 5, borderRadius: '50%', background: sigCol, boxShadow: `0 0 6px ${sigCol}` }} />
+                  <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: sigCol }}>{brief.signal}</span>
+                </div>
+                <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 14, fontWeight: 600, color: '#fff', lineHeight: 1.4 }}>{brief.headline}</div>
+              </div>
+
+              {/* Key observations */}
+              {brief.bullets.length > 0 && (
+                <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '2px', color: 'rgba(168,85,247,.6)', marginBottom: 8 }}>KEY OBSERVATIONS</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
+                    {brief.bullets.map((b, i) => (
+                      <div key={i} style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+                        <span style={{ color: '#a855f7', fontSize: 8, flexShrink: 0, marginTop: 3 }}>◈</span>
+                        <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: 'rgba(255,255,255,.72)', lineHeight: 1.5 }}>{b}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Narrative body */}
+              {brief.body && (
+                <div style={{ padding: '10px 12px', background: 'rgba(168,85,247,.07)', border: '1px solid rgba(168,85,247,.2)', borderRadius: 8 }}>
+                  <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '2px', color: 'rgba(168,85,247,.5)', marginBottom: 6 }}>NARRATIVE</div>
+                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: 'rgba(255,255,255,.6)', lineHeight: 1.65 }}>{brief.body}</div>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div style={{ padding: '8px 16px', flexShrink: 0, borderTop: '1px solid rgba(168,85,247,.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'rgba(255,255,255,.15)' }}>
+            {brief?.generated_at ? new Date(brief.generated_at).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' }) : '—'} · {brief?.source ?? '—'}
+          </span>
+          <button onClick={onClose} style={{ padding: '4px 12px', borderRadius: 5, cursor: 'pointer', background: 'rgba(168,85,247,.1)', border: '1px solid rgba(168,85,247,.3)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7' }}>CLOSE</button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── Correlation Panel (slide-out) ────────────────────────────────────────────
 
 const CorrelationPanel = ({
@@ -450,6 +551,7 @@ export default function AlephDashboard() {
   const [whatifError, setWhatifError] = useState<string | null>(null)
   const [sectorViewMode, setSectorViewMode] = useState<'CHANGE' | 'ALLOCATION'>('CHANGE')
   const [correlOpen, setCorrelOpen] = useState(false)
+  const [briefOpen,  setBriefOpen]  = useState(false)
 
   // ── Real backend data ──────────────────────────────────────────────────────
   const { data: streamData }                          = useAlephStream()
@@ -463,6 +565,7 @@ export default function AlephDashboard() {
   const { data: presetsData }                                                = useScenarioPresets()
   const { data: allocationData }                                             = usePortfolioAllocation()
   const { data: correlData }                                                 = useCorrelationMatrix(30)
+  const { data: briefData, isLoading: briefLoading }                         = useDailyBrief()
   const omni                                                                 = useOmniStream()
   const { user, signOut }                                                    = useAuth()
 
@@ -711,6 +814,14 @@ export default function AlephDashboard() {
         onClose={() => setCorrelOpen(false)}
         tickers={correlData?.tickers}
         matrix={correlData?.matrix}
+      />
+
+      {/* ── DAILY BRIEF PANEL ──────────────────────────────────────────────── */}
+      <DailyBriefPanel
+        open={briefOpen}
+        onClose={() => setBriefOpen(false)}
+        brief={briefData}
+        loading={briefLoading}
       />
 
       {/* ── WHAT-IF SCENARIO PANEL ─────────────────────────────────────────── */}
@@ -1387,6 +1498,9 @@ export default function AlephDashboard() {
               <button
                 onClick={() => setCorrelOpen(o => !o)}
                 style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: correlOpen ? 'rgba(0,229,255,.14)' : 'rgba(0,229,255,.04)', border: `1px solid rgba(0,229,255,${correlOpen ? '.45' : '.15'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff', transition: 'all .2s', boxShadow: correlOpen ? '0 0 8px rgba(0,229,255,.2)' : 'none' }}>CORREL</button>
+              <button
+                onClick={() => setBriefOpen(o => !o)}
+                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: briefOpen ? 'rgba(168,85,247,.18)' : 'rgba(168,85,247,.06)', border: `1px solid rgba(168,85,247,${briefOpen ? '.55' : '.2'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7', transition: 'all .2s', boxShadow: briefOpen ? '0 0 8px rgba(168,85,247,.25)' : 'none' }}>BRIEF</button>
             </div>
           </div>
         </div>

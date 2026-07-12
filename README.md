@@ -1,8 +1,17 @@
 # Aleph-One
 
-**v0.4.6** · Open-source, zero-cost financial intelligence terminal
+**v0.4.7** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.7
+
+- **Daily Market Brief** — new `GET /api/narrative/brief` endpoint calls the configured LLM (Groq/Ollama) with the current market snapshot (regime, VIX, yields, top movers) and returns a structured brief: `headline`, `signal` (RISK-ON / RISK-OFF / NEUTRAL), `bullets`, and `body`. Cached 5 minutes in-process. Falls back to a rule-based summary when no LLM is available.
+- **BRIEF panel** — new slide-out panel in the dashboard accessible via the "BRIEF" button in the AI Advice section. Shows the signal badge (colored by stance), headline, key observation bullets, and narrative paragraph. Auto-refreshes every 5 minutes.
+- **OMNI universe expanded** — `_AGENT_SYSTEM_PROMPT` now lists all 16 tickers (was only 5) so the LangChain ReAct agent has full coverage when analyzing the portfolio.
+- **`DailyBriefDTO` type** — added to `lib/types.ts`; `useDailyBrief` hook in `useAlephData.ts`; Next.js proxy at `/api/narrative/brief`.
 
 ---
 
@@ -354,6 +363,7 @@ macro-invest-agent-system/
 | **v0.4.4-q** | ✅ Released | Quality pass: API hook unification, trust-badge error states, freshness UI, legacy cleanup |
 | **v0.4.5** | ✅ Released | What-If Scenario Engine — 5 built-in presets (골디락스/공황/스태그플레이션/연준긴축/소프트랜딩), conviction delta, strategy pivot detection, OMNI `run_scenario_tool` |
 | **v0.4.6** | ✅ Released | Fundamentals + Portfolio Intelligence — live P/E/EPS/market cap/beta/dividend via yfinance, PRICE↔FUNDAMENTALS tab in detail panel, sector allocation bar chart with HHI concentration warning, 16-ticker Pearson correlation matrix slide panel |
+| **v0.4.7** | ✅ Released | LLM Narrative Copilot — daily market brief endpoint with Groq LLM integration, BRIEF slide-out panel (signal badge + bullets + narrative), OMNI universe expanded to all 16 tickers |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |
