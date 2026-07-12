@@ -321,3 +321,47 @@ export interface ScenarioRunResponse {
   baseline_regime: string
   baseline_confidence: number
 }
+
+// ── Fundamentals & Portfolio Allocation ────────────────────────────────────
+
+export interface TickerFundamentalsDTO {
+  ticker: string
+  display_name: string | null
+  sector: string | null
+  industry: string | null
+  market_cap: number | null
+  pe_trailing: number | null
+  pe_forward: number | null
+  eps_trailing: number | null
+  dividend_yield_pct: number | null
+  beta: number | null
+  week52_high: number | null
+  week52_low: number | null
+  volume: number | null
+  avg_volume_10d: number | null
+  revenue_growth_yoy: number | null
+  gross_margin_pct: number | null
+  debt_to_equity: number | null
+}
+
+export interface SectorAllocationItem {
+  sector: string
+  tickers: string[]
+  weight_pct: number
+  value: number
+  currency: string
+}
+
+export interface PortfolioAllocationDTO {
+  sectors: SectorAllocationItem[]
+  concentration_warning: string | null
+  top_sector: string | null
+  hhi: number
+  total_value: number
+}
+
+export interface CorrelationMatrixDTO {
+  tickers: string[]
+  matrix: number[][]
+  period_days: number
+}

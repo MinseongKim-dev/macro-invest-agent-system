@@ -6,16 +6,16 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
-import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse } from '@/lib/types'
+import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.5'
+export const APP_VERSION = 'v0.4.6'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -285,6 +285,150 @@ const AIWidget = ({ w, idx }: { w: OmniWidget; idx: number }) => (
   </div>
 )
 
+// ─── Sector Allocation View ───────────────────────────────────────────────────
+
+const SectorAllocationView = ({
+  allocation,
+  height,
+}: {
+  allocation: PortfolioAllocationDTO | undefined
+  height: number
+}) => {
+  if (!allocation || allocation.sectors.length === 0) {
+    return (
+      <div style={{ height, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.2)', letterSpacing: '1.5px' }}>
+        AWAITING HOLDINGS…
+      </div>
+    )
+  }
+  return (
+    <div style={{ height, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, scrollbarWidth: 'none' }}>
+      {allocation.sectors.map(s => {
+        const w = s.weight_pct
+        const hot = w > 40
+        const col = hot ? '#ff4d6d' : w > 25 ? '#fbbf24' : '#00e5ff'
+        return (
+          <div key={s.sector} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.45)', width: 80, flexShrink: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{s.sector}</div>
+            <div style={{ flex: 1, height: 10, background: 'rgba(255,255,255,.06)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${w}%`, background: `${col}bb`, borderRadius: 3, transition: 'width .4s' }} />
+            </div>
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: col, width: 36, textAlign: 'right', flexShrink: 0 }}>{w.toFixed(1)}%</div>
+          </div>
+        )
+      })}
+      {allocation.concentration_warning && (
+        <div style={{ marginTop: 4, padding: '4px 8px', background: 'rgba(255,77,109,.08)', border: '1px solid rgba(255,77,109,.3)', borderRadius: 5, fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: '#ff4d6d', lineHeight: 1.4 }}>
+          ⚠ {allocation.concentration_warning}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Correlation Panel (slide-out) ────────────────────────────────────────────
+
+const CorrelationPanel = ({
+  open,
+  onClose,
+  tickers,
+  matrix,
+}: {
+  open: boolean
+  onClose: () => void
+  tickers: string[] | undefined
+  matrix: number[][] | undefined
+}) => {
+  const PANEL_W = 460
+  return (
+    <>
+      {open && (
+        <div
+          onClick={onClose}
+          style={{ position: 'fixed', inset: 0, zIndex: 88, background: 'rgba(2,6,18,.5)', backdropFilter: 'blur(2px)' }}
+        />
+      )}
+      <div style={{
+        position: 'fixed', top: 0, right: open ? 0 : -PANEL_W, bottom: 0,
+        width: PANEL_W, zIndex: 89,
+        background: 'rgba(2,9,22,0.98)', backdropFilter: 'blur(28px)',
+        borderLeft: '1px solid rgba(0,229,255,.2)',
+        display: 'flex', flexDirection: 'column',
+        transition: 'right .35s cubic-bezier(.4,0,.2,1)',
+      }}>
+        <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid rgba(0,229,255,.15)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00e5ff', boxShadow: '0 0 8px #00e5ff' }} />
+          <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, letterSpacing: '3px', color: '#00e5ff', flex: 1 }}>◈ CORRELATION MATRIX · 30D</span>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: 5, color: 'rgba(255,255,255,.38)', fontSize: 11, cursor: 'pointer', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '16px', scrollbarWidth: 'thin' }}>
+          {!tickers || !matrix ? (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(255,255,255,.25)', textAlign: 'center', marginTop: 40 }}>LOADING…</div>
+          ) : (
+            <>
+              <div style={{ marginBottom: 10, fontFamily: "'Rajdhani',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.28)', lineHeight: 1.5 }}>
+                Pearson 30-day daily return correlation. Range: −1 (inverse) → +1 (perfect).
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table style={{ borderCollapse: 'collapse', fontSize: 8, fontFamily: "'JetBrains Mono',monospace" }}>
+                  <thead>
+                    <tr>
+                      <td style={{ width: 52, padding: '4px 4px 4px 0' }} />
+                      {tickers.map(t => (
+                        <td key={t} style={{ padding: '0 3px 6px', color: 'rgba(0,229,255,.55)', textAlign: 'center', fontSize: 7, whiteSpace: 'nowrap', transform: 'rotate(-35deg)', display: 'inline-block', minWidth: 28 }}>{t.length > 5 ? t.slice(0, 5) : t}</td>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {tickers.map((row, ri) => (
+                      <tr key={row}>
+                        <td style={{ padding: '2px 6px 2px 0', color: 'rgba(255,255,255,.45)', whiteSpace: 'nowrap', fontSize: 7.5 }}>{row}</td>
+                        {matrix[ri]?.map((v, ci) => {
+                          const abs = Math.abs(v)
+                          const isPos = v >= 0
+                          const isDiag = ri === ci
+                          const bg = isDiag
+                            ? 'rgba(0,229,255,.08)'
+                            : isPos
+                              ? `rgba(0,255,136,${(abs * 0.4).toFixed(2)})`
+                              : `rgba(255,77,109,${(abs * 0.4).toFixed(2)})`
+                          const fg = isDiag ? '#00e5ff' : isPos ? '#00ff88' : '#ff4d6d'
+                          return (
+                            <td key={ci} title={`${row} × ${tickers[ci]}: ${v.toFixed(3)}`} style={{
+                              padding: '2px 3px', textAlign: 'center', minWidth: 28,
+                              background: bg, borderRadius: 3, color: isDiag ? fg : abs > 0.5 ? fg : 'rgba(255,255,255,.45)',
+                              fontWeight: abs > 0.7 ? 700 : 400,
+                            }}>{v.toFixed(2)}</td>
+                          )
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ marginTop: 16, display: 'flex', gap: 8 }}>
+                {([['HIGH CORR', '#00ff88', '>0.7'], ['LOW CORR', '#fbbf24', '0.3–0.7'], ['NEGATIVE', '#ff4d6d', '<0']] as const).map(([lbl, col, range]) => (
+                  <div key={lbl} style={{ flex: 1, padding: '7px 8px', background: `${col}08`, border: `1px solid ${col}28`, borderRadius: 7, textAlign: 'center' }}>
+                    <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 7.5, color: 'rgba(255,255,255,.3)', letterSpacing: '1px', marginBottom: 3 }}>{lbl}</div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: col }}>{range}</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div style={{ padding: '8px 16px', flexShrink: 0, borderTop: '1px solid rgba(0,229,255,.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.18)' }}>ALEPH-ONE · 30-DAY PEARSON</span>
+          <button onClick={onClose} style={{ padding: '4px 12px', borderRadius: 5, cursor: 'pointer', background: 'rgba(0,229,255,.1)', border: '1px solid rgba(0,229,255,.3)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff' }}>CLOSE</button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 
 export default function AlephDashboard() {
@@ -304,6 +448,8 @@ export default function AlephDashboard() {
   const [whatifResult, setWhatifResult] = useState<ScenarioRunResponse | null>(null)
   const [whatifRunning, setWhatifRunning] = useState(false)
   const [whatifError, setWhatifError] = useState<string | null>(null)
+  const [sectorViewMode, setSectorViewMode] = useState<'CHANGE' | 'ALLOCATION'>('CHANGE')
+  const [correlOpen, setCorrelOpen] = useState(false)
 
   // ── Real backend data ──────────────────────────────────────────────────────
   const { data: streamData }                          = useAlephStream()
@@ -315,6 +461,8 @@ export default function AlephDashboard() {
   const { history: histData, metrics: metricsData }                         = usePortfolio(chartPeriod)
   const { data: vpData, mutate: vpMutate }                                   = useVirtualPortfolio()
   const { data: presetsData }                                                = useScenarioPresets()
+  const { data: allocationData }                                             = usePortfolioAllocation()
+  const { data: correlData }                                                 = useCorrelationMatrix(30)
   const omni                                                                 = useOmniStream()
   const { user, signOut }                                                    = useAuth()
 
@@ -555,6 +703,14 @@ export default function AlephDashboard() {
         onClose={() => setDetailOpen(false)}
         ticker={detailTicker}
         news={detailNews}
+      />
+
+      {/* ── CORRELATION PANEL ──────────────────────────────────────────────── */}
+      <CorrelationPanel
+        open={correlOpen}
+        onClose={() => setCorrelOpen(false)}
+        tickers={correlData?.tickers}
+        matrix={correlData?.matrix}
       />
 
       {/* ── WHAT-IF SCENARIO PANEL ─────────────────────────────────────────── */}
@@ -914,10 +1070,30 @@ export default function AlephDashboard() {
                 <Globe />
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '2px', color: 'rgba(255,255,255,.25)', marginBottom: 6 }}>MARKET SENTIMENT HEATMAP</div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 4, height: 116 }}>
-                  {liveSectors.map((s, i) => <HCell key={i} n={s.n} c={s.c} />)}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '2px', color: 'rgba(255,255,255,.25)' }}>
+                    {sectorViewMode === 'CHANGE' ? 'MARKET SENTIMENT HEATMAP' : 'SECTOR ALLOCATION'}
+                  </div>
+                  <div style={{ display: 'flex', gap: 3 }}>
+                    {(['CHANGE', 'ALLOCATION'] as const).map(mode => (
+                      <button key={mode} onClick={() => setSectorViewMode(mode)} style={{
+                        padding: '2px 6px', borderRadius: 4, cursor: 'pointer',
+                        background: sectorViewMode === mode ? 'rgba(0,229,255,.14)' : 'transparent',
+                        border: `1px solid ${sectorViewMode === mode ? 'rgba(0,229,255,.4)' : 'rgba(255,255,255,.1)'}`,
+                        fontFamily: "'Orbitron',sans-serif", fontSize: 6.5, letterSpacing: '0.5px',
+                        color: sectorViewMode === mode ? '#00e5ff' : 'rgba(255,255,255,.3)',
+                        transition: 'all .15s',
+                      }}>{mode === 'CHANGE' ? '% CHG' : 'ALLOC'}</button>
+                    ))}
+                  </div>
                 </div>
+                {sectorViewMode === 'CHANGE' ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 4, height: 108 }}>
+                    {liveSectors.map((s, i) => <HCell key={i} n={s.n} c={s.c} />)}
+                  </div>
+                ) : (
+                  <SectorAllocationView allocation={allocationData} height={108} />
+                )}
               </div>
             </div>
           </div>
@@ -1168,9 +1344,24 @@ export default function AlephDashboard() {
               <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#a855f7' }}>AI ADVICE</span>
             </div>
             <div style={{ padding: '10px 12px', marginBottom: 10, background: 'rgba(168,85,247,.09)', border: '1px solid rgba(168,85,247,.28)', borderRadius: 9 }}>
-              <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 10, fontWeight: 700, color: '#a855f7', letterSpacing: '1px', lineHeight: 1.4, textShadow: '0 0 10px rgba(168,85,247,.4)' }}>AI REBALANCE<br />RECOMMENDED:</div>
-              <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 13, fontWeight: 900, color: '#fff', marginTop: 4, letterSpacing: '1px' }}>DIVERSIFY TECH</div>
-              <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.42)', marginTop: 6, lineHeight: 1.5 }}>Tech concentration at 73.2% exceeds optimal threshold. Consider rotating 15–20% into defensive sectors.</div>
+              {allocationData?.concentration_warning ? (
+                <>
+                  <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 10, fontWeight: 700, color: '#a855f7', letterSpacing: '1px', lineHeight: 1.4, textShadow: '0 0 10px rgba(168,85,247,.4)' }}>AI REBALANCE<br />RECOMMENDED:</div>
+                  <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 13, fontWeight: 900, color: '#fff', marginTop: 4, letterSpacing: '1px' }}>DIVERSIFY {(allocationData.top_sector ?? '').toUpperCase()}</div>
+                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.42)', marginTop: 6, lineHeight: 1.5 }}>{allocationData.concentration_warning}</div>
+                </>
+              ) : allocationData ? (
+                <>
+                  <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 10, fontWeight: 700, color: '#00ff88', letterSpacing: '1px', lineHeight: 1.4 }}>PORTFOLIO<br />DIVERSIFIED</div>
+                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.42)', marginTop: 6, lineHeight: 1.5 }}>HHI {allocationData.hhi.toFixed(3)} — 섹터 집중 위험 없음. 현재 배분 유지 권장.</div>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 10, fontWeight: 700, color: '#a855f7', letterSpacing: '1px', lineHeight: 1.4, textShadow: '0 0 10px rgba(168,85,247,.4)' }}>AI REBALANCE<br />RECOMMENDED:</div>
+                  <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 13, fontWeight: 900, color: '#fff', marginTop: 4, letterSpacing: '1px' }}>ANALYZING…</div>
+                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.28)', marginTop: 6, lineHeight: 1.5 }}>포트폴리오 데이터를 불러오는 중입니다.</div>
+                </>
+              )}
             </div>
             <div style={{ display: 'flex', gap: 5, marginBottom: 10 }}>
               {([['SHARPE', sharpeDisplay, '#00ff88'], ['BETA', betaDisplay, '#fbbf24'], ['α', alphaDisplay, '#00e5ff']] as const).map(([l, v, c]) => (
@@ -1193,6 +1384,9 @@ export default function AlephDashboard() {
                 onClick={() => handleExec('현재 포트폴리오 리스크를 분석하고 최적 리밸런싱 전략을 제시해줘. 섹터 집중도, 변동성, 리스크 대비 수익률을 고려해서 구체적인 조언을 해줘.')}
                 disabled={omni.busy}
                 style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: omni.busy ? 'default' : 'pointer', opacity: omni.busy ? 0.5 : 1, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff', transition: 'all .2s' }}>ANALYZE</button>
+              <button
+                onClick={() => setCorrelOpen(o => !o)}
+                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: correlOpen ? 'rgba(0,229,255,.14)' : 'rgba(0,229,255,.04)', border: `1px solid rgba(0,229,255,${correlOpen ? '.45' : '.15'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff', transition: 'all .2s', boxShadow: correlOpen ? '0 0 8px rgba(0,229,255,.2)' : 'none' }}>CORREL</button>
             </div>
           </div>
         </div>
