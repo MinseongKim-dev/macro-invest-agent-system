@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import asyncio
 from time import monotonic
-from typing import Any
+from typing import Union, cast
 
 from fastapi import APIRouter, HTTPException
 
@@ -32,6 +32,8 @@ from apps.api.dto.fundamentals import (
     SectorAllocationItem,
     TickerFundamentalsDTO,
 )
+
+_CacheValue = Union[TickerFundamentalsDTO, PortfolioAllocationDTO, CorrelationMatrixDTO]
 
 router = APIRouter(prefix="/api", tags=["fundamentals"])
 
@@ -60,20 +62,20 @@ _ALL_TICKERS = list(_SECTOR_MAP.keys())
 
 # ── Simple TTL cache ───────────────────────────────────────────────────────────
 
-_CACHE: dict[str, tuple[float, Any]] = {}
+_CACHE: dict[str, tuple[float, _CacheValue]] = {}
 _FUND_TTL = 600.0    # 10 min
 _CORR_TTL = 900.0    # 15 min
 _ALLOC_TTL = 120.0   # 2 min
 
 
-def _get(key: str, ttl: float) -> Any | None:
+def _get(key: str, ttl: float) -> _CacheValue | None:
     entry = _CACHE.get(key)
     if entry and monotonic() - entry[0] < ttl:
         return entry[1]
     return None
 
 
-def _put(key: str, val: Any) -> None:
+def _put(key: str, val: _CacheValue) -> None:
     _CACHE[key] = (monotonic(), val)
 
 
@@ -196,19 +198,23 @@ def _fetch_allocation_sync() -> dict[str, Any]:
 
     items = []
     hhi = 0.0
+    top: str | None = None
+    top_w: float = 0.0
     for sector, val in sorted(sector_values.items(), key=lambda x: -x[1]):
         w = val / total
         hhi += w * w
+        w_pct = round(w * 100, 1)
+        if top is None:
+            top = sector
+            top_w = w_pct
         items.append({
             "sector": sector,
             "tickers": sector_tickers[sector],
-            "weight_pct": round(w * 100, 1),
+            "weight_pct": w_pct,
             "value": round(val, 0),
             "currency": sector_currencies[sector],
         })
 
-    top = items[0]["sector"] if items else None
-    top_w = items[0]["weight_pct"] if items else 0.0
     warning = (
         f"{top} 비중 {top_w:.1f}% — 40% 임계치 초과, 분산투자 검토 권장"
         if top_w > 40.0
@@ -235,7 +241,7 @@ async def get_fundamentals(ticker: str) -> TickerFundamentalsDTO:
     ticker = ticker.upper()
     cached = _get(f"fund:{ticker}", _FUND_TTL)
     if cached is not None:
-        return cached
+        return cast(TickerFundamentalsDTO, cached)
 
     data = await asyncio.to_thread(_fetch_fundamentals_sync, ticker)
     if not data:
@@ -254,7 +260,7 @@ async def get_fundamentals(ticker: str) -> TickerFundamentalsDTO:
 async def get_portfolio_allocation() -> PortfolioAllocationDTO:
     cached = _get("allocation", _ALLOC_TTL)
     if cached is not None:
-        return cached
+        return cast(PortfolioAllocationDTO, cached)
 
     data = await asyncio.to_thread(_fetch_allocation_sync)
     result = PortfolioAllocationDTO(
@@ -277,7 +283,7 @@ async def get_correlation_matrix(period_days: int = 30) -> CorrelationMatrixDTO:
     key = f"corr:{period_days}"
     cached = _get(key, _CORR_TTL)
     if cached is not None:
-        return cached
+        return cast(CorrelationMatrixDTO, cached)
 
     data = await asyncio.to_thread(_fetch_correlation_sync, _ALL_TICKERS, period_days)
     result = CorrelationMatrixDTO(**data)
