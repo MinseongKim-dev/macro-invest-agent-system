@@ -16,6 +16,7 @@ import type {
   PortfolioAllocationDTO,
   CorrelationMatrixDTO,
   DailyBriefDTO,
+  LiveAlertsResponse,
 } from '@/lib/types'
 
 const POLL_FAST = 30_000   // 30s — regime + signals
@@ -160,5 +161,13 @@ export function useDailyBrief() {
     endpoints.narrativeBrief,
     fetchJson,
     { ...SWR_OPT, refreshInterval: 300_000 },  // 5-min cache matches backend TTL
+  )
+}
+
+export function useAlertsFeed(limit = 20) {
+  return useSWR<LiveAlertsResponse>(
+    endpoints.liveAlerts(limit),
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 15_000 },  // poll every 15s — regime transitions are rare
   )
 }

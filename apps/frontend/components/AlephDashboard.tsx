@@ -6,16 +6,16 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
-import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO } from '@/lib/types'
+import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.7'
+export const APP_VERSION = 'v0.4.8'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -320,6 +320,117 @@ const SectorAllocationView = ({
       {allocation.concentration_warning && (
         <div style={{ marginTop: 4, padding: '4px 8px', background: 'rgba(255,77,109,.08)', border: '1px solid rgba(255,77,109,.3)', borderRadius: 5, fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: '#ff4d6d', lineHeight: 1.4 }}>
           ⚠ {allocation.concentration_warning}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Alert Bell (header notification icon) ────────────────────────────────────
+
+const SEV_COLOR: Record<string, string> = {
+  critical: '#ff4d6d',
+  warning:  '#fbbf24',
+  info:     '#00e5ff',
+}
+
+function timeAgo(iso: string): string {
+  const secs = Math.floor((Date.now() - new Date(iso).getTime()) / 1000)
+  if (secs < 60) return `${secs}s ago`
+  if (secs < 3600) return `${Math.floor(secs / 60)}m ago`
+  if (secs < 86400) return `${Math.floor(secs / 3600)}h ago`
+  return `${Math.floor(secs / 86400)}d ago`
+}
+
+const AlertBell = () => {
+  const [open, setOpen] = useState(false)
+  const [seenCount, setSeenCount] = useState(0)
+  const dropRef = useRef<HTMLDivElement>(null)
+  const { data } = useAlertsFeed(20)
+  const alerts: LiveAlertItem[] = data?.alerts ?? []
+  const total = data?.total ?? 0
+  const unread = Math.max(0, total - seenCount)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    if (open) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const handleToggle = () => {
+    setOpen(o => {
+      if (!o) setSeenCount(total) // mark all read on open
+      return !o
+    })
+  }
+
+  return (
+    <div ref={dropRef} style={{ position: 'relative' }}>
+      <button
+        onClick={handleToggle}
+        title="레짐 알림"
+        style={{
+          position: 'relative', background: open ? 'rgba(251,191,36,.14)' : 'none',
+          border: `1px solid rgba(251,191,36,${open ? '.45' : unread > 0 ? '.35' : '.15'})`,
+          borderRadius: 7, width: 28, height: 28, cursor: 'pointer',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: 13, transition: 'all .2s',
+          boxShadow: unread > 0 ? '0 0 8px rgba(251,191,36,.3)' : 'none',
+        }}
+      >
+        🔔
+        {unread > 0 && (
+          <span style={{
+            position: 'absolute', top: -4, right: -4, minWidth: 14, height: 14,
+            borderRadius: 7, background: '#ff4d6d', border: '1px solid rgba(2,8,20,.9)',
+            fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fontWeight: 700,
+            color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0 2px',
+          }}>{unread > 9 ? '9+' : unread}</span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 6px)', right: 0,
+          width: 320, maxHeight: 380, overflowY: 'auto', zIndex: 200,
+          background: 'rgba(2,9,22,0.98)', backdropFilter: 'blur(24px)',
+          border: '1px solid rgba(251,191,36,.25)', borderRadius: 10,
+          boxShadow: '0 12px 40px rgba(0,0,0,.6)',
+        }}>
+          <div style={{ padding: '10px 14px 8px', borderBottom: '1px solid rgba(255,255,255,.06)', display: 'flex', alignItems: 'center', gap: 7 }}>
+            <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#fbbf24', boxShadow: '0 0 6px #fbbf24' }} />
+            <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#fbbf24', flex: 1 }}>REGIME ALERTS</span>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.18)' }}>{total} total</span>
+          </div>
+          {alerts.length === 0 ? (
+            <div style={{ padding: '24px 14px', textAlign: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(255,255,255,.22)' }}>
+              NO ALERTS — 레짐 안정
+            </div>
+          ) : (
+            <div>
+              {alerts.map((a) => {
+                const col = SEV_COLOR[a.severity] ?? '#fbbf24'
+                return (
+                  <div key={a.alert_id} style={{ padding: '9px 14px', borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <div style={{ width: 4, height: 4, borderRadius: '50%', background: col, flexShrink: 0 }} />
+                      <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1.5px', color: col }}>{a.severity.toUpperCase()}</span>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.22)', marginLeft: 'auto' }}>{timeAgo(a.occurred_at)}</span>
+                    </div>
+                    <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: 'rgba(255,255,255,.75)', lineHeight: 1.4 }}>{a.message}</div>
+                    <div style={{ marginTop: 3, fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.3)' }}>
+                      {a.old_regime} → {a.new_regime} · {(a.confidence * 100).toFixed(0)}%
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -1029,6 +1140,7 @@ export default function AlephDashboard() {
             <div style={{ width: 5, height: 5, borderRadius: '50%', background: connected ? '#00ff88' : '#ff4d6d', boxShadow: connected ? '0 0 6px #00ff88' : 'none', animation: connected ? 'blink 1.2s step-end infinite' : 'none' }} />
             <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: connected ? 'rgba(0,255,136,.7)' : 'rgba(255,77,109,.7)' }}>{connected ? 'LIVE' : 'RECONNECTING'}</span>
           </div>
+          <AlertBell />
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: 'rgba(0,229,255,.65)', letterSpacing: '1px' }}>{ts}</span>
           <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(255,255,255,.22)' }}>KST UTC+9</span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)' }}>

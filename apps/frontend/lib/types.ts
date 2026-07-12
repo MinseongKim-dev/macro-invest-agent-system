@@ -374,3 +374,19 @@ export interface DailyBriefDTO {
   source: string
   generated_at: string
 }
+
+export interface LiveAlertItem {
+  alert_id: string
+  trigger: string
+  severity: 'info' | 'warning' | 'critical'
+  old_regime: string
+  new_regime: string
+  confidence: number
+  message: string
+  occurred_at: string
+}
+
+export interface LiveAlertsResponse {
+  alerts: LiveAlertItem[]
+  total: number
+}

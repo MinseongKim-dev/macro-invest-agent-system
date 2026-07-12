@@ -29,4 +29,5 @@ export const endpoints = {
   portfolioAllocation: '/api/portfolio/allocation',
   portfolioCorrelation: (days = 30) => `/api/portfolio/correlation?period_days=${days}`,
   narrativeBrief: '/api/narrative/brief',
+  liveAlerts: (limit = 20) => `/api/v1/alerts/live?limit=${limit}`,
 } as const
