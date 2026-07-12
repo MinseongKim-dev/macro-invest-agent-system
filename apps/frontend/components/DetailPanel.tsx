@@ -1,19 +1,13 @@
 'use client'
 
-import useSWR from 'swr'
+import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import type { ExternalEventDTO } from '@/lib/types'
-import { fetchJson, endpoints } from '@/lib/api'
 import { useNewsSummary } from '@/hooks/useNewsSummary'
-
-interface TickerFundamentals {
-  week52_high: number | null
-  week52_low:  number | null
-  volume:      number | null
-}
+import { useFundamentals } from '@/hooks/useAlephData'
 
 export interface TickerDetail {
   ticker:  string
@@ -41,24 +35,86 @@ function formatPrice(t: TickerDetail): string {
     : `$${t.current.toFixed(2)}`
 }
 
+function fmtNum(v: number | null | undefined, decimals = 2): string {
+  if (v == null) return '···'
+  return v.toLocaleString('en-US', { maximumFractionDigits: decimals })
+}
+
+function fmtPct(v: number | null | undefined): string {
+  if (v == null) return '···'
+  return `${v >= 0 ? '+' : ''}${v.toFixed(1)}%`
+}
+
+function fmtCap(v: number | null | undefined): string {
+  if (v == null) return '···'
+  if (v >= 1e12) return `$${(v / 1e12).toFixed(2)}T`
+  if (v >= 1e9)  return `$${(v / 1e9).toFixed(2)}B`
+  if (v >= 1e6)  return `$${(v / 1e6).toFixed(2)}M`
+  return `$${v.toFixed(0)}`
+}
+
+function FundamentalsTab({ t }: { t: TickerDetail }) {
+  const { data: f, isLoading } = useFundamentals(t.ticker)
+  const isKR = t.ticker.startsWith('0')
+
+  const fmtRange = (v: number | null | undefined) => {
+    if (v == null) return '···'
+    return isKR ? `₩${Math.round(v).toLocaleString('ko-KR')}` : `$${v.toFixed(2)}`
+  }
+
+  if (isLoading) {
+    return (
+      <div style={{ padding: '20px 0', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div key={i} style={{ height: 32, borderRadius: 6, background: 'rgba(255,255,255,.04)', animation: 'glow-pulse 1.2s ease-in-out infinite' }} />
+        ))}
+      </div>
+    )
+  }
+
+  const rows: [string, string][] = [
+    ['52W HIGH',        fmtRange(f?.week52_high)],
+    ['52W LOW',         fmtRange(f?.week52_low)],
+    ['MARKET CAP',      fmtCap(f?.market_cap)],
+    ['P/E (TTM)',        fmtNum(f?.pe_trailing)],
+    ['P/E (FWD)',        fmtNum(f?.pe_forward)],
+    ['EPS (TTM)',        fmtNum(f?.eps_trailing)],
+    ['DIV YIELD',       f?.dividend_yield_pct != null ? `${f.dividend_yield_pct.toFixed(2)}%` : '···'],
+    ['BETA',            fmtNum(f?.beta)],
+    ['REV GROWTH',      fmtPct(f?.revenue_growth_yoy != null ? f.revenue_growth_yoy * 100 : null)],
+    ['GROSS MARGIN',    f?.gross_margin_pct != null ? `${f.gross_margin_pct.toFixed(1)}%` : '···'],
+    ['DEBT / EQUITY',   fmtNum(f?.debt_to_equity)],
+  ]
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+      {f?.sector && (
+        <div style={{ marginBottom: 8, padding: '6px 10px', background: `${t.col}0e`, border: `1px solid ${t.col}28`, borderRadius: 7 }}>
+          <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.3)', letterSpacing: '1px' }}>SECTOR · </span>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: t.col }}>{f.sector}</span>
+          {f.industry && (
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(255,255,255,.28)', marginLeft: 6 }}>/ {f.industry}</span>
+          )}
+        </div>
+      )}
+      {rows.map(([lbl, val]) => (
+        <div key={lbl} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 8px', background: 'rgba(255,255,255,.025)', borderRadius: 6 }}>
+          <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8.5, color: 'rgba(255,255,255,.35)', letterSpacing: '1px' }}>{lbl}</span>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9.5, color: val === '···' ? 'rgba(255,255,255,.2)' : '#00e5ff', fontWeight: 600 }}>{val}</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function TickerBody({ t }: { t: TickerDetail }) {
+  const [tab, setTab] = useState<'PRICE' | 'FUNDAMENTALS'>('PRICE')
   const chartData = t.prices.map((v, i) => ({ i, v }))
   const up = t.dir > 0
-  const { data: fundamentals } = useSWR<TickerFundamentals>(
-    endpoints.tickerDetail(t.ticker),
-    fetchJson,
-  )
-
-  const fmtRange = (v: number | null) => {
-    if (v == null) return '···'
-    return t.ticker.startsWith('0')
-      ? `₩${Math.round(v).toLocaleString('ko-KR')}`
-      : `$${v.toFixed(2)}`
-  }
 
   return (
     <>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
         <div style={{
           width: 44, height: 44, borderRadius: 9, flexShrink: 0,
           background: `${t.col}18`, border: `1px solid ${t.col}44`,
@@ -71,7 +127,7 @@ function TickerBody({ t }: { t: TickerDetail }) {
         </div>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 18 }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 12 }}>
         <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 26, fontWeight: 700, color: '#fff' }}>{formatPrice(t)}</span>
         <span style={{
           fontFamily: "'JetBrains Mono',monospace", fontSize: 13, fontWeight: 600,
@@ -80,49 +136,66 @@ function TickerBody({ t }: { t: TickerDetail }) {
         }}>{t.chg}</span>
       </div>
 
-      <div style={{ height: 160, marginBottom: 18 }}>
-        {chartData.length >= 2 ? (
-          <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="dp-grad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={t.col} stopOpacity={0.25} />
-                  <stop offset="95%" stopColor={t.col} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="i" hide />
-              <YAxis tick={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fill: 'rgba(255,255,255,.18)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} width={48} />
-              <Tooltip
-                contentStyle={{ background: 'rgba(2,12,30,.96)', border: `1px solid ${t.col}44`, borderRadius: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: t.col }}
-                labelFormatter={() => ''}
-                formatter={(v) => [Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 }), t.n]} />
-              <Area type="monotone" dataKey="v" stroke={t.col} strokeWidth={1.8} fill="url(#dp-grad)" dot={false} isAnimationActive={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        ) : (
-          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(255,255,255,.2)', letterSpacing: '2px' }}>
-            AWAITING PRICE HISTORY…
-          </div>
-        )}
-      </div>
-
-      <div style={{ display: 'flex', gap: 8 }}>
-        {(['TICKER', 'SESSION CHG', 'ASSET CLASS'] as const).map((lbl, i) => (
-          <div key={lbl} style={{ flex: 1, padding: '8px 6px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 7, textAlign: 'center' }}>
-            <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 7.5, color: 'rgba(255,255,255,.3)', letterSpacing: '1px', marginBottom: 3 }}>{lbl}</div>
-            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, color: i === 1 ? (up ? '#00ff88' : '#ff4d6d') : '#00e5ff' }}>
-              {i === 0 ? t.ticker : i === 1 ? t.chg : t.group}
-            </div>
-          </div>
+      {/* Tab toggle */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 14, padding: '3px', background: 'rgba(255,255,255,.04)', borderRadius: 8, border: '1px solid rgba(255,255,255,.08)' }}>
+        {(['PRICE', 'FUNDAMENTALS'] as const).map(tb => (
+          <button
+            key={tb}
+            onClick={() => setTab(tb)}
+            style={{
+              flex: 1, padding: '5px 0', borderRadius: 6, cursor: 'pointer',
+              background: tab === tb ? `${t.col}22` : 'transparent',
+              border: `1px solid ${tab === tb ? `${t.col}55` : 'transparent'}`,
+              fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px',
+              color: tab === tb ? t.col : 'rgba(255,255,255,.28)',
+              transition: 'all .15s',
+            }}
+          >{tb}</button>
         ))}
       </div>
 
-      <div style={{ marginTop: 10, padding: '8px 6px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 7, textAlign: 'center' }}>
-        <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 7.5, color: 'rgba(255,255,255,.3)', letterSpacing: '1px', marginBottom: 3 }}>52-WEEK RANGE</div>
-        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, color: t.col }}>
-          {fundamentals ? `${fmtRange(fundamentals.week52_low)} – ${fmtRange(fundamentals.week52_high)}` : '···'}
-        </div>
-      </div>
+      {tab === 'PRICE' ? (
+        <>
+          <div style={{ height: 160, marginBottom: 14 }}>
+            {chartData.length >= 2 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="dp-grad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={t.col} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={t.col} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="i" hide />
+                  <YAxis tick={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, fill: 'rgba(255,255,255,.18)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} width={48} />
+                  <Tooltip
+                    contentStyle={{ background: 'rgba(2,12,30,.96)', border: `1px solid ${t.col}44`, borderRadius: 8, fontFamily: "'JetBrains Mono',monospace", fontSize: 10, color: t.col }}
+                    labelFormatter={() => ''}
+                    formatter={(v) => [Number(v).toLocaleString('en-US', { maximumFractionDigits: 2 }), t.n]} />
+                  <Area type="monotone" dataKey="v" stroke={t.col} strokeWidth={1.8} fill="url(#dp-grad)" dot={false} isAnimationActive={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(255,255,255,.2)', letterSpacing: '2px' }}>
+                AWAITING PRICE HISTORY…
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            {(['TICKER', 'SESSION CHG', 'ASSET CLASS'] as const).map((lbl, i) => (
+              <div key={lbl} style={{ flex: 1, padding: '8px 6px', background: 'rgba(255,255,255,.03)', border: '1px solid rgba(255,255,255,.08)', borderRadius: 7, textAlign: 'center' }}>
+                <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 7.5, color: 'rgba(255,255,255,.3)', letterSpacing: '1px', marginBottom: 3 }}>{lbl}</div>
+                <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 10, fontWeight: 600, color: i === 1 ? (up ? '#00ff88' : '#ff4d6d') : '#00e5ff' }}>
+                  {i === 0 ? t.ticker : i === 1 ? t.chg : t.group}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <FundamentalsTab t={t} />
+      )}
     </>
   )
 }

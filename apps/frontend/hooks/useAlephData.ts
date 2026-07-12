@@ -12,6 +12,9 @@ import type {
   ScenarioPresetsResponse,
   ScenarioRunResponse,
   WhatIfScenario,
+  TickerFundamentalsDTO,
+  PortfolioAllocationDTO,
+  CorrelationMatrixDTO,
 } from '@/lib/types'
 
 const POLL_FAST = 30_000   // 30s — regime + signals
@@ -125,4 +128,28 @@ export async function runScenario(
     throw new Error(`Scenario run failed ${res.status}: ${text}`)
   }
   return res.json() as Promise<ScenarioRunResponse>
+}
+
+export function useFundamentals(ticker: string | null) {
+  return useSWR<TickerFundamentalsDTO>(
+    ticker ? endpoints.fundamentals(ticker) : null,
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 600_000 },  // 10-min cache matches backend TTL
+  )
+}
+
+export function usePortfolioAllocation() {
+  return useSWR<PortfolioAllocationDTO>(
+    endpoints.portfolioAllocation,
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 120_000 },  // 2-min cache matches backend TTL
+  )
+}
+
+export function useCorrelationMatrix(periodDays = 30) {
+  return useSWR<CorrelationMatrixDTO>(
+    endpoints.portfolioCorrelation(periodDays),
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 900_000 },  // 15-min cache matches backend TTL
+  )
 }

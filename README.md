@@ -1,8 +1,18 @@
 # Aleph-One
 
-**v0.4.5** · Open-source, zero-cost financial intelligence terminal
+**v0.4.6** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.6
+
+- **Live fundamentals** — `GET /api/fundamentals/{ticker}` streams P/E (trailing + forward), EPS, market cap, beta, dividend yield, gross margin, revenue growth, D/E ratio via yfinance (10-min in-process cache). Works for all 16 tickers including KR codes (`.KS` suffix auto-applied via `LIVE_TICKERS`).
+- **PRICE ↔ FUNDAMENTALS tab** — ticker detail panel now has a two-tab header. PRICE shows the existing mini chart + session stats; FUNDAMENTALS shows the full data grid with sector/industry labels.
+- **Sector allocation bar chart** — sector heatmap toggle `% CHG / ALLOC` switches between the sentiment grid and a live horizontal bar chart derived from `GET /api/portfolio/allocation`. Concentration warning appears inline if any sector exceeds 40%.
+- **AI Advice — real data** — the "DIVERSIFY TECH" advice card now reads from live `PortfolioAllocationDTO` (HHI + top sector + concentration warning) instead of a hardcoded string.
+- **Correlation matrix panel** — CORREL button opens a slide-out panel with the 16-ticker 30-day Pearson matrix color-coded (green positive / red negative / intensity by strength). Fetched from `GET /api/portfolio/correlation`.
 
 ---
 
@@ -343,6 +353,7 @@ macro-invest-agent-system/
 | **v0.4.4** | ✅ Released | Chart period tabs (1D/1W/1M/3M), live sector heatmap, news AI analysis, ANALYZE wired to OMNI, real Sharpe metric |
 | **v0.4.4-q** | ✅ Released | Quality pass: API hook unification, trust-badge error states, freshness UI, legacy cleanup |
 | **v0.4.5** | ✅ Released | What-If Scenario Engine — 5 built-in presets (골디락스/공황/스태그플레이션/연준긴축/소프트랜딩), conviction delta, strategy pivot detection, OMNI `run_scenario_tool` |
+| **v0.4.6** | ✅ Released | Fundamentals + Portfolio Intelligence — live P/E/EPS/market cap/beta/dividend via yfinance, PRICE↔FUNDAMENTALS tab in detail panel, sector allocation bar chart with HHI concentration warning, 16-ticker Pearson correlation matrix slide panel |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |
