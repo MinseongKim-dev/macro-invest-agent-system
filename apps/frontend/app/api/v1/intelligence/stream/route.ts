@@ -7,8 +7,14 @@
  *
  * Target: ALEPH_API_URL (default http://aleph-api:8001)
  */
-export const dynamic = 'force-dynamic'
-export const runtime = 'nodejs'
+export const dynamic    = 'force-dynamic'
+export const runtime    = 'nodejs'
+// Vercel Pro/Enterprise: extend the Function execution window so the SSE proxy
+// can stay alive longer than the default 10 s (Hobby) / 25 s (Pro) limit.
+// On Hobby this is a no-op; on Pro it raises the ceiling to 300 s.
+// The browser also connects directly to the VPS when NEXT_PUBLIC_API_URL is set
+// (see useAlephStream.ts), so this proxy is only used as a same-origin fallback.
+export const maxDuration = 300
 
 export async function GET(request: Request): Promise<Response> {
   const base        = process.env.ALEPH_API_URL ?? 'http://aleph-api:8001'

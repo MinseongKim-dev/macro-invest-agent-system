@@ -17,6 +17,7 @@ import type {
   CorrelationMatrixDTO,
   DailyBriefDTO,
   LiveAlertsResponse,
+  VirtualOrdersResponse,
 } from '@/lib/types'
 
 const POLL_FAST = 30_000   // 30s — regime + signals
@@ -169,5 +170,13 @@ export function useAlertsFeed(limit = 20) {
     endpoints.liveAlerts(limit),
     fetchJson,
     { ...SWR_OPT, refreshInterval: 15_000 },  // poll every 15s — regime transitions are rare
+  )
+}
+
+export function useVirtualOrders(limit = 20) {
+  return useSWR<VirtualOrdersResponse>(
+    endpoints.portfolioOrders(limit),
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 10_000 },
   )
 }

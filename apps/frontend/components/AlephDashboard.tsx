@@ -6,16 +6,16 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed, useVirtualOrders } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
-import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem } from '@/lib/types'
+import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.8'
+export const APP_VERSION = 'v0.4.10'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -445,6 +445,91 @@ const SIGNAL_COLOR: Record<string, string> = {
   'NEUTRAL':  '#fbbf24',
 }
 
+const ORDER_SIDE_COLOR = { BUY: '#00ff88', SELL: '#ff4d6d' } as const
+const ORDER_STATUS_COLOR: Record<string, string> = { FILLED: '#00e5ff', PENDING: '#fbbf24', REJECTED: '#ff4d6d' }
+
+function fmtOrderTime(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+const OrderLogPanel = ({
+  open,
+  onClose,
+  orders,
+  onReset,
+}: {
+  open: boolean
+  onClose: () => void
+  orders: VirtualOrderDTO[]
+  onReset: () => void
+}) => {
+  const PANEL_W = 480
+  return (
+    <>
+      {open && (
+        <div
+          onClick={onClose}
+          style={{ position: 'fixed', inset: 0, zIndex: 88, background: 'rgba(2,6,18,.5)', backdropFilter: 'blur(2px)' }}
+        />
+      )}
+      <div style={{
+        position: 'fixed', top: 0, right: open ? 0 : -PANEL_W, bottom: 0,
+        width: PANEL_W, zIndex: 89,
+        background: 'rgba(2,9,22,0.98)', backdropFilter: 'blur(28px)',
+        borderLeft: '1px solid rgba(0,255,136,.18)',
+        display: 'flex', flexDirection: 'column',
+        transition: 'right .35s cubic-bezier(.4,0,.2,1)',
+      }}>
+        <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid rgba(0,255,136,.12)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 8px #00ff88' }} />
+          <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, letterSpacing: '3px', color: '#00ff88', flex: 1 }}>◈ VIRTUAL ORDER LOG</span>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: 5, color: 'rgba(255,255,255,.38)', fontSize: 11, cursor: 'pointer', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', scrollbarWidth: 'thin' }}>
+          {orders.length === 0 ? (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(255,255,255,.22)', textAlign: 'center', marginTop: 48 }}>NO ORDERS YET<br /><span style={{ fontSize: 8, marginTop: 6, display: 'block', color: 'rgba(255,255,255,.12)' }}>Use OMNI-COMMAND to execute virtual trades</span></div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 8.5, fontFamily: "'JetBrains Mono',monospace" }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+                  {(['TIME', 'TICKER', 'SIDE', 'QTY', 'PRICE', 'CCY', 'STATUS'] as const).map(h => (
+                    <th key={h} style={{ padding: '4px 6px', textAlign: h === 'QTY' || h === 'PRICE' ? 'right' : 'left', color: 'rgba(255,255,255,.28)', fontWeight: 400, letterSpacing: '1px', fontSize: 7.5 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map(o => (
+                  <tr key={o.order_id} style={{ borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                    <td style={{ padding: '5px 6px', color: 'rgba(255,255,255,.35)', whiteSpace: 'nowrap' }}>{fmtOrderTime(o.created_at)}</td>
+                    <td style={{ padding: '5px 6px', color: 'rgba(255,255,255,.7)', fontWeight: 500 }}>{o.ticker}</td>
+                    <td style={{ padding: '5px 6px', color: ORDER_SIDE_COLOR[o.side] ?? '#fff', fontWeight: 700 }}>{o.side}</td>
+                    <td style={{ padding: '5px 6px', textAlign: 'right', color: 'rgba(255,255,255,.6)' }}>{o.quantity.toFixed(2)}</td>
+                    <td style={{ padding: '5px 6px', textAlign: 'right', color: 'rgba(255,255,255,.55)' }}>{o.currency === 'KRW' ? `₩${o.fill_price.toLocaleString()}` : `$${o.fill_price.toFixed(2)}`}</td>
+                    <td style={{ padding: '5px 6px', color: 'rgba(255,255,255,.3)', fontSize: 8 }}>{o.currency}</td>
+                    <td style={{ padding: '5px 6px' }}>
+                      <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1px', color: ORDER_STATUS_COLOR[o.status] ?? '#fff', padding: '2px 5px', border: `1px solid ${ORDER_STATUS_COLOR[o.status] ?? '#fff'}30`, borderRadius: 3 }}>{o.status}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div style={{ padding: '8px 16px', flexShrink: 0, borderTop: '1px solid rgba(0,255,136,.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.18)' }}>{orders.length} ORDER{orders.length !== 1 ? 'S' : ''} · PAPER TRADING</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={onReset} style={{ padding: '4px 10px', borderRadius: 5, cursor: 'pointer', background: 'rgba(255,77,109,.08)', border: '1px solid rgba(255,77,109,.3)', fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1px', color: '#ff4d6d' }}>RESET</button>
+            <button onClick={onClose} style={{ padding: '4px 12px', borderRadius: 5, cursor: 'pointer', background: 'rgba(0,255,136,.08)', border: '1px solid rgba(0,255,136,.3)', fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1px', color: '#00ff88' }}>CLOSE</button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 const DailyBriefPanel = ({
   open,
   onClose,
@@ -663,9 +748,10 @@ export default function AlephDashboard() {
   const [sectorViewMode, setSectorViewMode] = useState<'CHANGE' | 'ALLOCATION'>('CHANGE')
   const [correlOpen, setCorrelOpen] = useState(false)
   const [briefOpen,  setBriefOpen]  = useState(false)
+  const [ordersOpen, setOrdersOpen] = useState(false)
 
   // ── Real backend data ──────────────────────────────────────────────────────
-  const { data: streamData }                          = useAlephStream()
+  const { data: streamData, lastMsgAt: sseLastMsgAt } = useAlephStream()
   const { data: marketTick, connected, priceHistory } = useMarketStream()
   const liveNews                                      = useNewsStream(15)
   const { data: regimeData, isLoading: regimeLoading, error: regimeError } = useRegime()
@@ -677,6 +763,7 @@ export default function AlephDashboard() {
   const { data: allocationData }                                             = usePortfolioAllocation()
   const { data: correlData }                                                 = useCorrelationMatrix(30)
   const { data: briefData, isLoading: briefLoading }                         = useDailyBrief()
+  const { data: ordersData }                                                  = useVirtualOrders(30)
   const omni                                                                 = useOmniStream()
   const { user, signOut }                                                    = useAuth()
 
@@ -841,6 +928,8 @@ export default function AlephDashboard() {
 
   const pad = (n: number) => String(n).padStart(2, '0')
   const ts  = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+  // SSE staleness: stale if last frame > 60 s ago and we've received at least one frame
+  const sseStale = sseLastMsgAt > 0 && (now.getTime() - sseLastMsgAt) > 60_000
 
   // ── OMNI-COMMAND — delegate to useOmniStream ─────────────────────────────
   const handleExec = (forceQuery?: string) => {
@@ -933,6 +1022,17 @@ export default function AlephDashboard() {
         onClose={() => setBriefOpen(false)}
         brief={briefData}
         loading={briefLoading}
+      />
+
+      {/* ── ORDER LOG PANEL ────────────────────────────────────────────────── */}
+      <OrderLogPanel
+        open={ordersOpen}
+        onClose={() => setOrdersOpen(false)}
+        orders={ordersData?.orders ?? []}
+        onReset={async () => {
+          await fetch('/api/v1/portfolio/reset', { method: 'POST' })
+          setOrdersOpen(false)
+        }}
       />
 
       {/* ── WHAT-IF SCENARIO PANEL ─────────────────────────────────────────── */}
@@ -1139,6 +1239,9 @@ export default function AlephDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <div style={{ width: 5, height: 5, borderRadius: '50%', background: connected ? '#00ff88' : '#ff4d6d', boxShadow: connected ? '0 0 6px #00ff88' : 'none', animation: connected ? 'blink 1.2s step-end infinite' : 'none' }} />
             <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: connected ? 'rgba(0,255,136,.7)' : 'rgba(255,77,109,.7)' }}>{connected ? 'LIVE' : 'RECONNECTING'}</span>
+            {sseStale && (
+              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1.5px', color: '#fbbf24', padding: '1px 5px', border: '1px solid rgba(251,191,36,.4)', borderRadius: 3, animation: 'glow-pulse 2s ease-in-out infinite' }}>STALE</span>
+            )}
           </div>
           <AlertBell />
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: 'rgba(0,229,255,.65)', letterSpacing: '1px' }}>{ts}</span>
@@ -1498,6 +1601,33 @@ export default function AlephDashboard() {
               <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff' }}>PERFORMANCE</div>
               <button onClick={handlePortfolioReset} title="초기 잔고로 리셋" style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '1px', padding: '2px 7px', borderRadius: 4, border: '1px solid rgba(255,77,109,.35)', background: 'transparent', color: 'rgba(255,77,109,.6)', cursor: 'pointer' }}>RESET</button>
             </div>
+            {/* Total NAV summary — aggregated across all accounts */}
+            {vpData?.accounts && (() => {
+              const accs = Object.values(vpData.accounts)
+              const totalInitial = accs.reduce((s, a) => s + a.initial_balance, 0)
+              const totalValue   = accs.reduce((s, a) => s + a.total_value, 0)
+              const totalPl      = accs.reduce((s, a) => s + a.total_pl, 0)
+              const totalPlPct   = totalInitial > 0 ? (totalPl / totalInitial) * 100 : 0
+              const plCol        = totalPl >= 0 ? '#00ff88' : '#ff4d6d'
+              return (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', marginBottom: 10, background: `${plCol}08`, border: `1px solid ${plCol}22`, borderRadius: 8 }}>
+                  <div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'rgba(255,255,255,.28)', marginBottom: 2 }}>TOTAL NAV</div>
+                    <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 12, fontWeight: 900, color: '#00e5ff', letterSpacing: '0.5px' }}>
+                      ₩{Math.round(totalValue).toLocaleString('ko-KR')}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 11, fontWeight: 700, color: plCol }}>
+                      {totalPl >= 0 ? '+' : ''}{totalPlPct.toFixed(2)}%
+                    </div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: plCol }}>
+                      {totalPl >= 0 ? '+' : ''}₩{Math.round(totalPl).toLocaleString('ko-KR')}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
             {/* Virtual Portfolio accounts */}
             {vpData?.accounts && Object.entries(vpData.accounts).map(([currency, acc]) => {
               const plColor = acc.total_pl >= 0 ? '#00ff88' : '#ff4d6d'
@@ -1613,6 +1743,9 @@ export default function AlephDashboard() {
               <button
                 onClick={() => setBriefOpen(o => !o)}
                 style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: briefOpen ? 'rgba(168,85,247,.18)' : 'rgba(168,85,247,.06)', border: `1px solid rgba(168,85,247,${briefOpen ? '.55' : '.2'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7', transition: 'all .2s', boxShadow: briefOpen ? '0 0 8px rgba(168,85,247,.25)' : 'none' }}>BRIEF</button>
+              <button
+                onClick={() => setOrdersOpen(o => !o)}
+                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: ordersOpen ? 'rgba(0,255,136,.14)' : 'rgba(0,255,136,.04)', border: `1px solid rgba(0,255,136,${ordersOpen ? '.45' : '.15'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00ff88', transition: 'all .2s', boxShadow: ordersOpen ? '0 0 8px rgba(0,255,136,.2)' : 'none' }}>ORDERS</button>
             </div>
           </div>
         </div>
