@@ -52,6 +52,7 @@ from src.database import (
     fetch_live_news_items,
     fetch_macro_indicators,
     fetch_ticker_detail,
+    fetch_virtual_orders,
     get_connection,
     get_latest_prices,
     get_portfolio_holdings,
@@ -2322,6 +2323,27 @@ async def portfolio_reset() -> dict[str, Any]:
     except Exception as exc:
         logger.error("portfolio_reset_failed", extra={"error": str(exc)})
         return {"timestamp": datetime.now(tz=_KST).isoformat(), "status": "ERROR", "error": str(exc)}
+
+
+@app.get("/api/v1/portfolio/orders", tags=["portfolio"])
+async def get_virtual_orders_endpoint(limit: int = 20) -> dict[str, Any]:
+    """Return the most recent virtual orders, newest first (max 100)."""
+    try:
+        orders = await asyncio.to_thread(fetch_virtual_orders, min(limit, 100))
+        return {
+            "timestamp": datetime.now(tz=_KST).isoformat(),
+            "status":    "ok",
+            "orders":    orders,
+            "total":     len(orders),
+        }
+    except Exception as exc:
+        logger.error("get_virtual_orders_failed", extra={"error": str(exc)})
+        return {
+            "timestamp": datetime.now(tz=_KST).isoformat(),
+            "status":    "ERROR",
+            "orders":    [],
+            "total":     0,
+        }
 
 
 @app.get("/api/v1/portfolio/nav-history", tags=["portfolio"])

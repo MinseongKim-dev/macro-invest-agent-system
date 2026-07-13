@@ -6,16 +6,16 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed, useVirtualOrders } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
-import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem } from '@/lib/types'
+import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.8'
+export const APP_VERSION = 'v0.4.9'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -445,6 +445,91 @@ const SIGNAL_COLOR: Record<string, string> = {
   'NEUTRAL':  '#fbbf24',
 }
 
+const ORDER_SIDE_COLOR = { BUY: '#00ff88', SELL: '#ff4d6d' } as const
+const ORDER_STATUS_COLOR: Record<string, string> = { FILLED: '#00e5ff', PENDING: '#fbbf24', REJECTED: '#ff4d6d' }
+
+function fmtOrderTime(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+const OrderLogPanel = ({
+  open,
+  onClose,
+  orders,
+  onReset,
+}: {
+  open: boolean
+  onClose: () => void
+  orders: VirtualOrderDTO[]
+  onReset: () => void
+}) => {
+  const PANEL_W = 480
+  return (
+    <>
+      {open && (
+        <div
+          onClick={onClose}
+          style={{ position: 'fixed', inset: 0, zIndex: 88, background: 'rgba(2,6,18,.5)', backdropFilter: 'blur(2px)' }}
+        />
+      )}
+      <div style={{
+        position: 'fixed', top: 0, right: open ? 0 : -PANEL_W, bottom: 0,
+        width: PANEL_W, zIndex: 89,
+        background: 'rgba(2,9,22,0.98)', backdropFilter: 'blur(28px)',
+        borderLeft: '1px solid rgba(0,255,136,.18)',
+        display: 'flex', flexDirection: 'column',
+        transition: 'right .35s cubic-bezier(.4,0,.2,1)',
+      }}>
+        <div style={{ padding: '14px 16px 12px', borderBottom: '1px solid rgba(0,255,136,.12)', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 8px #00ff88' }} />
+          <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, letterSpacing: '3px', color: '#00ff88', flex: 1 }}>◈ VIRTUAL ORDER LOG</span>
+          <button onClick={onClose} style={{ background: 'none', border: '1px solid rgba(255,255,255,.12)', borderRadius: 5, color: 'rgba(255,255,255,.38)', fontSize: 11, cursor: 'pointer', width: 22, height: 22, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px', scrollbarWidth: 'thin' }}>
+          {orders.length === 0 ? (
+            <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(255,255,255,.22)', textAlign: 'center', marginTop: 48 }}>NO ORDERS YET<br /><span style={{ fontSize: 8, marginTop: 6, display: 'block', color: 'rgba(255,255,255,.12)' }}>Use OMNI-COMMAND to execute virtual trades</span></div>
+          ) : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 8.5, fontFamily: "'JetBrains Mono',monospace" }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,.08)' }}>
+                  {(['TIME', 'TICKER', 'SIDE', 'QTY', 'PRICE', 'CCY', 'STATUS'] as const).map(h => (
+                    <th key={h} style={{ padding: '4px 6px', textAlign: h === 'QTY' || h === 'PRICE' ? 'right' : 'left', color: 'rgba(255,255,255,.28)', fontWeight: 400, letterSpacing: '1px', fontSize: 7.5 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {orders.map(o => (
+                  <tr key={o.order_id} style={{ borderBottom: '1px solid rgba(255,255,255,.04)' }}>
+                    <td style={{ padding: '5px 6px', color: 'rgba(255,255,255,.35)', whiteSpace: 'nowrap' }}>{fmtOrderTime(o.created_at)}</td>
+                    <td style={{ padding: '5px 6px', color: 'rgba(255,255,255,.7)', fontWeight: 500 }}>{o.ticker}</td>
+                    <td style={{ padding: '5px 6px', color: ORDER_SIDE_COLOR[o.side] ?? '#fff', fontWeight: 700 }}>{o.side}</td>
+                    <td style={{ padding: '5px 6px', textAlign: 'right', color: 'rgba(255,255,255,.6)' }}>{o.quantity.toFixed(2)}</td>
+                    <td style={{ padding: '5px 6px', textAlign: 'right', color: 'rgba(255,255,255,.55)' }}>{o.currency === 'KRW' ? `₩${o.fill_price.toLocaleString()}` : `$${o.fill_price.toFixed(2)}`}</td>
+                    <td style={{ padding: '5px 6px', color: 'rgba(255,255,255,.3)', fontSize: 8 }}>{o.currency}</td>
+                    <td style={{ padding: '5px 6px' }}>
+                      <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1px', color: ORDER_STATUS_COLOR[o.status] ?? '#fff', padding: '2px 5px', border: `1px solid ${ORDER_STATUS_COLOR[o.status] ?? '#fff'}30`, borderRadius: 3 }}>{o.status}</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div style={{ padding: '8px 16px', flexShrink: 0, borderTop: '1px solid rgba(0,255,136,.08)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.18)' }}>{orders.length} ORDER{orders.length !== 1 ? 'S' : ''} · PAPER TRADING</span>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={onReset} style={{ padding: '4px 10px', borderRadius: 5, cursor: 'pointer', background: 'rgba(255,77,109,.08)', border: '1px solid rgba(255,77,109,.3)', fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1px', color: '#ff4d6d' }}>RESET</button>
+            <button onClick={onClose} style={{ padding: '4px 12px', borderRadius: 5, cursor: 'pointer', background: 'rgba(0,255,136,.08)', border: '1px solid rgba(0,255,136,.3)', fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1px', color: '#00ff88' }}>CLOSE</button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 const DailyBriefPanel = ({
   open,
   onClose,
@@ -663,6 +748,7 @@ export default function AlephDashboard() {
   const [sectorViewMode, setSectorViewMode] = useState<'CHANGE' | 'ALLOCATION'>('CHANGE')
   const [correlOpen, setCorrelOpen] = useState(false)
   const [briefOpen,  setBriefOpen]  = useState(false)
+  const [ordersOpen, setOrdersOpen] = useState(false)
 
   // ── Real backend data ──────────────────────────────────────────────────────
   const { data: streamData }                          = useAlephStream()
@@ -677,6 +763,7 @@ export default function AlephDashboard() {
   const { data: allocationData }                                             = usePortfolioAllocation()
   const { data: correlData }                                                 = useCorrelationMatrix(30)
   const { data: briefData, isLoading: briefLoading }                         = useDailyBrief()
+  const { data: ordersData }                                                  = useVirtualOrders(30)
   const omni                                                                 = useOmniStream()
   const { user, signOut }                                                    = useAuth()
 
@@ -933,6 +1020,17 @@ export default function AlephDashboard() {
         onClose={() => setBriefOpen(false)}
         brief={briefData}
         loading={briefLoading}
+      />
+
+      {/* ── ORDER LOG PANEL ────────────────────────────────────────────────── */}
+      <OrderLogPanel
+        open={ordersOpen}
+        onClose={() => setOrdersOpen(false)}
+        orders={ordersData?.orders ?? []}
+        onReset={async () => {
+          await fetch('/api/v1/portfolio/reset', { method: 'POST' })
+          setOrdersOpen(false)
+        }}
       />
 
       {/* ── WHAT-IF SCENARIO PANEL ─────────────────────────────────────────── */}
@@ -1613,6 +1711,9 @@ export default function AlephDashboard() {
               <button
                 onClick={() => setBriefOpen(o => !o)}
                 style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: briefOpen ? 'rgba(168,85,247,.18)' : 'rgba(168,85,247,.06)', border: `1px solid rgba(168,85,247,${briefOpen ? '.55' : '.2'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7', transition: 'all .2s', boxShadow: briefOpen ? '0 0 8px rgba(168,85,247,.25)' : 'none' }}>BRIEF</button>
+              <button
+                onClick={() => setOrdersOpen(o => !o)}
+                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: ordersOpen ? 'rgba(0,255,136,.14)' : 'rgba(0,255,136,.04)', border: `1px solid rgba(0,255,136,${ordersOpen ? '.45' : '.15'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00ff88', transition: 'all .2s', boxShadow: ordersOpen ? '0 0 8px rgba(0,255,136,.2)' : 'none' }}>ORDERS</button>
             </div>
           </div>
         </div>

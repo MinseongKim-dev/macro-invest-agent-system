@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "macro-invest-agent-platform"
-version = "0.4.8"
+version = "0.4.9"
 description = "Modular backend and data pipeline platform for macro investment agent systems"
 requires-python = ">=3.12"
 dependencies = [

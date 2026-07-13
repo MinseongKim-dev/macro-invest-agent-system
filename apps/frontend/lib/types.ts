@@ -261,6 +261,24 @@ export interface VirtualPortfolioSummary {
   holdings: VirtualPortfolioHolding[]
 }
 
+export interface VirtualOrderDTO {
+  order_id:      number
+  created_at:    string
+  ticker:        string
+  side:          'BUY' | 'SELL'
+  quantity:      number
+  fill_price:    number
+  currency:      'KRW' | 'USD'
+  status:        'FILLED' | 'PENDING' | 'REJECTED'
+  reject_reason: string | null
+}
+
+export interface VirtualOrdersResponse {
+  orders: VirtualOrderDTO[]
+  total:  number
+  status: string
+}
+
 // ── Convenience aliases ────────────────────────────────────────────────────
 
 /** Key → numeric value map for macro indicators (VIX, T10Y, FED_RATE, …) */

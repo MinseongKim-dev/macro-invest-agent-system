@@ -1958,6 +1958,34 @@ def reset_virtual_portfolio(config: DatabaseConfig | None = None) -> None:
         conn.execute("DELETE FROM virtual_orders")
 
 
+def fetch_virtual_orders(limit: int = 20, config: DatabaseConfig | None = None) -> list[dict[str, Any]]:
+    """Return the *limit* most recent virtual orders, newest first (max 100)."""
+    try:
+        with get_connection(config) as conn:
+            rows = conn.execute(
+                "SELECT id, created_at, ticker, side, quantity, fill_price, currency, status, reject_reason"
+                " FROM virtual_orders ORDER BY created_at DESC LIMIT %s",
+                (min(limit, 100),),
+            ).fetchall()
+            return [
+                {
+                    "order_id":      r[0],
+                    "created_at":    r[1].isoformat() if r[1] else None,
+                    "ticker":        r[2],
+                    "side":          r[3],
+                    "quantity":      float(r[4]),
+                    "fill_price":    float(r[5]),
+                    "currency":      r[6],
+                    "status":        r[7],
+                    "reject_reason": r[8],
+                }
+                for r in rows
+            ]
+    except Exception as exc:
+        logger.warning("fetch_virtual_orders_failed", extra={"error": str(exc)})
+        return []
+
+
 # ── Push subscription store ────────────────────────────────────────────────────
 
 def upsert_push_subscription(endpoint: str, p256dh: str, auth: str, config: DatabaseConfig | None = None) -> None:
