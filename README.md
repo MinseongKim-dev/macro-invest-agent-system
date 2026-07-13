@@ -1,8 +1,17 @@
 # Aleph-One
 
-**v0.4.9** · Open-source, zero-cost financial intelligence terminal
+**v0.4.10** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.10
+
+- **SSE disconnection fix** — `useAlephStream` now uses `NEXT_PUBLIC_API_URL` for a direct browser→VPS connection when the env var is set, bypassing the Vercel Function proxy that was hard-terminating the stream at its 10 s (Hobby) / 25 s (Pro) execution limit. Same-origin proxy route kept as fallback for local dev.
+- **Vercel `maxDuration = 300`** — added to the SSE proxy route as an additional safety net for Pro deployments.
+- **STALE badge** — if no SSE frame has been received in > 60 s the header shows an amber `STALE` pill next to the LIVE dot (uses the 1-second `now` ticker already in the component, no extra timer).
+- **PORTFOLIO ALPHA — Total NAV bar** — new summary row at the top of the PERFORMANCE section showing total NAV (₩ KRW), total P&L (₩), and return % aggregated across all virtual accounts.
 
 ---
 
@@ -382,6 +391,7 @@ macro-invest-agent-system/
 | **v0.4.7** | ✅ Released | LLM Narrative Copilot — daily market brief endpoint with Groq LLM integration, BRIEF slide-out panel (signal badge + bullets + narrative), OMNI universe expanded to all 16 tickers |
 | **v0.4.8** | ✅ Released | Live Alert Feed + Notification Bell — regime-transition ring buffer, `/api/v1/alerts/live`, header bell with unread badge and severity-colored dropdown |
 | **v0.4.9** | ✅ Released | Virtual Order Log — `/api/v1/portfolio/orders` endpoint, ORDERS slide-out panel with trade history (side-colored rows, fill price, status badge, inline reset) |
+| **v0.4.10** | ✅ Released | SSE stability fix (direct browser→VPS connection bypassing Vercel timeout), STALE data badge, PORTFOLIO ALPHA total NAV summary bar |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |

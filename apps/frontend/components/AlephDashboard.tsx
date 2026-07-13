@@ -15,7 +15,7 @@ import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
 import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.9'
+export const APP_VERSION = 'v0.4.10'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -751,7 +751,7 @@ export default function AlephDashboard() {
   const [ordersOpen, setOrdersOpen] = useState(false)
 
   // ── Real backend data ──────────────────────────────────────────────────────
-  const { data: streamData }                          = useAlephStream()
+  const { data: streamData, lastMsgAt: sseLastMsgAt } = useAlephStream()
   const { data: marketTick, connected, priceHistory } = useMarketStream()
   const liveNews                                      = useNewsStream(15)
   const { data: regimeData, isLoading: regimeLoading, error: regimeError } = useRegime()
@@ -928,6 +928,8 @@ export default function AlephDashboard() {
 
   const pad = (n: number) => String(n).padStart(2, '0')
   const ts  = `${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+  // SSE staleness: stale if last frame > 60 s ago and we've received at least one frame
+  const sseStale = sseLastMsgAt > 0 && (now.getTime() - sseLastMsgAt) > 60_000
 
   // ── OMNI-COMMAND — delegate to useOmniStream ─────────────────────────────
   const handleExec = (forceQuery?: string) => {
@@ -1237,6 +1239,9 @@ export default function AlephDashboard() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
             <div style={{ width: 5, height: 5, borderRadius: '50%', background: connected ? '#00ff88' : '#ff4d6d', boxShadow: connected ? '0 0 6px #00ff88' : 'none', animation: connected ? 'blink 1.2s step-end infinite' : 'none' }} />
             <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: connected ? 'rgba(0,255,136,.7)' : 'rgba(255,77,109,.7)' }}>{connected ? 'LIVE' : 'RECONNECTING'}</span>
+            {sseStale && (
+              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1.5px', color: '#fbbf24', padding: '1px 5px', border: '1px solid rgba(251,191,36,.4)', borderRadius: 3, animation: 'glow-pulse 2s ease-in-out infinite' }}>STALE</span>
+            )}
           </div>
           <AlertBell />
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: 'rgba(0,229,255,.65)', letterSpacing: '1px' }}>{ts}</span>
@@ -1596,6 +1601,33 @@ export default function AlephDashboard() {
               <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff' }}>PERFORMANCE</div>
               <button onClick={handlePortfolioReset} title="초기 잔고로 리셋" style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, letterSpacing: '1px', padding: '2px 7px', borderRadius: 4, border: '1px solid rgba(255,77,109,.35)', background: 'transparent', color: 'rgba(255,77,109,.6)', cursor: 'pointer' }}>RESET</button>
             </div>
+            {/* Total NAV summary — aggregated across all accounts */}
+            {vpData?.accounts && (() => {
+              const accs = Object.values(vpData.accounts)
+              const totalInitial = accs.reduce((s, a) => s + a.initial_balance, 0)
+              const totalValue   = accs.reduce((s, a) => s + a.total_value, 0)
+              const totalPl      = accs.reduce((s, a) => s + a.total_pl, 0)
+              const totalPlPct   = totalInitial > 0 ? (totalPl / totalInitial) * 100 : 0
+              const plCol        = totalPl >= 0 ? '#00ff88' : '#ff4d6d'
+              return (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 10px', marginBottom: 10, background: `${plCol}08`, border: `1px solid ${plCol}22`, borderRadius: 8 }}>
+                  <div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'rgba(255,255,255,.28)', marginBottom: 2 }}>TOTAL NAV</div>
+                    <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 12, fontWeight: 900, color: '#00e5ff', letterSpacing: '0.5px' }}>
+                      ₩{Math.round(totalValue).toLocaleString('ko-KR')}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 11, fontWeight: 700, color: plCol }}>
+                      {totalPl >= 0 ? '+' : ''}{totalPlPct.toFixed(2)}%
+                    </div>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: plCol }}>
+                      {totalPl >= 0 ? '+' : ''}₩{Math.round(totalPl).toLocaleString('ko-KR')}
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
             {/* Virtual Portfolio accounts */}
             {vpData?.accounts && Object.entries(vpData.accounts).map(([currency, acc]) => {
               const plColor = acc.total_pl >= 0 ? '#00ff88' : '#ff4d6d'

@@ -8,30 +8,38 @@
  *   (3 s → 6 s → 12 s → 30 s max).
  * - Reconnects immediately when the browser tab becomes visible after a disconnect.
  * - Retry counter resets every time the stream enters LIVE state.
+ * - When NEXT_PUBLIC_API_URL is set the browser connects directly to the VPS,
+ *   bypassing the Vercel Function proxy and its hard execution-time limit (10 s
+ *   Hobby / 25 s Pro) which was the root cause of recurring disconnections.
  */
 
 import { useEffect, useState } from 'react'
 import type { AlephStreamData, StreamStatus } from '@/lib/types'
 
 export interface AlephStreamState {
-  data:   AlephStreamData | null
-  status: StreamStatus
+  data:      AlephStreamData | null
+  status:    StreamStatus
+  lastMsgAt: number  // epoch ms of last successful SSE frame (0 = never)
 }
 
 // ── Module-level singleton ────────────────────────────────────────────────────
 
-type Listener = (data: AlephStreamData | null, status: StreamStatus) => void
+type Listener = (data: AlephStreamData | null, status: StreamStatus, lastMsgAt: number) => void
 
-let _es:         EventSource | null                  = null
+let _es:         EventSource | null                   = null
 let _retryTimer: ReturnType<typeof setTimeout> | null = null
 let _retryCount  = 0
-let _lastData:   AlephStreamData | null              = null
-let _lastStatus: StreamStatus                        = 'CONNECTING'
+let _lastData:   AlephStreamData | null               = null
+let _lastStatus: StreamStatus                         = 'CONNECTING'
+let _lastMsgAt   = 0
 const _listeners = new Set<Listener>()
 
-const STREAM_URL   = '/api/v1/intelligence/stream?persona=AGGRESSIVE'
-const BASE_RETRY   = 3_000   // 3 s
-const MAX_RETRY    = 30_000  // 30 s cap
+// Direct-to-VPS when NEXT_PUBLIC_API_URL is set — bypasses Vercel Function timeout.
+// Falls back to the same-origin proxy route for local dev / no-env deployments.
+const _API_BASE   = process.env.NEXT_PUBLIC_API_URL ?? ''
+const STREAM_URL  = `${_API_BASE}/api/v1/intelligence/stream?persona=AGGRESSIVE`
+const BASE_RETRY  = 3_000   // 3 s
+const MAX_RETRY   = 30_000  // 30 s cap
 
 function _jitter(ms: number): number {
   return ms * (0.75 + Math.random() * 0.5)  // ±25% jitter
@@ -44,7 +52,7 @@ function _nextRetryMs(): number {
 function _notify(data: AlephStreamData | null, status: StreamStatus): void {
   _lastData   = data
   _lastStatus = status
-  _listeners.forEach((fn) => fn(data, status))
+  _listeners.forEach((fn) => fn(data, status, _lastMsgAt))
 }
 
 function _scheduleRetry(): void {
@@ -70,6 +78,7 @@ function _connect(): void {
       const parsed = JSON.parse(e.data) as AlephStreamData
       if (parsed.status !== 'ERROR') {
         _retryCount = 0  // reset backoff on successful data
+        _lastMsgAt  = Date.now()
         _notify(parsed, 'LIVE')
       }
     } catch {
@@ -111,12 +120,14 @@ if (typeof document !== 'undefined') {
 
 export function useAlephStream(): AlephStreamState {
   const [state, setState] = useState<AlephStreamState>({
-    data:   _lastData,
-    status: _lastStatus,
+    data:      _lastData,
+    status:    _lastStatus,
+    lastMsgAt: _lastMsgAt,
   })
 
   useEffect(() => {
-    const listener: Listener = (data, status) => setState({ data, status })
+    const listener: Listener = (data, status, lastMsgAt) =>
+      setState({ data, status, lastMsgAt })
     _listeners.add(listener)
     _connect()  // no-op if already connected
     return () => {
