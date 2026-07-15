@@ -1,8 +1,14 @@
 # Aleph-One
 
-**v0.4.12** · Open-source, zero-cost financial intelligence terminal
+**v0.4.13** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.13
+
+- **Mobile responsive layout** — three-column desktop grid stacks to a single column on viewports ≤ 900 px. CSS classes (`aleph-body`, `aleph-col-left`, `aleph-col-center`, `aleph-col-right`) replace the previous all-inline layout; `@media (max-width: 900px)` overrides reflow to `flex-direction: column` with full-width columns.
 
 ---
 
@@ -402,6 +408,7 @@ macro-invest-agent-system/
 | **v0.4.10** | ✅ Released | SSE stability fix (direct browser→VPS connection bypassing Vercel timeout), STALE data badge, PORTFOLIO ALPHA total NAV summary bar |
 | **v0.4.11** | ✅ Released | NAV 30-day history sparkline in PERFORMANCE section |
 | **v0.4.12** | ✅ Released | ENGINE SYNTHESIS panel: Quant Score dimensions + Breadth/Momentum/Intensity chips, `useQuantScore` hook, `/api/quant/latest` proxy |
+| **v0.4.13** | ✅ Released | Mobile responsive: 3-column grid stacks to 1-column on ≤ 900 px via CSS class + media query |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |

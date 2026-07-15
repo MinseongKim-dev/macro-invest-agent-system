@@ -15,7 +15,7 @@ import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
 import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO, QuantScoreLatestResponse } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.12'
+export const APP_VERSION = 'v0.4.13'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -55,6 +55,19 @@ const STYLES = `
 
 .report-scroll::-webkit-scrollbar{width:3px}
 .report-scroll::-webkit-scrollbar-thumb{background:rgba(168,85,247,.3);border-radius:2px}
+
+/* ── Mobile responsive ── */
+.aleph-body{display:flex;overflow:hidden;flex:1;min-height:0;}
+.aleph-col-left{width:272px;flex-shrink:0;display:flex;flex-direction:column;gap:7px;padding:9px 8px 9px 12px;border-right:1px solid rgba(0,229,255,.07);overflow-y:auto;}
+.aleph-col-center{flex:1;display:flex;flex-direction:column;gap:7px;padding:9px 8px;overflow:hidden;min-width:0;}
+.aleph-col-right{width:292px;flex-shrink:0;display:flex;flex-direction:column;gap:7px;padding:9px 12px 9px 8px;border-left:1px solid rgba(0,229,255,.07);overflow-y:auto;}
+
+@media(max-width:900px){
+  .aleph-body{flex-direction:column;overflow-y:auto;overflow-x:hidden;}
+  .aleph-col-left{width:100%;flex-shrink:1;border-right:none;border-bottom:1px solid rgba(0,229,255,.07);padding:8px 12px;overflow-y:visible;max-height:260px;}
+  .aleph-col-center{padding:8px 12px;overflow:visible;}
+  .aleph-col-right{width:100%;flex-shrink:1;border-left:none;border-top:1px solid rgba(0,229,255,.07);padding:8px 12px;overflow-y:visible;}
+}
 `
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1350,10 +1363,10 @@ export default function AlephDashboard() {
       </div>
 
       {/* ══ MAIN BODY ═══════════════════════════════════════════════════════════ */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', zIndex: 5, minHeight: 0 }}>
+      <div className="aleph-body" style={{ zIndex: 5 }}>
 
         {/* ── LEFT PANEL ─────────────────────────────────────────────────────── */}
-        <div style={{ width: 272, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7, padding: '9px 8px 9px 12px', borderRight: '1px solid rgba(0,229,255,.07)', overflowY: 'auto' }}>
+        <div className="aleph-col-left">
 
           {/* NEWS FEED */}
           <div className="glass" style={{ padding: 12, display: 'flex', flexDirection: 'column' }}>
@@ -1449,7 +1462,7 @@ export default function AlephDashboard() {
         </div>
 
         {/* ── CENTER PANEL ────────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7, padding: '9px 8px', overflow: 'hidden', minWidth: 0 }}>
+        <div className="aleph-col-center">
 
           {/* GLOBAL MACRO card */}
           <div className="glass" style={{ padding: 14, flexShrink: 0 }}>
@@ -1605,7 +1618,7 @@ export default function AlephDashboard() {
         </div>
 
         {/* ── RIGHT PANEL ─────────────────────────────────────────────────────── */}
-        <div style={{ width: 292, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7, padding: '9px 12px 9px 8px', borderLeft: '1px solid rgba(0,229,255,.07)', overflowY: 'auto' }}>
+        <div className="aleph-col-right">
 
           {/* Portfolio header + live holdings */}
           <div className="glass" style={{ padding: 12 }}>
