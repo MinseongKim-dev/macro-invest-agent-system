@@ -1,8 +1,40 @@
 # Aleph-One
 
-**v0.4.10** · Open-source, zero-cost financial intelligence terminal
+**v0.4.16** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.16
+
+- **Regime History Timeline** — a new horizontal bar strip between the Global Macro card and the Portfolio Value chart shows the last 8 persisted macro regimes in chronological order. Each cell is color-coded by regime label (goldilocks=green, overheating=amber, tightening/recession=red, recovery=purple), with the latest cell highlighted. Cells with `changed=true` show an amber dot. Connects to the existing `GET /api/regimes/history` endpoint via new `useRegimeHistory` hook + `HistoricalRegimeDTO`/`RegimeHistoryResponse` types.
+
+---
+
+## What's New in v0.4.15
+
+- **FOCUS mode toggle (B-2)** — new `⊟ FOCUS` / `⊞ FULL` button in the header. Clicking it hides the left news feed and right portfolio panels so the center panel (chart + macro overview) fills the full width. State is persisted in `localStorage` key `aleph-compact` and restored on page load.
+
+---
+
+## What's New in v0.4.14
+
+- **AI context injection (D-3)** — Every OMNI command now automatically prepends current regime label + phase + confidence and live macro indicators (VIX / T10Y / FED_RATE) from the in-memory caches to the LangChain agent's user message. The agent answers with the actual live market state instead of only what it can recall from tool calls. No UI change needed — the enrichment is transparent to the user and visible in the LangChain trace logs (`omni_command_received`).
+
+---
+
+## What's New in v0.4.13
+
+- **Mobile responsive layout** — three-column desktop grid stacks to a single column on viewports ≤ 900 px. CSS classes (`aleph-body`, `aleph-col-left`, `aleph-col-center`, `aleph-col-right`) replace the previous all-inline layout; `@media (max-width: 900px)` overrides reflow to `flex-direction: column` with full-width columns.
+
+---
+
+## What's New in v0.4.12
+
+- **NAV History Sparkline** — 30-day portfolio NAV trend chart added to the PERFORMANCE section. Connects to the existing `GET /api/v1/portfolio/nav-history` backend endpoint via a new Next.js proxy route and `useNavHistory` SWR hook. SVG polyline with area fill, colored green/red based on trend direction.
+- **ENGINE SYNTHESIS panel** — new card in the right column surfacing the Quant Scoring Engine output (`GET /api/quant/latest`): per-dimension scores (Growth, Inflation, Labor, Policy, Financial Conditions) with level badges, plus Breadth / Momentum / Change Intensity summary chips. Overall support % shown in the header. Wired via new `useQuantScore` hook and Next.js proxy at `/api/quant/latest`.
+- **Types + proxy routes** — `NavHistorySnapshot`, `NavHistoryResponse`, `DimensionScoreDTO`, `QuantScoreLatestResponse` added to `lib/types.ts`; two new Next.js proxy routes added.
 
 ---
 
@@ -392,6 +424,12 @@ macro-invest-agent-system/
 | **v0.4.8** | ✅ Released | Live Alert Feed + Notification Bell — regime-transition ring buffer, `/api/v1/alerts/live`, header bell with unread badge and severity-colored dropdown |
 | **v0.4.9** | ✅ Released | Virtual Order Log — `/api/v1/portfolio/orders` endpoint, ORDERS slide-out panel with trade history (side-colored rows, fill price, status badge, inline reset) |
 | **v0.4.10** | ✅ Released | SSE stability fix (direct browser→VPS connection bypassing Vercel timeout), STALE data badge, PORTFOLIO ALPHA total NAV summary bar |
+| **v0.4.11** | ✅ Released | NAV 30-day history sparkline in PERFORMANCE section |
+| **v0.4.12** | ✅ Released | ENGINE SYNTHESIS panel: Quant Score dimensions + Breadth/Momentum/Intensity chips, `useQuantScore` hook, `/api/quant/latest` proxy |
+| **v0.4.13** | ✅ Released | Mobile responsive: 3-column grid stacks to 1-column on ≤ 900 px via CSS class + media query |
+| **v0.4.14** | ✅ Released | AI context injection: OMNI queries auto-enriched with live regime + macro state (D-3) |
+| **v0.4.15** | ✅ Released | FOCUS mode toggle: collapses side panels to center-only view, persisted in localStorage (B-2) |
+| **v0.4.16** | ✅ Released | Regime history timeline bar: color-coded regime strips with change-dot indicators, `useRegimeHistory` hook |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |

@@ -279,6 +279,75 @@ export interface VirtualOrdersResponse {
   status: string
 }
 
+// ── Regime History ─────────────────────────────────────────────────────────
+
+export interface HistoricalRegimeDTO {
+  regime_id:             string
+  as_of_date:            string
+  generated_at:          string
+  regime_label:          string
+  regime_family:         string
+  confidence:            string
+  freshness_status:      string
+  degraded_status:       string
+  transition_type:       string
+  transition_from_prior: string | null
+  changed:               boolean
+  warnings:              string[]
+  is_seeded:             boolean
+}
+
+export interface RegimeHistoryResponse {
+  as_of_date:          string
+  records:             HistoricalRegimeDTO[]
+  total:               number
+  limit_applied:       number
+  latest_regime_id:    string | null
+  previous_regime_id:  string | null
+}
+
+// ── NAV History ────────────────────────────────────────────────────────────
+
+export interface NavHistorySnapshot {
+  snapshot_at:    string
+  currency:       string
+  cash_balance:   number
+  holdings_value: number
+  total_nav:      number
+}
+
+export interface NavHistoryResponse {
+  timestamp: string
+  status:    string
+  days:      number
+  snapshots: NavHistorySnapshot[]
+}
+
+// ── Quant Score ────────────────────────────────────────────────────────────
+
+export interface DimensionScoreDTO {
+  dimension:           string
+  score:               number
+  level:               string
+  contributing_states: string[]
+}
+
+export interface QuantScoreLatestResponse {
+  as_of_date:           string
+  regime_id:            string
+  regime_label:         string
+  growth:               DimensionScoreDTO
+  inflation:            DimensionScoreDTO
+  labor:                DimensionScoreDTO
+  policy:               DimensionScoreDTO
+  financial_conditions: DimensionScoreDTO
+  momentum:             number
+  breadth:              number
+  change_intensity:     number
+  overall_support:      number
+  status:               string
+}
+
 // ── Convenience aliases ────────────────────────────────────────────────────
 
 /** Key → numeric value map for macro indicators (VIX, T10Y, FED_RATE, …) */

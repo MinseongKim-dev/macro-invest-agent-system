@@ -18,6 +18,9 @@ import type {
   DailyBriefDTO,
   LiveAlertsResponse,
   VirtualOrdersResponse,
+  NavHistoryResponse,
+  QuantScoreLatestResponse,
+  RegimeHistoryResponse,
 } from '@/lib/types'
 
 const POLL_FAST = 30_000   // 30s — regime + signals
@@ -178,5 +181,29 @@ export function useVirtualOrders(limit = 20) {
     endpoints.portfolioOrders(limit),
     fetchJson,
     { ...SWR_OPT, refreshInterval: 10_000 },
+  )
+}
+
+export function useNavHistory(days = 30) {
+  return useSWR<NavHistoryResponse>(
+    endpoints.portfolioNavHistory(days),
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 60_000 },
+  )
+}
+
+export function useQuantScore() {
+  return useSWR<QuantScoreLatestResponse>(
+    endpoints.quantScore,
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 300_000 },  // 5-min — quant scores update with regime
+  )
+}
+
+export function useRegimeHistory(limit = 10) {
+  return useSWR<RegimeHistoryResponse>(
+    endpoints.regimeHistory(limit),
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 300_000 },  // 5-min — regime history is slow-changing
   )
 }

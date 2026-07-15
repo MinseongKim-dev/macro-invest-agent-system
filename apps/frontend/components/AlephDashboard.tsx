@@ -6,16 +6,16 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed, useVirtualOrders } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed, useVirtualOrders, useNavHistory, useQuantScore, useRegimeHistory } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
-import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO } from '@/lib/types'
+import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO, QuantScoreLatestResponse, RegimeHistoryResponse } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.10'
+export const APP_VERSION = 'v0.4.16'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -55,6 +55,19 @@ const STYLES = `
 
 .report-scroll::-webkit-scrollbar{width:3px}
 .report-scroll::-webkit-scrollbar-thumb{background:rgba(168,85,247,.3);border-radius:2px}
+
+/* ── Mobile responsive ── */
+.aleph-body{display:flex;overflow:hidden;flex:1;min-height:0;}
+.aleph-col-left{width:272px;flex-shrink:0;display:flex;flex-direction:column;gap:7px;padding:9px 8px 9px 12px;border-right:1px solid rgba(0,229,255,.07);overflow-y:auto;}
+.aleph-col-center{flex:1;display:flex;flex-direction:column;gap:7px;padding:9px 8px;overflow:hidden;min-width:0;}
+.aleph-col-right{width:292px;flex-shrink:0;display:flex;flex-direction:column;gap:7px;padding:9px 12px 9px 8px;border-left:1px solid rgba(0,229,255,.07);overflow-y:auto;}
+
+@media(max-width:900px){
+  .aleph-body{flex-direction:column;overflow-y:auto;overflow-x:hidden;}
+  .aleph-col-left{width:100%;flex-shrink:1;border-right:none;border-bottom:1px solid rgba(0,229,255,.07);padding:8px 12px;overflow-y:visible;max-height:260px;}
+  .aleph-col-center{padding:8px 12px;overflow:visible;}
+  .aleph-col-right{width:100%;flex-shrink:1;border-left:none;border-top:1px solid rgba(0,229,255,.07);padding:8px 12px;overflow-y:visible;}
+}
 `
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -623,6 +636,152 @@ const DailyBriefPanel = ({
   )
 }
 
+// ─── Regime History Timeline Bar ─────────────────────────────────────────────
+
+const REGIME_COLORS: Record<string, string> = {
+  goldilocks:          '#00ff88',
+  expansion:           '#4ade80',
+  overheating:         '#fbbf24',
+  stagflation:         '#f97316',
+  policy_tightening:   '#ff4d6d',
+  recession:           '#ff4d6d',
+  recovery:            '#a855f7',
+  contraction:         '#ef4444',
+  unknown:             'rgba(255,255,255,.3)',
+}
+
+const RegimeTimelineBar = ({ history }: { history: RegimeHistoryResponse | undefined }) => {
+  if (!history?.records || history.records.length === 0) return null
+  const records = [...history.records].reverse()  // oldest first
+  return (
+    <div className="glass" style={{ padding: '6px 12px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+        <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '2px', color: 'rgba(0,229,255,.6)' }}>REGIME TIMELINE</span>
+        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 6.5, color: 'rgba(255,255,255,.25)' }}>(last {records.length} records)</span>
+      </div>
+      <div style={{ display: 'flex', gap: 2, alignItems: 'stretch' }}>
+        {records.map((r, i) => {
+          const col = REGIME_COLORS[r.regime_label.toLowerCase()] ?? REGIME_COLORS.unknown
+          const isLatest = i === records.length - 1
+          const label = r.regime_label.replace(/_/g, ' ').toUpperCase()
+          const date = r.as_of_date.slice(0, 10)
+          return (
+            <div
+              key={r.regime_id}
+              title={`${label} | ${date} | conf: ${r.confidence}${r.changed ? ' | CHANGED' : ''}`}
+              style={{
+                flex: 1, minWidth: 0, padding: '4px 5px',
+                background: `${col}${isLatest ? '22' : '0d'}`,
+                border: `1px solid ${col}${isLatest ? '55' : '25'}`,
+                borderRadius: 4,
+                display: 'flex', flexDirection: 'column', gap: 2,
+                boxShadow: isLatest ? `0 0 6px ${col}44` : 'none',
+              }}
+            >
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 5.5, color: col, letterSpacing: '.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {label}
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 5, color: 'rgba(255,255,255,.3)' }}>
+                {date.slice(5)}
+              </div>
+              {r.changed && (
+                <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#fbbf24', boxShadow: '0 0 3px #fbbf24', flexShrink: 0, alignSelf: 'flex-end' }} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Quant Synthesis Panel ────────────────────────────────────────────────────
+
+const QuantSynthesisPanel = ({
+  quantScore,
+  regime,
+}: {
+  quantScore: QuantScoreLatestResponse | undefined
+  regime:     import('@/lib/types').RegimeLatestResponse | undefined
+}) => {
+  const dims = quantScore
+    ? [
+        { k: 'GROWTH',  v: quantScore.growth.score,               lv: quantScore.growth.level },
+        { k: 'INFLAT',  v: quantScore.inflation.score,            lv: quantScore.inflation.level },
+        { k: 'LABOR',   v: quantScore.labor.score,                lv: quantScore.labor.level },
+        { k: 'POLICY',  v: quantScore.policy.score,               lv: quantScore.policy.level },
+        { k: 'FIN.CND', v: quantScore.financial_conditions.score, lv: quantScore.financial_conditions.level },
+      ]
+    : []
+
+  const levelColor = (lv: string) => {
+    if (lv === 'HIGH' || lv === 'STRONG') return '#00ff88'
+    if (lv === 'MEDIUM' || lv === 'MODERATE') return '#fbbf24'
+    return '#ff4d6d'
+  }
+
+  const overallColor = quantScore
+    ? quantScore.overall_support > 0.6 ? '#00ff88'
+      : quantScore.overall_support > 0.35 ? '#fbbf24'
+      : '#ff4d6d'
+    : 'rgba(255,255,255,.3)'
+
+  return (
+    <div className="glass" style={{ padding: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#fbbf24' }}>ENGINE SYNTHESIS</span>
+        {quantScore && (
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: overallColor, letterSpacing: '1px' }}>
+            SUPPORT {(quantScore.overall_support * 100).toFixed(0)}%
+          </span>
+        )}
+      </div>
+      {/* Regime row */}
+      {regime && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 7px', marginBottom: 6, background: 'rgba(251,191,36,.06)', border: '1px solid rgba(251,191,36,.18)', borderRadius: 6 }}>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: '#fbbf24', letterSpacing: '1px' }}>
+            {regime.regime_label.replace(/_/g, ' ')}
+          </span>
+          <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, color: 'rgba(255,255,255,.4)' }}>
+            {regime.confidence}
+          </span>
+        </div>
+      )}
+      {/* Dimension bars */}
+      {dims.length > 0 ? dims.map(d => (
+        <div key={d.k} style={{ marginBottom: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 6.5, color: 'rgba(255,255,255,.45)', letterSpacing: '1px' }}>{d.k}</span>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 6.5, color: levelColor(d.lv) }}>{d.lv}</span>
+          </div>
+          <div style={{ height: 3, background: 'rgba(255,255,255,.08)', borderRadius: 2 }}>
+            <div style={{ height: '100%', width: `${Math.round(Math.abs(d.v) * 100)}%`, background: levelColor(d.lv), borderRadius: 2, transition: 'width .6s ease' }} />
+          </div>
+        </div>
+      )) : (
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(0,229,255,.3)', letterSpacing: '2px', textAlign: 'center', padding: '8px 0' }}>ENGINE: AWAITING FEED</div>
+      )}
+      {/* Breadth + Momentum row */}
+      {quantScore && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          {[
+            { lbl: 'BREADTH',   v: quantScore.breadth },
+            { lbl: 'MOMENTUM',  v: quantScore.momentum },
+            { lbl: 'INTENSITY', v: quantScore.change_intensity },
+          ].map(it => (
+            <div key={it.lbl} style={{ flex: 1, textAlign: 'center', padding: '4px 2px', background: 'rgba(0,229,255,.04)', borderRadius: 5, border: '1px solid rgba(0,229,255,.1)' }}>
+              <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, fontWeight: 700, color: it.v > 0 ? '#00ff88' : '#ff4d6d' }}>
+                {it.v > 0 ? '+' : ''}{(it.v * 100).toFixed(0)}%
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 5.5, color: 'rgba(255,255,255,.3)', marginTop: 1, letterSpacing: '.8px' }}>{it.lbl}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Correlation Panel (slide-out) ────────────────────────────────────────────
 
 const CorrelationPanel = ({
@@ -749,6 +908,10 @@ export default function AlephDashboard() {
   const [correlOpen, setCorrelOpen] = useState(false)
   const [briefOpen,  setBriefOpen]  = useState(false)
   const [ordersOpen, setOrdersOpen] = useState(false)
+  const [compactMode, setCompactMode] = useState(() => {
+    if (typeof localStorage !== 'undefined') return localStorage.getItem('aleph-compact') === '1'
+    return false
+  })
 
   // ── Real backend data ──────────────────────────────────────────────────────
   const { data: streamData, lastMsgAt: sseLastMsgAt } = useAlephStream()
@@ -764,6 +927,9 @@ export default function AlephDashboard() {
   const { data: correlData }                                                 = useCorrelationMatrix(30)
   const { data: briefData, isLoading: briefLoading }                         = useDailyBrief()
   const { data: ordersData }                                                  = useVirtualOrders(30)
+  const { data: navHistoryData }                                              = useNavHistory(30)
+  const { data: quantScoreData }                                              = useQuantScore()
+  const { data: regimeHistData }                                              = useRegimeHistory(8)
   const omni                                                                 = useOmniStream()
   const { user, signOut }                                                    = useAuth()
 
@@ -1246,6 +1412,17 @@ export default function AlephDashboard() {
           <AlertBell />
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: 'rgba(0,229,255,.65)', letterSpacing: '1px' }}>{ts}</span>
           <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(255,255,255,.22)' }}>KST UTC+9</span>
+          <button
+            onClick={() => {
+              const next = !compactMode
+              setCompactMode(next)
+              localStorage.setItem('aleph-compact', next ? '1' : '0')
+            }}
+            title={compactMode ? '전체 레이아웃 보기' : '중앙 패널만 보기'}
+            style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1.5px', padding: '3px 9px', borderRadius: 4, border: `1px solid rgba(0,229,255,${compactMode ? '.5' : '.2'})`, background: compactMode ? 'rgba(0,229,255,.14)' : 'transparent', color: compactMode ? '#00e5ff' : 'rgba(0,229,255,.4)', cursor: 'pointer', transition: 'all .2s' }}
+          >
+            {compactMode ? '⊞ FULL' : '⊟ FOCUS'}
+          </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)' }}>
             <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 5px #00ff88' }} />
             <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, color: '#00e5ff', letterSpacing: '1px' }}>
@@ -1261,10 +1438,10 @@ export default function AlephDashboard() {
       </div>
 
       {/* ══ MAIN BODY ═══════════════════════════════════════════════════════════ */}
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden', zIndex: 5, minHeight: 0 }}>
+      <div className="aleph-body" style={{ zIndex: 5 }}>
 
         {/* ── LEFT PANEL ─────────────────────────────────────────────────────── */}
-        <div style={{ width: 272, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7, padding: '9px 8px 9px 12px', borderRight: '1px solid rgba(0,229,255,.07)', overflowY: 'auto' }}>
+        <div className="aleph-col-left" style={compactMode ? { display: 'none' } : {}}>
 
           {/* NEWS FEED */}
           <div className="glass" style={{ padding: 12, display: 'flex', flexDirection: 'column' }}>
@@ -1360,7 +1537,7 @@ export default function AlephDashboard() {
         </div>
 
         {/* ── CENTER PANEL ────────────────────────────────────────────────────── */}
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 7, padding: '9px 8px', overflow: 'hidden', minWidth: 0 }}>
+        <div className="aleph-col-center">
 
           {/* GLOBAL MACRO card */}
           <div className="glass" style={{ padding: 14, flexShrink: 0 }}>
@@ -1423,6 +1600,9 @@ export default function AlephDashboard() {
               </div>
             </div>
           </div>
+
+          {/* Regime History Timeline */}
+          <RegimeTimelineBar history={regimeHistData} />
 
           {/* KRX Chart — portfolio_value live history */}
           <div className="glass" style={{ flex: 1, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
@@ -1516,7 +1696,7 @@ export default function AlephDashboard() {
         </div>
 
         {/* ── RIGHT PANEL ─────────────────────────────────────────────────────── */}
-        <div style={{ width: 292, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 7, padding: '9px 12px 9px 8px', borderLeft: '1px solid rgba(0,229,255,.07)', overflowY: 'auto' }}>
+        <div className="aleph-col-right" style={compactMode ? { display: 'none' } : {}}>
 
           {/* Portfolio header + live holdings */}
           <div className="glass" style={{ padding: 12 }}>
@@ -1628,6 +1808,41 @@ export default function AlephDashboard() {
                 </div>
               )
             })()}
+            {/* NAV history sparkline */}
+            {(() => {
+              const snaps = (navHistoryData?.snapshots ?? [])
+                .filter(s => s.currency === 'KRW')
+                .slice()
+                .reverse()  // oldest → newest
+              if (snaps.length < 2) return null
+              const vals = snaps.map(s => s.total_nav)
+              const min  = Math.min(...vals)
+              const max  = Math.max(...vals)
+              const W = 180, H = 32
+              const range = max - min || 1
+              const pts = vals.map((v, i) => {
+                const x = (i / (vals.length - 1)) * W
+                const y = H - ((v - min) / range) * (H - 4) - 2
+                return `${x.toFixed(1)},${y.toFixed(1)}`
+              }).join(' ')
+              const lastNav  = vals[vals.length - 1]
+              const firstNav = vals[0]
+              const navColor = lastNav >= firstNav ? '#00ff88' : '#ff4d6d'
+              return (
+                <div style={{ marginBottom: 8, padding: '6px 8px', background: 'rgba(0,229,255,.03)', border: '1px solid rgba(0,229,255,.08)', borderRadius: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'rgba(255,255,255,.3)', letterSpacing: '1.5px' }}>NAV 30D</span>
+                    <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, color: navColor }}>
+                      {lastNav >= firstNav ? '▲' : '▼'} {Math.abs(((lastNav - firstNav) / firstNav) * 100).toFixed(2)}%
+                    </span>
+                  </div>
+                  <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', height: H }}>
+                    <polyline points={pts} fill="none" stroke={navColor} strokeWidth="1.5" strokeLinejoin="round" opacity="0.8" />
+                    <polyline points={`0,${H} ${pts} ${W},${H}`} fill={`${navColor}18`} stroke="none" />
+                  </svg>
+                </div>
+              )
+            })()}
             {/* Virtual Portfolio accounts */}
             {vpData?.accounts && Object.entries(vpData.accounts).map(([currency, acc]) => {
               const plColor = acc.total_pl >= 0 ? '#00ff88' : '#ff4d6d'
@@ -1689,6 +1904,9 @@ export default function AlephDashboard() {
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(0,229,255,.28)', letterSpacing: '2px', textAlign: 'center', padding: '8px 0' }}>SIGNAL DIST: LOADING…</div>
             )}
           </div>
+
+          {/* Engine Synthesis */}
+          <QuantSynthesisPanel quantScore={quantScoreData} regime={regimeData} />
 
           {/* AI Advice */}
           <div className="glass" style={{ padding: 12, flex: 1 }}>
