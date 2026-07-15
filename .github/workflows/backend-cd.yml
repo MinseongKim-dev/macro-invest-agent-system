@@ -80,7 +80,9 @@ jobs:
             export DOCKER_IMAGE=${{ vars.DOCKERHUB_USERNAME }}/aleph-api
             docker compose -f docker-compose.prod.yml pull aleph-api
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
-            docker image prune -f
+            # Prune dangling images, stopped containers, unused networks, and
+            # build cache — but NOT named volumes (pg_data / milvus_data are safe).
+            docker system prune -f
             echo "Deploy complete: $IMAGE_TAG"
 
             # Health-check gate: fail the deployment if /health never returns 200
