@@ -1,8 +1,14 @@
 # Aleph-One
 
-**v0.4.14** · Open-source, zero-cost financial intelligence terminal
+**v0.4.15** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.15
+
+- **FOCUS mode toggle (B-2)** — new `⊟ FOCUS` / `⊞ FULL` button in the header. Clicking it hides the left news feed and right portfolio panels so the center panel (chart + macro overview) fills the full width. State is persisted in `localStorage` key `aleph-compact` and restored on page load.
 
 ---
 
@@ -416,6 +422,7 @@ macro-invest-agent-system/
 | **v0.4.12** | ✅ Released | ENGINE SYNTHESIS panel: Quant Score dimensions + Breadth/Momentum/Intensity chips, `useQuantScore` hook, `/api/quant/latest` proxy |
 | **v0.4.13** | ✅ Released | Mobile responsive: 3-column grid stacks to 1-column on ≤ 900 px via CSS class + media query |
 | **v0.4.14** | ✅ Released | AI context injection: OMNI queries auto-enriched with live regime + macro state (D-3) |
+| **v0.4.15** | ✅ Released | FOCUS mode toggle: collapses side panels to center-only view, persisted in localStorage (B-2) |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |

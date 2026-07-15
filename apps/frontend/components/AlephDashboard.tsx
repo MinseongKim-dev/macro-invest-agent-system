@@ -15,7 +15,7 @@ import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
 import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO, QuantScoreLatestResponse } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.14'
+export const APP_VERSION = 'v0.4.15'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -849,6 +849,10 @@ export default function AlephDashboard() {
   const [correlOpen, setCorrelOpen] = useState(false)
   const [briefOpen,  setBriefOpen]  = useState(false)
   const [ordersOpen, setOrdersOpen] = useState(false)
+  const [compactMode, setCompactMode] = useState(() => {
+    if (typeof localStorage !== 'undefined') return localStorage.getItem('aleph-compact') === '1'
+    return false
+  })
 
   // ── Real backend data ──────────────────────────────────────────────────────
   const { data: streamData, lastMsgAt: sseLastMsgAt } = useAlephStream()
@@ -1348,6 +1352,17 @@ export default function AlephDashboard() {
           <AlertBell />
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: 'rgba(0,229,255,.65)', letterSpacing: '1px' }}>{ts}</span>
           <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(255,255,255,.22)' }}>KST UTC+9</span>
+          <button
+            onClick={() => {
+              const next = !compactMode
+              setCompactMode(next)
+              localStorage.setItem('aleph-compact', next ? '1' : '0')
+            }}
+            title={compactMode ? '전체 레이아웃 보기' : '중앙 패널만 보기'}
+            style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1.5px', padding: '3px 9px', borderRadius: 4, border: `1px solid rgba(0,229,255,${compactMode ? '.5' : '.2'})`, background: compactMode ? 'rgba(0,229,255,.14)' : 'transparent', color: compactMode ? '#00e5ff' : 'rgba(0,229,255,.4)', cursor: 'pointer', transition: 'all .2s' }}
+          >
+            {compactMode ? '⊞ FULL' : '⊟ FOCUS'}
+          </button>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 10px', borderRadius: 20, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)' }}>
             <div style={{ width: 5, height: 5, borderRadius: '50%', background: '#00ff88', boxShadow: '0 0 5px #00ff88' }} />
             <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, color: '#00e5ff', letterSpacing: '1px' }}>
@@ -1366,7 +1381,7 @@ export default function AlephDashboard() {
       <div className="aleph-body" style={{ zIndex: 5 }}>
 
         {/* ── LEFT PANEL ─────────────────────────────────────────────────────── */}
-        <div className="aleph-col-left">
+        <div className="aleph-col-left" style={compactMode ? { display: 'none' } : {}}>
 
           {/* NEWS FEED */}
           <div className="glass" style={{ padding: 12, display: 'flex', flexDirection: 'column' }}>
@@ -1618,7 +1633,7 @@ export default function AlephDashboard() {
         </div>
 
         {/* ── RIGHT PANEL ─────────────────────────────────────────────────────── */}
-        <div className="aleph-col-right">
+        <div className="aleph-col-right" style={compactMode ? { display: 'none' } : {}}>
 
           {/* Portfolio header + live holdings */}
           <div className="glass" style={{ padding: 12 }}>
