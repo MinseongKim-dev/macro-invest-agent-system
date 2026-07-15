@@ -15,7 +15,7 @@ import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
 import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO, QuantScoreLatestResponse } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.13'
+export const APP_VERSION = 'v0.4.14'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `

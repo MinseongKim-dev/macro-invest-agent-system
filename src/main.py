@@ -1385,10 +1385,31 @@ async def _run_agent_async(query: str, persona: PersonaProfile) -> dict[str, Any
     if _AGENT_EXECUTOR is None:
         _AGENT_EXECUTOR = _build_lc_agent()
 
+    # Prepend live market context so the agent answers with current regime/macro data
+    _ctx_parts: list[str] = []
+    if _REGIME_CACHE:
+        _ctx_parts.append(
+            f"[현재 시장 컨텍스트] Regime: {_REGIME_CACHE.get('regime_name', 'UNKNOWN')} | "
+            f"Phase: {_REGIME_CACHE.get('market_phase', '—')} | "
+            f"Confidence: {_REGIME_CACHE.get('confidence_score', 0):.0%}"
+        )
+    if _MACRO_CACHE:
+        vix  = _MACRO_CACHE.get("VIX")
+        t10y = _MACRO_CACHE.get("T10Y")
+        fed  = _MACRO_CACHE.get("FED_RATE")
+        macro_str = " | ".join([
+            f"VIX {vix:.2f}"  if vix  is not None else "",
+            f"T10Y {t10y:.2f}%" if t10y is not None else "",
+            f"FED {fed:.2f}%"  if fed  is not None else "",
+        ]).strip(" |")
+        if macro_str:
+            _ctx_parts.append(f"[매크로] {macro_str}")
+    enriched_query = "\n".join(_ctx_parts + [query]) if _ctx_parts else query
+
     # Run agent in thread pool — LangChain sync invoke blocks the event loop otherwise
     agent_result: dict[str, Any] = await asyncio.to_thread(
         _AGENT_EXECUTOR.invoke,
-        {"messages": [{"role": "user", "content": query}]},
+        {"messages": [{"role": "user", "content": enriched_query}]},
     )
     # LangChain 1.x returns {"messages": [...]}; walk backwards to find the last
     # AIMessage (not a ToolMessage which has tool_call_id and no synthesis content).
