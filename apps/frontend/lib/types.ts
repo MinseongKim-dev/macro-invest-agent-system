@@ -279,6 +279,48 @@ export interface VirtualOrdersResponse {
   status: string
 }
 
+// ── NAV History ────────────────────────────────────────────────────────────
+
+export interface NavHistorySnapshot {
+  snapshot_at:    string
+  currency:       string
+  cash_balance:   number
+  holdings_value: number
+  total_nav:      number
+}
+
+export interface NavHistoryResponse {
+  timestamp: string
+  status:    string
+  days:      number
+  snapshots: NavHistorySnapshot[]
+}
+
+// ── Quant Score ────────────────────────────────────────────────────────────
+
+export interface DimensionScoreDTO {
+  dimension:           string
+  score:               number
+  level:               string
+  contributing_states: string[]
+}
+
+export interface QuantScoreLatestResponse {
+  as_of_date:           string
+  regime_id:            string
+  regime_label:         string
+  growth:               DimensionScoreDTO
+  inflation:            DimensionScoreDTO
+  labor:                DimensionScoreDTO
+  policy:               DimensionScoreDTO
+  financial_conditions: DimensionScoreDTO
+  momentum:             number
+  breadth:              number
+  change_intensity:     number
+  overall_support:      number
+  status:               string
+}
+
 // ── Convenience aliases ────────────────────────────────────────────────────
 
 /** Key → numeric value map for macro indicators (VIX, T10Y, FED_RATE, …) */

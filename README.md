@@ -1,8 +1,16 @@
 # Aleph-One
 
-**v0.4.10** · Open-source, zero-cost financial intelligence terminal
+**v0.4.12** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.12
+
+- **NAV History Sparkline** — 30-day portfolio NAV trend chart added to the PERFORMANCE section. Connects to the existing `GET /api/v1/portfolio/nav-history` backend endpoint via a new Next.js proxy route and `useNavHistory` SWR hook. SVG polyline with area fill, colored green/red based on trend direction.
+- **ENGINE SYNTHESIS panel** — new card in the right column surfacing the Quant Scoring Engine output (`GET /api/quant/latest`): per-dimension scores (Growth, Inflation, Labor, Policy, Financial Conditions) with level badges, plus Breadth / Momentum / Change Intensity summary chips. Overall support % shown in the header. Wired via new `useQuantScore` hook and Next.js proxy at `/api/quant/latest`.
+- **Types + proxy routes** — `NavHistorySnapshot`, `NavHistoryResponse`, `DimensionScoreDTO`, `QuantScoreLatestResponse` added to `lib/types.ts`; two new Next.js proxy routes added.
 
 ---
 
@@ -392,6 +400,8 @@ macro-invest-agent-system/
 | **v0.4.8** | ✅ Released | Live Alert Feed + Notification Bell — regime-transition ring buffer, `/api/v1/alerts/live`, header bell with unread badge and severity-colored dropdown |
 | **v0.4.9** | ✅ Released | Virtual Order Log — `/api/v1/portfolio/orders` endpoint, ORDERS slide-out panel with trade history (side-colored rows, fill price, status badge, inline reset) |
 | **v0.4.10** | ✅ Released | SSE stability fix (direct browser→VPS connection bypassing Vercel timeout), STALE data badge, PORTFOLIO ALPHA total NAV summary bar |
+| **v0.4.11** | ✅ Released | NAV 30-day history sparkline in PERFORMANCE section |
+| **v0.4.12** | ✅ Released | ENGINE SYNTHESIS panel: Quant Score dimensions + Breadth/Momentum/Intensity chips, `useQuantScore` hook, `/api/quant/latest` proxy |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |

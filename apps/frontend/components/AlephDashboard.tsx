@@ -6,16 +6,16 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed, useVirtualOrders } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed, useVirtualOrders, useNavHistory, useQuantScore } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
-import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO } from '@/lib/types'
+import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO, QuantScoreLatestResponse } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.10'
+export const APP_VERSION = 'v0.4.12'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -623,6 +623,93 @@ const DailyBriefPanel = ({
   )
 }
 
+// ─── Quant Synthesis Panel ────────────────────────────────────────────────────
+
+const QuantSynthesisPanel = ({
+  quantScore,
+  regime,
+}: {
+  quantScore: QuantScoreLatestResponse | undefined
+  regime:     import('@/lib/types').RegimeLatestResponse | undefined
+}) => {
+  const dims = quantScore
+    ? [
+        { k: 'GROWTH',  v: quantScore.growth.score,               lv: quantScore.growth.level },
+        { k: 'INFLAT',  v: quantScore.inflation.score,            lv: quantScore.inflation.level },
+        { k: 'LABOR',   v: quantScore.labor.score,                lv: quantScore.labor.level },
+        { k: 'POLICY',  v: quantScore.policy.score,               lv: quantScore.policy.level },
+        { k: 'FIN.CND', v: quantScore.financial_conditions.score, lv: quantScore.financial_conditions.level },
+      ]
+    : []
+
+  const levelColor = (lv: string) => {
+    if (lv === 'HIGH' || lv === 'STRONG') return '#00ff88'
+    if (lv === 'MEDIUM' || lv === 'MODERATE') return '#fbbf24'
+    return '#ff4d6d'
+  }
+
+  const overallColor = quantScore
+    ? quantScore.overall_support > 0.6 ? '#00ff88'
+      : quantScore.overall_support > 0.35 ? '#fbbf24'
+      : '#ff4d6d'
+    : 'rgba(255,255,255,.3)'
+
+  return (
+    <div className="glass" style={{ padding: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#fbbf24' }}>ENGINE SYNTHESIS</span>
+        {quantScore && (
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: overallColor, letterSpacing: '1px' }}>
+            SUPPORT {(quantScore.overall_support * 100).toFixed(0)}%
+          </span>
+        )}
+      </div>
+      {/* Regime row */}
+      {regime && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '5px 7px', marginBottom: 6, background: 'rgba(251,191,36,.06)', border: '1px solid rgba(251,191,36,.18)', borderRadius: 6 }}>
+          <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: '#fbbf24', letterSpacing: '1px' }}>
+            {regime.regime_label.replace(/_/g, ' ')}
+          </span>
+          <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, color: 'rgba(255,255,255,.4)' }}>
+            {regime.confidence}
+          </span>
+        </div>
+      )}
+      {/* Dimension bars */}
+      {dims.length > 0 ? dims.map(d => (
+        <div key={d.k} style={{ marginBottom: 4 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 2 }}>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 6.5, color: 'rgba(255,255,255,.45)', letterSpacing: '1px' }}>{d.k}</span>
+            <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 6.5, color: levelColor(d.lv) }}>{d.lv}</span>
+          </div>
+          <div style={{ height: 3, background: 'rgba(255,255,255,.08)', borderRadius: 2 }}>
+            <div style={{ height: '100%', width: `${Math.round(Math.abs(d.v) * 100)}%`, background: levelColor(d.lv), borderRadius: 2, transition: 'width .6s ease' }} />
+          </div>
+        </div>
+      )) : (
+        <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(0,229,255,.3)', letterSpacing: '2px', textAlign: 'center', padding: '8px 0' }}>ENGINE: AWAITING FEED</div>
+      )}
+      {/* Breadth + Momentum row */}
+      {quantScore && (
+        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+          {[
+            { lbl: 'BREADTH',   v: quantScore.breadth },
+            { lbl: 'MOMENTUM',  v: quantScore.momentum },
+            { lbl: 'INTENSITY', v: quantScore.change_intensity },
+          ].map(it => (
+            <div key={it.lbl} style={{ flex: 1, textAlign: 'center', padding: '4px 2px', background: 'rgba(0,229,255,.04)', borderRadius: 5, border: '1px solid rgba(0,229,255,.1)' }}>
+              <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, fontWeight: 700, color: it.v > 0 ? '#00ff88' : '#ff4d6d' }}>
+                {it.v > 0 ? '+' : ''}{(it.v * 100).toFixed(0)}%
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 5.5, color: 'rgba(255,255,255,.3)', marginTop: 1, letterSpacing: '.8px' }}>{it.lbl}</div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Correlation Panel (slide-out) ────────────────────────────────────────────
 
 const CorrelationPanel = ({
@@ -764,6 +851,8 @@ export default function AlephDashboard() {
   const { data: correlData }                                                 = useCorrelationMatrix(30)
   const { data: briefData, isLoading: briefLoading }                         = useDailyBrief()
   const { data: ordersData }                                                  = useVirtualOrders(30)
+  const { data: navHistoryData }                                              = useNavHistory(30)
+  const { data: quantScoreData }                                              = useQuantScore()
   const omni                                                                 = useOmniStream()
   const { user, signOut }                                                    = useAuth()
 
@@ -1628,6 +1717,41 @@ export default function AlephDashboard() {
                 </div>
               )
             })()}
+            {/* NAV history sparkline */}
+            {(() => {
+              const snaps = (navHistoryData?.snapshots ?? [])
+                .filter(s => s.currency === 'KRW')
+                .slice()
+                .reverse()  // oldest → newest
+              if (snaps.length < 2) return null
+              const vals = snaps.map(s => s.total_nav)
+              const min  = Math.min(...vals)
+              const max  = Math.max(...vals)
+              const W = 180, H = 32
+              const range = max - min || 1
+              const pts = vals.map((v, i) => {
+                const x = (i / (vals.length - 1)) * W
+                const y = H - ((v - min) / range) * (H - 4) - 2
+                return `${x.toFixed(1)},${y.toFixed(1)}`
+              }).join(' ')
+              const lastNav  = vals[vals.length - 1]
+              const firstNav = vals[0]
+              const navColor = lastNav >= firstNav ? '#00ff88' : '#ff4d6d'
+              return (
+                <div style={{ marginBottom: 8, padding: '6px 8px', background: 'rgba(0,229,255,.03)', border: '1px solid rgba(0,229,255,.08)', borderRadius: 6 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                    <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7, color: 'rgba(255,255,255,.3)', letterSpacing: '1.5px' }}>NAV 30D</span>
+                    <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, color: navColor }}>
+                      {lastNav >= firstNav ? '▲' : '▼'} {Math.abs(((lastNav - firstNav) / firstNav) * 100).toFixed(2)}%
+                    </span>
+                  </div>
+                  <svg width="100%" viewBox={`0 0 ${W} ${H}`} style={{ display: 'block', height: H }}>
+                    <polyline points={pts} fill="none" stroke={navColor} strokeWidth="1.5" strokeLinejoin="round" opacity="0.8" />
+                    <polyline points={`0,${H} ${pts} ${W},${H}`} fill={`${navColor}18`} stroke="none" />
+                  </svg>
+                </div>
+              )
+            })()}
             {/* Virtual Portfolio accounts */}
             {vpData?.accounts && Object.entries(vpData.accounts).map(([currency, acc]) => {
               const plColor = acc.total_pl >= 0 ? '#00ff88' : '#ff4d6d'
@@ -1689,6 +1813,9 @@ export default function AlephDashboard() {
               <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(0,229,255,.28)', letterSpacing: '2px', textAlign: 'center', padding: '8px 0' }}>SIGNAL DIST: LOADING…</div>
             )}
           </div>
+
+          {/* Engine Synthesis */}
+          <QuantSynthesisPanel quantScore={quantScoreData} regime={regimeData} />
 
           {/* AI Advice */}
           <div className="glass" style={{ padding: 12, flex: 1 }}>
