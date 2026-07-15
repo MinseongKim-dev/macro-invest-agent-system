@@ -20,6 +20,7 @@ import type {
   VirtualOrdersResponse,
   NavHistoryResponse,
   QuantScoreLatestResponse,
+  RegimeHistoryResponse,
 } from '@/lib/types'
 
 const POLL_FAST = 30_000   // 30s — regime + signals
@@ -196,5 +197,13 @@ export function useQuantScore() {
     endpoints.quantScore,
     fetchJson,
     { ...SWR_OPT, refreshInterval: 300_000 },  // 5-min — quant scores update with regime
+  )
+}
+
+export function useRegimeHistory(limit = 10) {
+  return useSWR<RegimeHistoryResponse>(
+    endpoints.regimeHistory(limit),
+    fetchJson,
+    { ...SWR_OPT, refreshInterval: 300_000 },  // 5-min — regime history is slow-changing
   )
 }

@@ -6,16 +6,16 @@ import {
 import { useAlephStream } from '@/hooks/useAlephStream'
 import { useMarketStream } from '@/hooks/useMarketStream'
 import { useNewsStream } from '@/hooks/useNewsStream'
-import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed, useVirtualOrders, useNavHistory, useQuantScore } from '@/hooks/useAlephData'
+import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed, useVirtualOrders, useNavHistory, useQuantScore, useRegimeHistory } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
-import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO, QuantScoreLatestResponse } from '@/lib/types'
+import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO, QuantScoreLatestResponse, RegimeHistoryResponse } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.15'
+export const APP_VERSION = 'v0.4.16'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -636,6 +636,65 @@ const DailyBriefPanel = ({
   )
 }
 
+// ─── Regime History Timeline Bar ─────────────────────────────────────────────
+
+const REGIME_COLORS: Record<string, string> = {
+  goldilocks:          '#00ff88',
+  expansion:           '#4ade80',
+  overheating:         '#fbbf24',
+  stagflation:         '#f97316',
+  policy_tightening:   '#ff4d6d',
+  recession:           '#ff4d6d',
+  recovery:            '#a855f7',
+  contraction:         '#ef4444',
+  unknown:             'rgba(255,255,255,.3)',
+}
+
+const RegimeTimelineBar = ({ history }: { history: RegimeHistoryResponse | undefined }) => {
+  if (!history?.records || history.records.length === 0) return null
+  const records = [...history.records].reverse()  // oldest first
+  return (
+    <div className="glass" style={{ padding: '6px 12px', flexShrink: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+        <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '2px', color: 'rgba(0,229,255,.6)' }}>REGIME TIMELINE</span>
+        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 6.5, color: 'rgba(255,255,255,.25)' }}>(last {records.length} records)</span>
+      </div>
+      <div style={{ display: 'flex', gap: 2, alignItems: 'stretch' }}>
+        {records.map((r, i) => {
+          const col = REGIME_COLORS[r.regime_label.toLowerCase()] ?? REGIME_COLORS.unknown
+          const isLatest = i === records.length - 1
+          const label = r.regime_label.replace(/_/g, ' ').toUpperCase()
+          const date = r.as_of_date.slice(0, 10)
+          return (
+            <div
+              key={r.regime_id}
+              title={`${label} | ${date} | conf: ${r.confidence}${r.changed ? ' | CHANGED' : ''}`}
+              style={{
+                flex: 1, minWidth: 0, padding: '4px 5px',
+                background: `${col}${isLatest ? '22' : '0d'}`,
+                border: `1px solid ${col}${isLatest ? '55' : '25'}`,
+                borderRadius: 4,
+                display: 'flex', flexDirection: 'column', gap: 2,
+                boxShadow: isLatest ? `0 0 6px ${col}44` : 'none',
+              }}
+            >
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 5.5, color: col, letterSpacing: '.5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {label}
+              </div>
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 5, color: 'rgba(255,255,255,.3)' }}>
+                {date.slice(5)}
+              </div>
+              {r.changed && (
+                <div style={{ width: 4, height: 4, borderRadius: '50%', background: '#fbbf24', boxShadow: '0 0 3px #fbbf24', flexShrink: 0, alignSelf: 'flex-end' }} />
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ─── Quant Synthesis Panel ────────────────────────────────────────────────────
 
 const QuantSynthesisPanel = ({
@@ -870,6 +929,7 @@ export default function AlephDashboard() {
   const { data: ordersData }                                                  = useVirtualOrders(30)
   const { data: navHistoryData }                                              = useNavHistory(30)
   const { data: quantScoreData }                                              = useQuantScore()
+  const { data: regimeHistData }                                              = useRegimeHistory(8)
   const omni                                                                 = useOmniStream()
   const { user, signOut }                                                    = useAuth()
 
@@ -1540,6 +1600,9 @@ export default function AlephDashboard() {
               </div>
             </div>
           </div>
+
+          {/* Regime History Timeline */}
+          <RegimeTimelineBar history={regimeHistData} />
 
           {/* KRX Chart — portfolio_value live history */}
           <div className="glass" style={{ flex: 1, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>

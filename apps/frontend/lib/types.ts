@@ -279,6 +279,33 @@ export interface VirtualOrdersResponse {
   status: string
 }
 
+// ── Regime History ─────────────────────────────────────────────────────────
+
+export interface HistoricalRegimeDTO {
+  regime_id:             string
+  as_of_date:            string
+  generated_at:          string
+  regime_label:          string
+  regime_family:         string
+  confidence:            string
+  freshness_status:      string
+  degraded_status:       string
+  transition_type:       string
+  transition_from_prior: string | null
+  changed:               boolean
+  warnings:              string[]
+  is_seeded:             boolean
+}
+
+export interface RegimeHistoryResponse {
+  as_of_date:          string
+  records:             HistoricalRegimeDTO[]
+  total:               number
+  limit_applied:       number
+  latest_regime_id:    string | null
+  previous_regime_id:  string | null
+}
+
 // ── NAV History ────────────────────────────────────────────────────────────
 
 export interface NavHistorySnapshot {

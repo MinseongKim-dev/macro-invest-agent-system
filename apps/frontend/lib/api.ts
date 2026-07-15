@@ -31,6 +31,7 @@ export const endpoints = {
   narrativeBrief: '/api/narrative/brief',
   liveAlerts:        (limit = 20) => `/api/v1/alerts/live?limit=${limit}`,
   portfolioOrders:   (limit = 20) => `/api/v1/portfolio/orders?limit=${limit}`,
+  regimeHistory:       (limit = 10) => `/api/regimes/history?limit=${limit}`,
   portfolioNavHistory: (days = 30) => `/api/v1/portfolio/nav-history?days=${days}`,
   quantScore:        '/api/quant/latest',
 } as const
