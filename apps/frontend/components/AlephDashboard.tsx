@@ -15,7 +15,7 @@ import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
 import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO, QuantScoreLatestResponse, RegimeHistoryResponse } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.17'
+export const APP_VERSION = 'v0.4.18'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -163,7 +163,7 @@ const SBadge = ({ type }: { type: 'POS' | 'NEG' | 'NEU' }) => {
   )
 }
 
-// MiniSpark uses real price history when provided, random fallback when not
+// MiniSpark uses real price history when provided; flat neutral line when offline
 const MiniSpark = ({ up = true, prices }: { up?: boolean; prices?: number[] }) => {
   const data = useMemo(() => {
     if (prices && prices.length >= 2) {
@@ -173,23 +173,21 @@ const MiniSpark = ({ up = true, prices }: { up?: boolean; prices?: number[] }) =
       const range = max - min || 1
       return slice.map(v => ({ v: ((v - min) / range) * 70 + 15 }))
     }
-    const d: Array<{ v: number }> = []
-    let v = 50
-    for (let i = 0; i < 18; i++) {
-      v += (Math.random() - (up ? 0.42 : 0.58)) * 9
-      v = Math.max(15, Math.min(85, v))
-      d.push({ v })
-    }
-    return d
-  }, [prices, up])
+    // no data — flat line, not random (random is misleading when offline)
+    return Array.from({ length: 18 }, () => ({ v: 50 }))
+  }, [prices])
+
+  const hasData = prices && prices.length >= 2
+  const strokeCol = hasData ? (up ? '#00ff88' : '#ff4d6d') : 'rgba(255,255,255,.15)'
+  const fillCol   = hasData ? (up ? 'rgba(0,255,136,.12)' : 'rgba(255,77,109,.12)') : 'rgba(255,255,255,.04)'
 
   return (
     <div style={{ width: 56, height: 22, flexShrink: 0 }}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 1, right: 1, left: 1, bottom: 1 }}>
           <Area type="monotone" dataKey="v"
-            stroke={up ? '#00ff88' : '#ff4d6d'}
-            fill={up ? 'rgba(0,255,136,.12)' : 'rgba(255,77,109,.12)'}
+            stroke={strokeCol}
+            fill={fillCol}
             strokeWidth={1.5} dot={false} isAnimationActive={false} />
         </AreaChart>
       </ResponsiveContainer>
@@ -1564,23 +1562,7 @@ export default function AlephDashboard() {
               <div style={{ width: 96, flexShrink: 0 }}>
                 <MacroStat lbl="VIX" val={streamData?.macro_indicators?.VIX != null ? streamData.macro_indicators.VIX.toFixed(2) : '···'} col={streamData?.macro_indicators?.VIX != null && streamData.macro_indicators.VIX > 25 ? '#ff4444' : '#00ff88'} />
                 <MacroStat lbl="T10Y" val={streamData?.macro_indicators?.T10Y != null ? streamData.macro_indicators.T10Y.toFixed(2) + '%' : '···'} col="#00e5ff" />
-                <div>
-                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(0,229,255,.45)', textTransform: 'uppercase', marginBottom: 4 }}>INTEREST RATES</div>
-                  {([['FED', streamData?.macro_indicators?.FED_RATE], ['T10Y', streamData?.macro_indicators?.T10Y]] as [string, number|undefined][]).map(([c, v]) => {
-                    const dotCol = v != null
-                      ? (trustFreshness === 'fresh' ? '#00ff88' : trustFreshness === 'stale' ? '#ff4d6d' : '#fbbf24')
-                      : 'rgba(255,255,255,.15)'
-                    return (
-                      <div key={c} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <div style={{ width: 4, height: 4, borderRadius: '50%', background: dotCol, boxShadow: v != null ? `0 0 3px ${dotCol}` : 'none', flexShrink: 0 }} />
-                          <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, color: 'rgba(255,255,255,.38)' }}>{c}</span>
-                        </div>
-                        <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: '#00e5ff' }}>{v != null ? v.toFixed(2) + '%' : '···'}</span>
-                      </div>
-                    )
-                  })}
-                </div>
+                <MacroStat lbl="FED RATE" val={streamData?.macro_indicators?.FED_RATE != null ? streamData.macro_indicators.FED_RATE.toFixed(2) + '%' : '···'} col="#a855f7" />
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, padding: '0 8px' }}>
                 <Globe />
@@ -1625,9 +1607,11 @@ export default function AlephDashboard() {
           {/* KRX Chart — portfolio_value live history */}
           <div className="glass" style={{ flex: 1, padding: 14, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 10, flexShrink: 0 }}>
-              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, letterSpacing: '2px', color: '#00e5ff', fontWeight: 700 }}>PORTFOLIO VALUE</span>
+              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, letterSpacing: '2px', color: '#00e5ff', fontWeight: 700 }}>
+                {activeIndex === 'PORTFOLIO' ? 'PORTFOLIO VALUE' : activeIndex === 'KOSPI' ? 'KOSPI INDEX' : activeIndex === 'SP500' ? 'S&P 500' : 'USD / KRW'}
+              </span>
               {/* Show live portfolio value in chart header */}
-              {marketTick?.portfolio_value != null && (
+              {activeIndex === 'PORTFOLIO' && marketTick?.portfolio_value != null && (
                 <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 13, color: '#00e5ff', fontWeight: 700, textShadow: '0 0 8px rgba(0,229,255,.5)' }}>
                   ${marketTick.portfolio_value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
@@ -1685,6 +1669,9 @@ export default function AlephDashboard() {
                     </div>}
                   </div>
                 )
+                const offlineMsg = activeIndex === 'PORTFOLIO'
+                  ? '포트폴리오 스트림 연결 대기 중'
+                  : '시장 데이터 스트림 연결 대기 중'
                 return hasData ? (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={activeData} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
@@ -1704,8 +1691,13 @@ export default function AlephDashboard() {
                     </AreaChart>
                   </ResponsiveContainer>
                 ) : (
-                  <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(0,229,255,.3)', letterSpacing: '2px' }}>
-                    AWAITING STREAM DATA…
+                  <div style={{ height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 7 }}>
+                    <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 9, color: 'rgba(0,229,255,.28)', letterSpacing: '2px' }}>
+                      {connected ? 'AWAITING DATA…' : 'STREAM OFFLINE'}
+                    </div>
+                    <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 10, color: 'rgba(255,255,255,.18)', textAlign: 'center', lineHeight: 1.5 }}>
+                      {offlineMsg}
+                    </div>
                   </div>
                 )
               })()}
@@ -1725,9 +1717,6 @@ export default function AlephDashboard() {
                   HEALTH {Math.round(portfolioHealth)}
                 </span>
               )}
-              <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.28)' }}>
-                USER: {user ? user.email?.split('@')[0].toUpperCase() : 'KIM MIN-SEONG'}
-              </span>
             </div>
             {/* Asset class tab filter */}
             <div style={{ display: 'flex', gap: 5, marginBottom: 9 }}>
@@ -2005,7 +1994,7 @@ export default function AlephDashboard() {
                 <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, color: '#a855f7', letterSpacing: '2px' }}>AI NEURAL ANALYSIS</span>
               </div>
               <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 12, color: 'rgba(255,255,255,.8)', lineHeight: 1.5 }}>
-                {typedInsight}<span style={{ animation: 'blink 0.8s step-end infinite', color: '#a855f7' }}>▌</span>
+                {typedInsight}{omni.busy && <span style={{ animation: 'blink 0.8s step-end infinite', color: '#a855f7' }}>▌</span>}
               </div>
               {omni.resp.action && <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: '#00ff88', marginTop: 5, fontWeight: 600 }}>→ {omni.resp.action}</div>}
             </div>
@@ -2024,7 +2013,7 @@ export default function AlephDashboard() {
           <div className="report-scroll" style={{ margin: '8px 16px 0', maxHeight: 110, overflowY: 'auto', padding: '8px 12px', background: 'rgba(168,85,247,.06)', border: '1px solid rgba(168,85,247,.22)', borderRadius: 8, animation: 'slide-up .3s ease-out' }}>
             <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(168,85,247,.55)', textTransform: 'uppercase', marginBottom: 5 }}>◈ INTELLIGENCE REPORT</div>
             <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 11, color: 'rgba(255,255,255,.62)', lineHeight: 1.65, whiteSpace: 'pre-wrap' }}>
-              {typedReport}<span style={{ animation: 'blink 0.8s step-end infinite', color: '#a855f7' }}>▌</span>
+              {typedReport}{omni.busy && <span style={{ animation: 'blink 0.8s step-end infinite', color: '#a855f7' }}>▌</span>}
             </div>
           </div>
         )}
