@@ -15,11 +15,10 @@ import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
 import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO, QuantScoreLatestResponse, RegimeHistoryResponse } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.16'
+export const APP_VERSION = 'v0.4.17'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap');
 *{box-sizing:border-box;}
 @keyframes glow-pulse{0%,100%{opacity:1}50%{opacity:.6}}
 @keyframes blink{0%,100%{opacity:1}49%{opacity:1}50%,99%{opacity:0}}
@@ -905,9 +904,10 @@ export default function AlephDashboard() {
   const [whatifRunning, setWhatifRunning] = useState(false)
   const [whatifError, setWhatifError] = useState<string | null>(null)
   const [sectorViewMode, setSectorViewMode] = useState<'CHANGE' | 'ALLOCATION'>('CHANGE')
-  const [correlOpen, setCorrelOpen] = useState(false)
-  const [briefOpen,  setBriefOpen]  = useState(false)
-  const [ordersOpen, setOrdersOpen] = useState(false)
+  const [activePanel, setActivePanel] = useState<'correl' | 'brief' | 'orders' | null>(null)
+  const correlOpen = activePanel === 'correl'
+  const briefOpen  = activePanel === 'brief'
+  const ordersOpen = activePanel === 'orders'
   const [compactMode, setCompactMode] = useState(() => {
     if (typeof localStorage !== 'undefined') return localStorage.getItem('aleph-compact') === '1'
     return false
@@ -1177,7 +1177,7 @@ export default function AlephDashboard() {
       {/* ── CORRELATION PANEL ──────────────────────────────────────────────── */}
       <CorrelationPanel
         open={correlOpen}
-        onClose={() => setCorrelOpen(false)}
+        onClose={() => setActivePanel(null)}
         tickers={correlData?.tickers}
         matrix={correlData?.matrix}
       />
@@ -1185,7 +1185,7 @@ export default function AlephDashboard() {
       {/* ── DAILY BRIEF PANEL ──────────────────────────────────────────────── */}
       <DailyBriefPanel
         open={briefOpen}
-        onClose={() => setBriefOpen(false)}
+        onClose={() => setActivePanel(null)}
         brief={briefData}
         loading={briefLoading}
       />
@@ -1193,11 +1193,11 @@ export default function AlephDashboard() {
       {/* ── ORDER LOG PANEL ────────────────────────────────────────────────── */}
       <OrderLogPanel
         open={ordersOpen}
-        onClose={() => setOrdersOpen(false)}
+        onClose={() => setActivePanel(null)}
         orders={ordersData?.orders ?? []}
         onReset={async () => {
           await fetch('/api/v1/portfolio/reset', { method: 'POST' })
-          setOrdersOpen(false)
+          setActivePanel(null)
         }}
       />
 
@@ -1483,28 +1483,41 @@ export default function AlephDashboard() {
             </div>
           </div>
 
-          {/* ALTERNATIVE DATA */}
+          {/* MACRO INDICATORS — live from SSE stream */}
           <div className="glass" style={{ padding: 12 }}>
-            <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff', marginBottom: 2 }}>ALTERNATIVE DATA</div>
-            <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.25)', letterSpacing: '1px', marginBottom: 8 }}>COMMODITY PRICES | SHIPPING DATA</div>
-            {/* Mini chart uses portfolio history when available */}
-            <div style={{ height: 48, marginBottom: 8 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData.slice(-20)} margin={{ top: 1, right: 1, left: 1, bottom: 1 }}>
-                  <Area type="monotone" dataKey="v" stroke="rgba(0,229,255,.5)" fill="rgba(0,229,255,.05)" strokeWidth={1.5} dot={false} isAnimationActive={false} />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+              <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff' }}>MACRO INDICATORS</span>
+              {!streamData?.macro_indicators && (
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 6, letterSpacing: '1px', color: 'rgba(255,255,255,.22)', background: 'rgba(255,255,255,.06)', border: '1px solid rgba(255,255,255,.1)', borderRadius: 3, padding: '1px 5px', marginLeft: 'auto' }}>AWAITING</span>
+              )}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '8px 0', gap: 4 }}>
-              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(0,229,255,.3)', letterSpacing: '2px' }}>AWAITING FEED</div>
-              <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, color: 'rgba(255,255,255,.18)', textAlign: 'center' }}>Commodity pipeline — v0.5.0</div>
-            </div>
+            {streamData?.macro_indicators ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {([
+                  { k: 'VIX',      val: streamData.macro_indicators['VIX'],      col: (streamData.macro_indicators['VIX'] ?? 0) > 25 ? '#ff4d6d' : '#00ff88', fmt: (v: number) => v.toFixed(2) },
+                  { k: 'T10Y',     val: streamData.macro_indicators['T10Y'],     col: '#fbbf24', fmt: (v: number) => v.toFixed(2) + '%' },
+                  { k: 'FED RATE', val: streamData.macro_indicators['FED_RATE'], col: '#a855f7', fmt: (v: number) => v.toFixed(2) + '%' },
+                ] as { k: string; val: number | undefined; col: string; fmt: (v: number) => string }[]).map(({ k, val, col, fmt }) =>
+                  val != null ? (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8.5, color: 'rgba(255,255,255,.38)', letterSpacing: '1px' }}>{k}</span>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 11, fontWeight: 700, color: col, textShadow: `0 0 8px ${col}55` }}>{fmt(val)}</span>
+                    </div>
+                  ) : null
+                )}
+              </div>
+            ) : (
+              <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 8, color: 'rgba(0,229,255,.22)', letterSpacing: '1.5px', textAlign: 'center', padding: '12px 0' }}>STREAM OFFLINE</div>
+            )}
           </div>
 
           {/* ALGORITHMIC SIGNALS — live from SSE stream */}
           <div className="glass" style={{ padding: 12, flex: 1 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10 }}>
               <span style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 8, letterSpacing: '2px', color: '#00e5ff' }}>ALGORITHMIC SIGNALS</span>
+              {liveSignals === null && (
+                <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 6, letterSpacing: '1px', color: 'rgba(251,191,36,.7)', background: 'rgba(251,191,36,.08)', border: '1px solid rgba(251,191,36,.2)', borderRadius: 3, padding: '1px 5px' }}>SIMULATED</span>
+              )}
               {trust && (
                 <div title={trust.is_degraded ? (trust.degraded_reason ?? '데이터 품질 저하') : trust.freshness_status} style={{
                   width: 5, height: 5, borderRadius: '50%', marginLeft: 'auto',
@@ -1574,8 +1587,13 @@ export default function AlephDashboard() {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '2px', color: 'rgba(255,255,255,.25)' }}>
-                    {sectorViewMode === 'CHANGE' ? 'MARKET SENTIMENT HEATMAP' : 'SECTOR ALLOCATION'}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <div style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 8, letterSpacing: '2px', color: 'rgba(255,255,255,.25)' }}>
+                      {sectorViewMode === 'CHANGE' ? 'MARKET SENTIMENT HEATMAP' : 'SECTOR ALLOCATION'}
+                    </div>
+                    {sectorViewMode === 'CHANGE' && !sectorData?.sectors?.length && (
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 6, letterSpacing: '1px', color: 'rgba(251,191,36,.6)', background: 'rgba(251,191,36,.07)', border: '1px solid rgba(251,191,36,.18)', borderRadius: 3, padding: '1px 5px' }}>SIMULATED</span>
+                    )}
                   </div>
                   <div style={{ display: 'flex', gap: 3 }}>
                     {(['CHANGE', 'ALLOCATION'] as const).map(mode => (
@@ -1719,7 +1737,7 @@ export default function AlephDashboard() {
                   <button
                     key={tab}
                     onClick={() => setAssetTab(tab)}
-                    title={isFunds ? 'Fund NAV pipeline — v0.3.0' : undefined}
+                    title={isFunds ? 'Fund NAV pipeline — v0.5.0 (KOFIA API 차단)' : undefined}
                     style={{
                       fontFamily: "'JetBrains Mono',monospace",
                       fontSize: 7.5,
@@ -1749,13 +1767,13 @@ export default function AlephDashboard() {
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '24px 12px', gap: 8 }}>
                 <div style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 9, color: 'rgba(191,0,255,.6)', letterSpacing: '2px' }}>AWAITING FEEDS</div>
                 <div style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 7.5, color: 'rgba(255,255,255,.2)', textAlign: 'center', lineHeight: 1.6 }}>
-                  Fund NAV pipeline<br />scheduled for v0.3.0<br />(KOFIA OpenAPI)
+                  Fund NAV pipeline<br />(KOFIA OpenAPI 차단)
                 </div>
               </div>
             )}
             {/* Scrollable holdings — live prices from useMarketStream */}
             {assetTab !== 'FUNDS' && (
-              <div style={{ maxHeight: 'calc(100vh - 420px)', overflowY: 'auto', paddingRight: 2 }}>
+              <div style={{ maxHeight: 240, overflowY: 'auto', paddingRight: 2 }}>
                 {holdings.map((h, i) => (
                   <div key={h.ticker} className="row-hover" onClick={() => openTickerDetail(h)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 5px', borderBottom: i < holdings.length - 1 ? '1px solid rgba(255,255,255,.04)' : 'none' }}>
                     <div style={{ width: 26, height: 26, borderRadius: 6, flexShrink: 0, background: `${h.col}18`, border: `1px solid ${h.col}38`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: "'Orbitron',sans-serif", fontSize: 6.5, color: h.col }}>
@@ -1942,28 +1960,34 @@ export default function AlephDashboard() {
                 </div>
               ))}
             </div>
-            <div style={{ display: 'flex', gap: 6 }}>
-              <button
-                onClick={handleApply}
-                disabled={omni.busy}
-                title="AI가 포트폴리오 최적화를 분석하고 가상 매매를 실행합니다"
-                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: omni.busy ? 'default' : 'pointer', opacity: omni.busy ? 0.5 : 1, background: 'rgba(168,85,247,.18)', border: '1px solid rgba(168,85,247,.55)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7', transition: 'all .2s', boxShadow: omni.busy ? 'none' : '0 0 8px rgba(168,85,247,.25)' }}>APPLY</button>
-              <button
-                onClick={() => { setWhatifOpen(o => !o); setWhatifResult(null); setWhatifError(null) }}
-                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: whatifOpen ? 'rgba(251,191,36,.18)' : 'rgba(251,191,36,.07)', border: `1px solid rgba(251,191,36,${whatifOpen ? '.55' : '.25'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#fbbf24', transition: 'all .2s', boxShadow: whatifOpen ? '0 0 8px rgba(251,191,36,.25)' : 'none' }}>WHAT-IF</button>
-              <button
-                onClick={() => handleExec('현재 포트폴리오 리스크를 분석하고 최적 리밸런싱 전략을 제시해줘. 섹터 집중도, 변동성, 리스크 대비 수익률을 고려해서 구체적인 조언을 해줘.')}
-                disabled={omni.busy}
-                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: omni.busy ? 'default' : 'pointer', opacity: omni.busy ? 0.5 : 1, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff', transition: 'all .2s' }}>ANALYZE</button>
-              <button
-                onClick={() => setCorrelOpen(o => !o)}
-                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: correlOpen ? 'rgba(0,229,255,.14)' : 'rgba(0,229,255,.04)', border: `1px solid rgba(0,229,255,${correlOpen ? '.45' : '.15'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff', transition: 'all .2s', boxShadow: correlOpen ? '0 0 8px rgba(0,229,255,.2)' : 'none' }}>CORREL</button>
-              <button
-                onClick={() => setBriefOpen(o => !o)}
-                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: briefOpen ? 'rgba(168,85,247,.18)' : 'rgba(168,85,247,.06)', border: `1px solid rgba(168,85,247,${briefOpen ? '.55' : '.2'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7', transition: 'all .2s', boxShadow: briefOpen ? '0 0 8px rgba(168,85,247,.25)' : 'none' }}>BRIEF</button>
-              <button
-                onClick={() => setOrdersOpen(o => !o)}
-                style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: ordersOpen ? 'rgba(0,255,136,.14)' : 'rgba(0,255,136,.04)', border: `1px solid rgba(0,255,136,${ordersOpen ? '.45' : '.15'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00ff88', transition: 'all .2s', boxShadow: ordersOpen ? '0 0 8px rgba(0,255,136,.2)' : 'none' }}>ORDERS</button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+              {/* Row 1: primary actions */}
+              <div style={{ display: 'flex', gap: 5 }}>
+                <button
+                  onClick={handleApply}
+                  disabled={omni.busy}
+                  title="AI가 포트폴리오 최적화를 분석하고 가상 매매를 실행합니다"
+                  style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: omni.busy ? 'default' : 'pointer', opacity: omni.busy ? 0.5 : 1, background: 'rgba(168,85,247,.18)', border: '1px solid rgba(168,85,247,.55)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#a855f7', transition: 'all .2s', boxShadow: omni.busy ? 'none' : '0 0 8px rgba(168,85,247,.25)' }}>APPLY</button>
+                <button
+                  onClick={() => { setWhatifOpen(o => !o); setActivePanel(null); setWhatifResult(null); setWhatifError(null) }}
+                  style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: 'pointer', background: whatifOpen ? 'rgba(251,191,36,.18)' : 'rgba(251,191,36,.07)', border: `1px solid rgba(251,191,36,${whatifOpen ? '.55' : '.25'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#fbbf24', transition: 'all .2s', boxShadow: whatifOpen ? '0 0 8px rgba(251,191,36,.25)' : 'none' }}>WHAT-IF</button>
+                <button
+                  onClick={() => handleExec('현재 포트폴리오 리스크를 분석하고 최적 리밸런싱 전략을 제시해줘. 섹터 집중도, 변동성, 리스크 대비 수익률을 고려해서 구체적인 조언을 해줘.')}
+                  disabled={omni.busy}
+                  style={{ flex: 1, padding: '7px 0', borderRadius: 7, cursor: omni.busy ? 'default' : 'pointer', opacity: omni.busy ? 0.5 : 1, background: 'rgba(0,229,255,.07)', border: '1px solid rgba(0,229,255,.18)', fontFamily: "'Orbitron',sans-serif", fontSize: 7.5, letterSpacing: '1px', color: '#00e5ff', transition: 'all .2s' }}>ANALYZE</button>
+              </div>
+              {/* Row 2: panel toggles */}
+              <div style={{ display: 'flex', gap: 5 }}>
+                <button
+                  onClick={() => setActivePanel(p => p === 'correl' ? null : 'correl')}
+                  style={{ flex: 1, padding: '6px 0', borderRadius: 7, cursor: 'pointer', background: correlOpen ? 'rgba(0,229,255,.14)' : 'rgba(0,229,255,.04)', border: `1px solid rgba(0,229,255,${correlOpen ? '.45' : '.15'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1px', color: '#00e5ff', transition: 'all .2s', boxShadow: correlOpen ? '0 0 8px rgba(0,229,255,.2)' : 'none' }}>CORREL</button>
+                <button
+                  onClick={() => setActivePanel(p => p === 'brief' ? null : 'brief')}
+                  style={{ flex: 1, padding: '6px 0', borderRadius: 7, cursor: 'pointer', background: briefOpen ? 'rgba(168,85,247,.18)' : 'rgba(168,85,247,.06)', border: `1px solid rgba(168,85,247,${briefOpen ? '.55' : '.2'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1px', color: '#a855f7', transition: 'all .2s', boxShadow: briefOpen ? '0 0 8px rgba(168,85,247,.25)' : 'none' }}>BRIEF</button>
+                <button
+                  onClick={() => setActivePanel(p => p === 'orders' ? null : 'orders')}
+                  style={{ flex: 1, padding: '6px 0', borderRadius: 7, cursor: 'pointer', background: ordersOpen ? 'rgba(0,255,136,.14)' : 'rgba(0,255,136,.04)', border: `1px solid rgba(0,255,136,${ordersOpen ? '.45' : '.15'})`, fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1px', color: '#00ff88', transition: 'all .2s', boxShadow: ordersOpen ? '0 0 8px rgba(0,255,136,.2)' : 'none' }}>ORDERS</button>
+              </div>
             </div>
           </div>
         </div>

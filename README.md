@@ -1,8 +1,14 @@
 # Aleph-One
 
-**v0.4.16** · Open-source, zero-cost financial intelligence terminal
+**v0.4.17** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.17
+
+- **UI quality pass** — 6개 액션 버튼을 2줄(primary 3개 / panel 3개)로 재배치해 ORDERS 잘림 해소. CORREL/BRIEF/ORDERS 슬라이드아웃 패널 상호 배제(`activePanel` 단일 state) — 동시 겹침 버그 수정. ALTERNATIVE DATA 섹션을 VIX/T10Y/FED RATE 실시간 매크로 지표 표시로 교체. ALGORITHMIC SIGNALS 오프라인 fallback에 `SIMULATED` 배지 추가. Sector heatmap 정적 fallback에 `SIMULATED` 배지 추가. Holdings 스크롤 영역 `calc(100vh-420px)` 하드코딩 → `240px` 고정으로 OMNI 확장 시 오버플로우 해소. Orbitron/Rajdhani/JetBrains Mono 폰트 `@import`를 동적 style 태그에서 `globals.css`로 이동해 FOUC 제거. FUNDS 탭 버전 참조 `v0.3.0` → 현재 상태로 수정.
 
 ---
 
@@ -430,6 +436,7 @@ macro-invest-agent-system/
 | **v0.4.14** | ✅ Released | AI context injection: OMNI queries auto-enriched with live regime + macro state (D-3) |
 | **v0.4.15** | ✅ Released | FOCUS mode toggle: collapses side panels to center-only view, persisted in localStorage (B-2) |
 | **v0.4.16** | ✅ Released | Regime history timeline bar: color-coded regime strips with change-dot indicators, `useRegimeHistory` hook |
+| **v0.4.17** | ✅ Released | UI quality pass: panel mutual exclusion, 2-row action buttons, macro indicators panel, SIMULATED badges, FOUC fix |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
 | **v2.0.0** | ⏳ Pending | Vercel (frontend) + VPS (backend) cloud deployment |
