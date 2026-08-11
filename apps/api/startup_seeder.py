@@ -37,6 +37,7 @@ for optionally exposing a degraded readiness state.
 
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -53,6 +54,17 @@ from src.services.macro_regime_service import MacroRegimeService
 from src.services.macro_snapshot_service import MacroSnapshotService
 
 _log = get_logger(__name__)
+
+# ---------------------------------------------------------------------------
+# DB series_id → MacroIndicatorType mapping
+# PMI and RETAIL_SALES have no real source — kept synthetic.
+# ---------------------------------------------------------------------------
+
+_SERIES_TO_INDICATOR: dict[str, MacroIndicatorType] = {
+    "CPI":    MacroIndicatorType.INFLATION,
+    "UNRATE": MacroIndicatorType.UNEMPLOYMENT,
+    "T10Y":   MacroIndicatorType.YIELD_10Y,
+}
 
 # ---------------------------------------------------------------------------
 # Metadata stamped on every regime produced by this seeder
@@ -82,6 +94,53 @@ _SYNTHETIC_VALUES: dict[MacroIndicatorType, float] = {
     MacroIndicatorType.UNEMPLOYMENT: 4.4,
     MacroIndicatorType.YIELD_10Y: 4.6,
 }
+
+
+# ---------------------------------------------------------------------------
+# Real-data fetch (best-effort)
+# ---------------------------------------------------------------------------
+
+
+def _fetch_real_values_sync() -> dict[MacroIndicatorType, float]:
+    """Query the latest value for each real series from macro_indicators.
+
+    Returns a (possibly partial or empty) dict of indicator → value.
+    Never raises — returns {} on any connection or query failure.
+    """
+    try:
+        import psycopg  # noqa: PLC0415  (local import keeps startup cost zero on import)
+
+        conninfo = (
+            f"host={os.environ.get('DB_HOST', 'localhost')} "
+            f"port={os.environ.get('DB_PORT', '5432')} "
+            f"dbname={os.environ.get('DB_NAME', 'aleph_core')} "
+            f"user={os.environ.get('DB_USER', 'aleph_admin')} "
+            f"password={os.environ.get('DB_PASSWORD', 'aleph_secure_pass')}"
+        )
+        series_ids = list(_SERIES_TO_INDICATOR.keys())
+        placeholders = ", ".join(f"${i + 1}" for i in range(len(series_ids)))
+        query = (
+            f"SELECT DISTINCT ON (series_id) series_id, value "  # noqa: S608
+            f"FROM macro_indicators "
+            f"WHERE series_id IN ({placeholders}) "
+            f"ORDER BY series_id, snapshot_time DESC"
+        )
+        result: dict[MacroIndicatorType, float] = {}
+        with psycopg.connect(conninfo, connect_timeout=3) as conn:
+            rows = conn.execute(query, series_ids).fetchall()
+        for series_id, value in rows:
+            indicator = _SERIES_TO_INDICATOR.get(series_id)
+            if indicator is not None and value is not None:
+                result[indicator] = float(value)
+        _log.info(
+            "startup_seeder_real_values_fetched",
+            count=len(result),
+            indicators=[ind.value for ind in result],
+        )
+        return result
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("startup_seeder_real_values_unavailable", error=str(exc))
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -117,13 +176,15 @@ class SeedStatus:
 def _build_synthetic_observations(
     as_of_date: date,
     snapshot_id: str,
+    indicator_values: dict[MacroIndicatorType, float] | None = None,
 ) -> list[NormalizedMacroObservation]:
-    """Build a set of synthetic normalized observations for *as_of_date*."""
+    """Build normalized observations for *as_of_date* from *indicator_values*."""
+    values = indicator_values if indicator_values is not None else _SYNTHETIC_VALUES
     now = datetime.now(UTC)
     obs_dt = datetime(as_of_date.year, as_of_date.month, as_of_date.day, tzinfo=UTC)
     observations: list[NormalizedMacroObservation] = []
 
-    for indicator, value in _SYNTHETIC_VALUES.items():
+    for indicator, value in values.items():
         freshness = FreshnessMetadata(
             expected_max_lag_hours=24 * 45,
             observed_lag_hours=0.0,
@@ -179,6 +240,12 @@ async def seed_regime_from_synthetic_observations(
     """
     target_date = as_of_date or date.today()
 
+    # --- Attempt to load real indicator values from TimescaleDB --------------
+    loop = __import__("asyncio").get_event_loop()
+    real_values = await loop.run_in_executor(None, _fetch_real_values_sync)
+    indicator_values = {**_SYNTHETIC_VALUES, **real_values}
+    used_real_data = bool(real_values)
+
     # --- Idempotency check ---------------------------------------------------
     try:
         if regime_service._regime_repository is not None:  # noqa: SLF001
@@ -206,6 +273,7 @@ async def seed_regime_from_synthetic_observations(
     observations = _build_synthetic_observations(
         as_of_date=target_date,
         snapshot_id=snapshot_id,
+        indicator_values=indicator_values,
     )
 
     _log.info(
@@ -235,16 +303,26 @@ async def seed_regime_from_synthetic_observations(
     # --- Build and persist regime --------------------------------------------
     try:
         regime = await regime_service.build_and_save_regime(as_of_date=target_date)
-        # Stamp seeder metadata onto the persisted regime
-        regime.metadata.update(SEEDER_METADATA)
-        # Re-derive warnings now that is_seeded=True is known
+        # Stamp seeder metadata onto the persisted regime.
+        # If real DB values were available, mark as real-data so the frontend
+        # does not show the "bootstrap/synthetic" badge (is_seeded = False).
+        if used_real_data:
+            regime.metadata.update({
+                "seeded":       "false",
+                "source":       "real_data_seed",
+                "seed_version": SEEDER_METADATA["seed_version"],
+            })
+        else:
+            regime.metadata.update(SEEDER_METADATA)
+        is_seeded_flag = not used_real_data
+        # Re-derive warnings with the correct is_seeded flag
         from src.domain.macro.regime_mapping import derive_regime_warnings
         regime.warnings = derive_regime_warnings(
             snapshot=snapshot,
             label=regime.regime_label,
             confidence=regime.confidence,
             missing_inputs=list(regime.missing_inputs),
-            is_seeded=True,
+            is_seeded=is_seeded_flag,
         )
     except Exception as exc:  # noqa: BLE001
         _log.error("startup_seeder_regime_failed", error=str(exc))

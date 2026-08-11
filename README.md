@@ -1,8 +1,15 @@
 # Aleph-One
 
-**v0.4.18** · Open-source, zero-cost financial intelligence terminal
+**v0.4.19** · Open-source, zero-cost financial intelligence terminal
 
 Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It ingests live market data from Yahoo Finance, runs three quantitative engine layers inspired by legendary investors, streams structured signals to a Next.js UI over SSE, and interprets queries through a free-tier LangChain agent — all without a single paid API call.
+
+---
+
+## What's New in v0.4.19
+
+- **Push notification UI** — PUSH button in header subscribes/unsubscribes to Web Push alerts. Styled with green neon glow when active (`◈ PUSH ON`). Three Next.js proxy routes added for vapid-public-key, subscribe, and unsubscribe endpoints.
+- **Real data seeding** — `apps/api/` startup seeder now fetches live CPI, UNRATE, and T10Y values from the `macro_indicators` TimescaleDB table on boot. Falls back to synthetic values if DB is unreachable. When real data is loaded, the regime is no longer marked as synthetic (`is_seeded = false`).
 
 ---
 
@@ -448,6 +455,7 @@ macro-invest-agent-system/
 | **v0.4.15** | ✅ Released | FOCUS mode toggle: collapses side panels to center-only view, persisted in localStorage (B-2) |
 | **v0.4.16** | ✅ Released | Regime history timeline bar: color-coded regime strips with change-dot indicators, `useRegimeHistory` hook |
 | **v0.4.17** | ✅ Released | UI quality pass: panel mutual exclusion, 2-row action buttons, macro indicators panel, SIMULATED badges, FOUC fix |
+| **v0.4.19** | ✅ Released | Push notification UI (PUSH button + proxy routes) + apps/api real data seeding from TimescaleDB |
 | **v0.4.18** | ✅ Released | Data accuracy pass: T10Y dedup fix, offline sparklines neutral, dynamic chart title, streaming cursor, better empty states |
 | **v0.5.0** | ⏳ Pending | Fund NAV daily batch (KOFIA OpenAPI) — blocked on a working KOFIA/data.go.kr API key |
 | **v1.0.0** | ⏳ Pending | Ray Dalio All-Weather rebalancing engine |
