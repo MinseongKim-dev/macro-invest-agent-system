@@ -85,6 +85,8 @@ async def mock_prices() -> dict[str, object]:
         "prices":          prices,
         "portfolio_value": round(sum(prices.values()), 2),
         "ts":              datetime.now(UTC).isoformat(),
+        "is_demo":         True,
+        "demo_reason":     "mock_gbm_stream",
     }
 
 
@@ -119,10 +121,12 @@ async def mock_timeseries(
         price *= math.exp((mu - 0.5 * sigma**2) * dt_point + sigma * math.sqrt(dt_point) * z)
         series.append(round(price, 2))
     return {
-        "ticker":  ticker,
-        "prices":  series,
-        "current": series[-1],
-        "count":   len(series),
+        "ticker":      ticker,
+        "prices":      series,
+        "current":     series[-1],
+        "count":       len(series),
+        "is_demo":     True,
+        "demo_reason": "mock_gbm_stream",
     }
 
 
@@ -160,6 +164,8 @@ async def stream_market() -> StreamingResponse:
                 "prices":          out,
                 "portfolio_value": round(sum(out.values()), 2),
                 "ts":              datetime.now(UTC).isoformat(),
+                "is_demo":         True,
+                "demo_reason":     "mock_gbm_stream",
             })
             yield f"data: {payload}\n\n"
             await asyncio.sleep(1.0)

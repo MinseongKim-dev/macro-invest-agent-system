@@ -636,16 +636,17 @@ async def _on_sse_disconnect() -> None:
 
 # ── Live tick ─────────────────────────────────────────────────────────────────
 
-def _tick(rng: random.Random) -> None:
-    """Advance prices by one random-walk step and append to history buffer."""
+def _tick(rng: random.Random) -> None:  # noqa: ARG001
+    """Append current prices to history buffer without applying GBM noise.
+
+    G-04a: _PRICE_STATE is only updated by _sync_price_state_from_db() when
+    real market data arrives from TimescaleDB.  No synthetic drift is applied
+    between DB updates; prices remain stable until a real tick arrives.
+    """
     for ticker in TICKERS:
         current = _PRICE_STATE[ticker]
-        noise   = rng.gauss(0.0, 0.0004) * current
-        new_px  = max(current + noise, current * 0.85)
-        _PRICE_STATE[ticker] = round(new_px, 4)
-
         buf = _PRICE_HISTORY[ticker]
-        buf.append(round(new_px, 4))
+        buf.append(round(current, 4))
         if len(buf) > _HISTORY_LEN:
             buf.pop(0)
 
@@ -1129,11 +1130,14 @@ def run_backtest_tool(ticker: str) -> str:
                  GLD, 005930, 000660, 035420, 051910, 006400, 122630
     """
     # Prefer historical_prices (2 years EOD) — much better signal for SMA(20)
+    is_demo = False
     price_df = _fetch_historical_price_df(ticker, n_rows=500)
     if price_df is None or len(price_df) < 20:
         price_df = _fetch_price_df_from_db(ticker, n_rows=60)
     if price_df is None or len(price_df) < 20:
+        # G-03: GBM fallback — mark as demo; results must not drive real decisions
         price_df = pd.DataFrame({"close_price": _PRICE_HISTORY.get(ticker, [])})
+        is_demo = True
     if price_df is None or price_df.empty or len(price_df) < 20:
         return json.dumps({"error": f"insufficient_price_history_for_{ticker}", "ticker": ticker})
 
@@ -1151,6 +1155,8 @@ def run_backtest_tool(ticker: str) -> str:
         "max_drawdown_pct": result.max_drawdown_pct,
         "num_trades":       result.num_trades,
         "final_value":      round(result.final_value, 2),
+        "is_demo":          is_demo,
+        "data_source":      "synthetic_gbm_DEMO" if is_demo else "historical_db",
     })
 
 
@@ -2713,12 +2719,16 @@ async def get_vapid_public_key() -> dict[str, str]:
 
     The browser calls ``PushManager.subscribe({ applicationServerKey: <key> })``
     with this value to create a push subscription.
+
+    Returns HTTP 503 when VAPID_PUBLIC_KEY is not configured (D-07).
     """
+    from fastapi.responses import JSONResponse  # noqa: PLC0415
     pub_key = _os.getenv("VAPID_PUBLIC_KEY", "")
     if not pub_key:
-        # Generate an ephemeral pair for dev — not persisted across restarts
-        keys = generate_vapid_keys()
-        pub_key = keys["public_key"]
+        return JSONResponse(  # type: ignore[return-value]
+            {"error": "vapid_not_configured", "detail": "VAPID_PUBLIC_KEY not set in environment"},
+            status_code=503,
+        )
     return {"public_key": pub_key}
 
 
@@ -2732,13 +2742,21 @@ async def subscribe_push(body: dict[str, Any]) -> dict[str, str]:
             "endpoint": "https://fcm.googleapis.com/fcm/send/…",
             "keys": {"p256dh": "…", "auth": "…"}
         }
+
+    Returns HTTP 503 when VAPID_PUBLIC_KEY is not configured (D-07).
     """
+    from fastapi import HTTPException  # noqa: PLC0415
+    from fastapi.responses import JSONResponse  # noqa: PLC0415
+    if not _os.getenv("VAPID_PUBLIC_KEY", ""):
+        return JSONResponse(  # type: ignore[return-value]
+            {"error": "vapid_not_configured", "detail": "VAPID_PUBLIC_KEY not set in environment"},
+            status_code=503,
+        )
     endpoint = body.get("endpoint", "")
     keys     = body.get("keys", {})
     p256dh   = keys.get("p256dh", "") if isinstance(keys, dict) else ""
     auth     = keys.get("auth", "")   if isinstance(keys, dict) else ""
     if not endpoint or not p256dh or not auth:
-        from fastapi import HTTPException  # noqa: PLC0415
         raise HTTPException(status_code=400, detail="endpoint, keys.p256dh, and keys.auth are required")
     await asyncio.to_thread(upsert_push_subscription, endpoint, p256dh, auth)
     return {"status": "subscribed"}

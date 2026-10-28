@@ -648,6 +648,7 @@ class BacktestResult:
     max_drawdown_pct: float
     num_trades:       int
     equity_curve:     list[float]
+    is_demo:          bool = False  # G-03: True when data_source is synthetic GBM
 
 
 class BacktestEngine:

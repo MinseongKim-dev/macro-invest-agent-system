@@ -76,24 +76,9 @@ SEEDER_METADATA: dict[str, str] = {
     "seed_version": "1",
 }
 
-# ---------------------------------------------------------------------------
-# Synthetic indicator values
-# ---------------------------------------------------------------------------
-# These values are chosen to produce a deterministic SLOWDOWN/POLICY_TIGHTENING_DRAG
-# regime so that the analyst UI shows a meaningful, non-trivial baseline:
-#   PMI=48.2      → growth_state = SLOWING
-#   RETAIL_SALES  = -0.5 → growth_state = SLOWING (reinforces)
-#   INFLATION=3.1 → inflation_state = STICKY
-#   UNEMPLOYMENT=4.4 → labor_state = SOFTENING
-#   YIELD_10Y=4.6 → policy_state = RESTRICTIVE, financial_conditions_state = TIGHT
-
-_SYNTHETIC_VALUES: dict[MacroIndicatorType, float] = {
-    MacroIndicatorType.PMI: 48.2,
-    MacroIndicatorType.RETAIL_SALES: -0.5,
-    MacroIndicatorType.INFLATION: 3.1,
-    MacroIndicatorType.UNEMPLOYMENT: 4.4,
-    MacroIndicatorType.YIELD_10Y: 4.6,
-}
+# _SYNTHETIC_VALUES removed (D-01a): all indicator values must come from
+# TimescaleDB macro_indicators. If a series is absent, pass None — the
+# domain layer returns GrowthState.UNKNOWN rather than a synthetic state.
 
 
 # ---------------------------------------------------------------------------
@@ -178,8 +163,14 @@ def _build_synthetic_observations(
     snapshot_id: str,
     indicator_values: dict[MacroIndicatorType, float] | None = None,
 ) -> list[NormalizedMacroObservation]:
-    """Build normalized observations for *as_of_date* from *indicator_values*."""
-    values = indicator_values if indicator_values is not None else _SYNTHETIC_VALUES
+    """Build normalized observations for *as_of_date* from *indicator_values*.
+
+    Only indicators present in *indicator_values* generate observations.
+    Absent indicators (e.g. PMI when ISM data is not collected) result in no
+    observation, causing the domain to return GrowthState.UNKNOWN — correct
+    behaviour per D-01a.
+    """
+    values = indicator_values if indicator_values is not None else {}
     now = datetime.now(UTC)
     obs_dt = datetime(as_of_date.year, as_of_date.month, as_of_date.day, tzinfo=UTC)
     observations: list[NormalizedMacroObservation] = []
@@ -222,6 +213,7 @@ async def seed_regime_from_synthetic_observations(
     snapshot_service: MacroSnapshotService,
     regime_service: MacroRegimeService,
     as_of_date: date | None = None,
+    force_refresh: bool = False,
 ) -> SeedStatus:
     """Seed the in-memory stores with a synthetic snapshot and regime.
 
@@ -243,30 +235,32 @@ async def seed_regime_from_synthetic_observations(
     # --- Attempt to load real indicator values from TimescaleDB --------------
     loop = __import__("asyncio").get_event_loop()
     real_values = await loop.run_in_executor(None, _fetch_real_values_sync)
-    indicator_values = {**_SYNTHETIC_VALUES, **real_values}
+    # D-01a: use ONLY real DB values; absent indicators produce UNKNOWN state
+    indicator_values = real_values
     used_real_data = bool(real_values)
 
-    # --- Idempotency check ---------------------------------------------------
-    try:
-        if regime_service._regime_repository is not None:  # noqa: SLF001
-            existing = await regime_service._regime_repository.get_latest_on_or_before(  # noqa: SLF001
-                target_date
-            )
-            if existing is not None:
-                _log.info(
-                    "startup_seeder_skipped",
-                    reason="regime_store_already_populated",
-                    existing_regime_id=existing.regime_id,
-                    existing_as_of_date=str(existing.as_of_date),
+    # --- Idempotency check (skipped when force_refresh=True) -----------------
+    if not force_refresh:
+        try:
+            if regime_service._regime_repository is not None:  # noqa: SLF001
+                existing = await regime_service._regime_repository.get_latest_on_or_before(  # noqa: SLF001
+                    target_date
                 )
-                return SeedStatus(
-                    success=True,
-                    skipped=True,
-                    regime_id=existing.regime_id,
-                )
-    except Exception as exc:  # noqa: BLE001
-        _log.warning("startup_seeder_idempotency_check_failed", error=str(exc))
-        # Continue — failure to check idempotency should not block seeding
+                if existing is not None:
+                    _log.info(
+                        "startup_seeder_skipped",
+                        reason="regime_store_already_populated",
+                        existing_regime_id=existing.regime_id,
+                        existing_as_of_date=str(existing.as_of_date),
+                    )
+                    return SeedStatus(
+                        success=True,
+                        skipped=True,
+                        regime_id=existing.regime_id,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("startup_seeder_idempotency_check_failed", error=str(exc))
+            # Continue — failure to check idempotency should not block seeding
 
     # --- Build snapshot -------------------------------------------------------
     snapshot_id = str(uuid.uuid4())
@@ -313,7 +307,11 @@ async def seed_regime_from_synthetic_observations(
                 "seed_version": SEEDER_METADATA["seed_version"],
             })
         else:
-            regime.metadata.update(SEEDER_METADATA)
+            # D-01a: no real data available — all indicator states are UNKNOWN
+            regime.metadata.update({
+                **SEEDER_METADATA,
+                "source": "no_data_available",
+            })
         is_seeded_flag = not used_real_data
         # Re-derive warnings with the correct is_seeded flag
         from src.domain.macro.regime_mapping import derive_regime_warnings
