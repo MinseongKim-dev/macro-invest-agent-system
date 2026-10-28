@@ -66,7 +66,7 @@ _settings = get_settings()
 # ---------------------------------------------------------------------------
 
 _seed_status: SeedStatus | None = None
-_refresh_task: asyncio.Task | None = None  # G-02: hourly store refresh
+_refresh_task: asyncio.Task[None] | None = None  # G-02: hourly store refresh
 
 # ---------------------------------------------------------------------------
 # Lifespan: seed in-memory stores on startup
