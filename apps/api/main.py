@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -88,7 +88,6 @@ async def _hourly_refresh_loop(
     while True:
         await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)
         try:
-            from apps.api.startup_seeder import seed_regime_from_synthetic_observations  # noqa: PLC0415
             status = await seed_regime_from_synthetic_observations(
                 snapshot_service=snapshot_service,
                 regime_service=regime_service_ref,  # type: ignore[arg-type]
@@ -158,10 +157,8 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:  # noqa: ARG00
     # Shutdown: cancel the refresh task
     if _refresh_task is not None and not _refresh_task.done():
         _refresh_task.cancel()
-        try:
+        with suppress(asyncio.CancelledError):
             await _refresh_task
-        except asyncio.CancelledError:
-            pass
 
 
 # ---------------------------------------------------------------------------

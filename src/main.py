@@ -69,7 +69,6 @@ from src.database import (
 )
 from src.domain.notifications.service import (
     build_regime_email_html,
-    generate_vapid_keys,
     send_email_alert,
     send_web_push,
 )
