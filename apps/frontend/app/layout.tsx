@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next'
+import { Analytics } from '@vercel/analytics/next'
 import ServiceWorkerRegister from '@/components/ServiceWorkerRegister'
 import './globals.css'
 
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body style={{ margin: 0, padding: 0, overflow: 'hidden' }}>
         <ServiceWorkerRegister />
         {children}
+        <Analytics />
       </body>
     </html>
   )
