@@ -9,7 +9,7 @@ Aleph-One is a J.A.R.V.I.S.-style hybrid financial intelligence system. It inges
 ## What's New in v0.4.19
 
 - **Push notification UI** — PUSH button in header subscribes/unsubscribes to Web Push alerts. Styled with green neon glow when active (`◈ PUSH ON`). Three Next.js proxy routes added for vapid-public-key, subscribe, and unsubscribe endpoints.
-- **Real data seeding** — `apps/api/` startup seeder now fetches live CPI, UNRATE, and T10Y values from the `macro_indicators` TimescaleDB table on boot. Falls back to synthetic values if DB is unreachable. When real data is loaded, the regime is no longer marked as synthetic (`is_seeded = false`).
+- **Real data seeding** — `apps/api/` startup seeder now fetches live CPI, UNRATE, and T10Y values from the `macro_indicators` TimescaleDB table on boot. No synthetic fallback: if the DB is unreachable all indicator states are `UNKNOWN` and `source` is `no_data_available` (D-01a). When real data is loaded the regime is no longer marked as synthetic (`is_seeded = false`).
 
 ---
 
