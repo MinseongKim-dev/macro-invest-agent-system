@@ -9,13 +9,14 @@ import { useNewsStream } from '@/hooks/useNewsStream'
 import { useRegime, useSignals, usePortfolio, useSectorSummary, useVirtualPortfolio, useScenarioPresets, runScenario, usePortfolioAllocation, useCorrelationMatrix, useDailyBrief, useAlertsFeed, useVirtualOrders, useNavHistory, useQuantScore, useRegimeHistory } from '@/hooks/useAlephData'
 import { useOmniStream } from '@/hooks/useOmniStream'
 import { useAuth } from '@/hooks/useAuth'
+import { usePushNotifications } from '@/hooks/usePushNotifications'
 import type { OmniWidget, OmniResp } from '@/hooks/useOmniStream'
 import { ResearchPanel } from '@/components/ResearchPanel'
 import { DetailPanel, type TickerDetail } from '@/components/DetailPanel'
 import type { AlephStreamData, ExternalEventDTO, ScenarioPreset, ScenarioRunResponse, PortfolioAllocationDTO, DailyBriefDTO, LiveAlertItem, VirtualOrderDTO, QuantScoreLatestResponse, RegimeHistoryResponse } from '@/lib/types'
 
 // ─── Version ──────────────────────────────────────────────────────────────────
-export const APP_VERSION = 'v0.4.18'
+export const APP_VERSION = 'v0.4.19'
 
 // ─── Global Styles ────────────────────────────────────────────────────────────
 const STYLES = `
@@ -930,6 +931,7 @@ export default function AlephDashboard() {
   const { data: regimeHistData }                                              = useRegimeHistory(8)
   const omni                                                                 = useOmniStream()
   const { user, signOut }                                                    = useAuth()
+  const { isSubscribed: pushSubscribed, subscribe: pushSubscribe, unsubscribe: pushUnsubscribe, isSupported: pushSupported } = usePushNotifications()
 
   // Order execution toast
   const [orderToast, setOrderToast] = useState<string | null>(null)
@@ -1408,6 +1410,15 @@ export default function AlephDashboard() {
             )}
           </div>
           <AlertBell />
+          {pushSupported && (
+            <button
+              onClick={pushSubscribed ? pushUnsubscribe : pushSubscribe}
+              title={pushSubscribed ? '푸시 알림 해제' : '푸시 알림 구독'}
+              style={{ fontFamily: "'Orbitron',sans-serif", fontSize: 7, letterSpacing: '1.5px', padding: '3px 9px', borderRadius: 4, border: `1px solid rgba(0,255,136,${pushSubscribed ? '.5' : '.2'})`, background: pushSubscribed ? 'rgba(0,255,136,.14)' : 'transparent', color: pushSubscribed ? '#00ff88' : 'rgba(0,255,136,.4)', cursor: 'pointer', transition: 'all .2s' }}
+            >
+              {pushSubscribed ? '◈ PUSH ON' : '◇ PUSH'}
+            </button>
+          )}
           <span style={{ fontFamily: "'JetBrains Mono',monospace", fontSize: 12, color: 'rgba(0,229,255,.65)', letterSpacing: '1px' }}>{ts}</span>
           <span style={{ fontFamily: "'Rajdhani',sans-serif", fontSize: 9, letterSpacing: '1.5px', color: 'rgba(255,255,255,.22)' }}>KST UTC+9</span>
           <button

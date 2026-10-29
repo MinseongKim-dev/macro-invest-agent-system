@@ -1,26 +1,32 @@
 'use client'
 import dynamic from 'next/dynamic'
 
-// AlephDashboard uses browser APIs (EventSource, canvas) — skip SSR
-const AlephDashboard = dynamic(
-  () => import('@/components/AlephDashboard'),
+// AlephHome uses browser APIs (EventSource, SWR, localStorage) — skip SSR
+const AlephHome = dynamic(
+  () => import('@/components/AlephHome').then(m => ({ default: m.AlephHome })),
   {
     ssr: false,
     loading: () => (
-      <div style={{
-        width: '100vw', height: '100vh',
-        background: '#020b18',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontFamily: "'JetBrains Mono', monospace",
-        fontSize: 11, color: 'rgba(0,229,255,0.4)',
-        letterSpacing: '3px',
-      }}>
-        ALEPH-ONE INITIALIZING…
+      <div
+        style={{
+          width: '100vw',
+          height: '100vh',
+          background: '#F6F4EF',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontFamily: "'Inter', system-ui, sans-serif",
+          fontSize: 13,
+          color: '#8A9399',
+          letterSpacing: '0.04em',
+        }}
+      >
+        Aleph One
       </div>
     ),
   },
 )
 
 export default function Home() {
-  return <AlephDashboard />
+  return <AlephHome />
 }

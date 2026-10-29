@@ -73,7 +73,11 @@ async def test_seeder_regime_has_known_label(
     regime_service: MacroRegimeService,
     regime_store: InMemoryMacroRegimeStore,
 ) -> None:
-    """The seeded regime label must be a valid, non-UNCLEAR label."""
+    """With no DB data available (test environment), regime label is UNCLEAR.
+
+    D-01a: seeder passes None for absent indicators → GrowthState.UNKNOWN →
+    RegimeLabel.UNCLEAR.  This is correct behaviour, not a failure.
+    """
     await seed_regime_from_synthetic_observations(
         snapshot_service=snapshot_service,
         regime_service=regime_service,
@@ -81,12 +85,7 @@ async def test_seeder_regime_has_known_label(
     )
 
     regime = regime_store.all_regimes()[0]
-    assert regime.regime_label in {
-        RegimeLabel.SLOWDOWN,
-        RegimeLabel.POLICY_TIGHTENING_DRAG,
-        RegimeLabel.STAGFLATION_RISK,
-        RegimeLabel.CONTRACTION,
-    }
+    assert regime.regime_label == RegimeLabel.UNCLEAR
 
 
 @pytest.mark.asyncio
@@ -95,7 +94,12 @@ async def test_seeder_regime_carries_synthetic_metadata(
     regime_service: MacroRegimeService,
     regime_store: InMemoryMacroRegimeStore,
 ) -> None:
-    """Seeded regime must have metadata distinguishing it from production data."""
+    """Seeded regime must have metadata distinguishing it from production data.
+
+    D-01a: when no TimescaleDB data is available (test environment), source is
+    'no_data_available' rather than 'synthetic_seed'.  seeded='true' and
+    seed_version are still set so the frontend badge works correctly.
+    """
     await seed_regime_from_synthetic_observations(
         snapshot_service=snapshot_service,
         regime_service=regime_service,
@@ -104,10 +108,9 @@ async def test_seeder_regime_carries_synthetic_metadata(
 
     regime = regime_store.all_regimes()[0]
     assert regime.metadata.get("seeded") == "true"
-    assert regime.metadata.get("source") == "synthetic_seed"
-    assert regime.metadata.get("seed_version") is not None
-    for key, value in SEEDER_METADATA.items():
-        assert regime.metadata.get(key) == value
+    # No DB in test environment → source is no_data_available, not synthetic_seed
+    assert regime.metadata.get("source") == "no_data_available"
+    assert regime.metadata.get("seed_version") == SEEDER_METADATA["seed_version"]
 
 
 @pytest.mark.asyncio
@@ -178,7 +181,12 @@ async def test_seeder_snapshot_is_populated(
     regime_service: MacroRegimeService,
     snapshot_store: InMemoryMacroSnapshotStore,
 ) -> None:
-    """After seeding, snapshot store contains one snapshot with derived state values."""
+    """After seeding, snapshot store contains one snapshot.
+
+    D-01a: with no TimescaleDB data in the test environment, all indicator
+    values are absent → all dimension states are UNKNOWN.  The snapshot IS
+    written (seeder does not crash or skip); states are simply all unknown.
+    """
     await seed_regime_from_synthetic_observations(
         snapshot_service=snapshot_service,
         regime_service=regime_service,
@@ -188,11 +196,12 @@ async def test_seeder_snapshot_is_populated(
     snapshots = snapshot_store.all_snapshots()
     assert len(snapshots) == 1
     snap = snapshots[0]
-    assert snap.growth_state.value != "unknown"
-    assert snap.inflation_state.value != "unknown"
-    assert snap.labor_state.value != "unknown"
-    assert snap.policy_state.value != "unknown"
-    assert snap.financial_conditions_state.value != "unknown"
+    # No DB data in test → all states are UNKNOWN — correct per D-01a
+    assert snap.growth_state.value == "unknown"
+    assert snap.inflation_state.value == "unknown"
+    assert snap.labor_state.value == "unknown"
+    assert snap.policy_state.value == "unknown"
+    assert snap.financial_conditions_state.value == "unknown"
 
 
 @pytest.mark.asyncio

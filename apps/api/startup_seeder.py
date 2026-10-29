@@ -37,6 +37,7 @@ for optionally exposing a degraded readiness state.
 
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
@@ -55,6 +56,17 @@ from src.services.macro_snapshot_service import MacroSnapshotService
 _log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
+# DB series_id → MacroIndicatorType mapping
+# PMI and RETAIL_SALES have no real source — kept synthetic.
+# ---------------------------------------------------------------------------
+
+_SERIES_TO_INDICATOR: dict[str, MacroIndicatorType] = {
+    "CPI":    MacroIndicatorType.INFLATION,
+    "UNRATE": MacroIndicatorType.UNEMPLOYMENT,
+    "T10Y":   MacroIndicatorType.YIELD_10Y,
+}
+
+# ---------------------------------------------------------------------------
 # Metadata stamped on every regime produced by this seeder
 # ---------------------------------------------------------------------------
 
@@ -64,24 +76,56 @@ SEEDER_METADATA: dict[str, str] = {
     "seed_version": "1",
 }
 
-# ---------------------------------------------------------------------------
-# Synthetic indicator values
-# ---------------------------------------------------------------------------
-# These values are chosen to produce a deterministic SLOWDOWN/POLICY_TIGHTENING_DRAG
-# regime so that the analyst UI shows a meaningful, non-trivial baseline:
-#   PMI=48.2      → growth_state = SLOWING
-#   RETAIL_SALES  = -0.5 → growth_state = SLOWING (reinforces)
-#   INFLATION=3.1 → inflation_state = STICKY
-#   UNEMPLOYMENT=4.4 → labor_state = SOFTENING
-#   YIELD_10Y=4.6 → policy_state = RESTRICTIVE, financial_conditions_state = TIGHT
+# _SYNTHETIC_VALUES removed (D-01a): all indicator values must come from
+# TimescaleDB macro_indicators. If a series is absent, pass None — the
+# domain layer returns GrowthState.UNKNOWN rather than a synthetic state.
 
-_SYNTHETIC_VALUES: dict[MacroIndicatorType, float] = {
-    MacroIndicatorType.PMI: 48.2,
-    MacroIndicatorType.RETAIL_SALES: -0.5,
-    MacroIndicatorType.INFLATION: 3.1,
-    MacroIndicatorType.UNEMPLOYMENT: 4.4,
-    MacroIndicatorType.YIELD_10Y: 4.6,
-}
+
+# ---------------------------------------------------------------------------
+# Real-data fetch (best-effort)
+# ---------------------------------------------------------------------------
+
+
+def _fetch_real_values_sync() -> dict[MacroIndicatorType, float]:
+    """Query the latest value for each real series from macro_indicators.
+
+    Returns a (possibly partial or empty) dict of indicator → value.
+    Never raises — returns {} on any connection or query failure.
+    """
+    try:
+        import psycopg  # noqa: PLC0415  (local import keeps startup cost zero on import)
+
+        conninfo = (
+            f"host={os.environ.get('DB_HOST', 'localhost')} "
+            f"port={os.environ.get('DB_PORT', '5432')} "
+            f"dbname={os.environ.get('DB_NAME', 'aleph_core')} "
+            f"user={os.environ.get('DB_USER', 'aleph_admin')} "
+            f"password={os.environ.get('DB_PASSWORD', 'aleph_secure_pass')}"
+        )
+        series_ids = list(_SERIES_TO_INDICATOR.keys())
+        placeholders = ", ".join(f"${i + 1}" for i in range(len(series_ids)))
+        query = (
+            f"SELECT DISTINCT ON (series_id) series_id, value "  # noqa: S608
+            f"FROM macro_indicators "
+            f"WHERE series_id IN ({placeholders}) "
+            f"ORDER BY series_id, snapshot_time DESC"
+        )
+        result: dict[MacroIndicatorType, float] = {}
+        with psycopg.connect(conninfo, connect_timeout=3) as conn:
+            rows = conn.execute(query, series_ids).fetchall()
+        for series_id, value in rows:
+            indicator = _SERIES_TO_INDICATOR.get(series_id)
+            if indicator is not None and value is not None:
+                result[indicator] = float(value)
+        _log.info(
+            "startup_seeder_real_values_fetched",
+            count=len(result),
+            indicators=[ind.value for ind in result],
+        )
+        return result
+    except Exception as exc:  # noqa: BLE001
+        _log.warning("startup_seeder_real_values_unavailable", error=str(exc))
+        return {}
 
 
 # ---------------------------------------------------------------------------
@@ -117,13 +161,21 @@ class SeedStatus:
 def _build_synthetic_observations(
     as_of_date: date,
     snapshot_id: str,
+    indicator_values: dict[MacroIndicatorType, float] | None = None,
 ) -> list[NormalizedMacroObservation]:
-    """Build a set of synthetic normalized observations for *as_of_date*."""
+    """Build normalized observations for *as_of_date* from *indicator_values*.
+
+    Only indicators present in *indicator_values* generate observations.
+    Absent indicators (e.g. PMI when ISM data is not collected) result in no
+    observation, causing the domain to return GrowthState.UNKNOWN — correct
+    behaviour per D-01a.
+    """
+    values = indicator_values if indicator_values is not None else {}
     now = datetime.now(UTC)
     obs_dt = datetime(as_of_date.year, as_of_date.month, as_of_date.day, tzinfo=UTC)
     observations: list[NormalizedMacroObservation] = []
 
-    for indicator, value in _SYNTHETIC_VALUES.items():
+    for indicator, value in values.items():
         freshness = FreshnessMetadata(
             expected_max_lag_hours=24 * 45,
             observed_lag_hours=0.0,
@@ -161,6 +213,7 @@ async def seed_regime_from_synthetic_observations(
     snapshot_service: MacroSnapshotService,
     regime_service: MacroRegimeService,
     as_of_date: date | None = None,
+    force_refresh: bool = False,
 ) -> SeedStatus:
     """Seed the in-memory stores with a synthetic snapshot and regime.
 
@@ -179,33 +232,42 @@ async def seed_regime_from_synthetic_observations(
     """
     target_date = as_of_date or date.today()
 
-    # --- Idempotency check ---------------------------------------------------
-    try:
-        if regime_service._regime_repository is not None:  # noqa: SLF001
-            existing = await regime_service._regime_repository.get_latest_on_or_before(  # noqa: SLF001
-                target_date
-            )
-            if existing is not None:
-                _log.info(
-                    "startup_seeder_skipped",
-                    reason="regime_store_already_populated",
-                    existing_regime_id=existing.regime_id,
-                    existing_as_of_date=str(existing.as_of_date),
+    # --- Attempt to load real indicator values from TimescaleDB --------------
+    loop = __import__("asyncio").get_event_loop()
+    real_values = await loop.run_in_executor(None, _fetch_real_values_sync)
+    # D-01a: use ONLY real DB values; absent indicators produce UNKNOWN state
+    indicator_values = real_values
+    used_real_data = bool(real_values)
+
+    # --- Idempotency check (skipped when force_refresh=True) -----------------
+    if not force_refresh:
+        try:
+            if regime_service._regime_repository is not None:  # noqa: SLF001
+                existing = await regime_service._regime_repository.get_latest_on_or_before(  # noqa: SLF001
+                    target_date
                 )
-                return SeedStatus(
-                    success=True,
-                    skipped=True,
-                    regime_id=existing.regime_id,
-                )
-    except Exception as exc:  # noqa: BLE001
-        _log.warning("startup_seeder_idempotency_check_failed", error=str(exc))
-        # Continue — failure to check idempotency should not block seeding
+                if existing is not None:
+                    _log.info(
+                        "startup_seeder_skipped",
+                        reason="regime_store_already_populated",
+                        existing_regime_id=existing.regime_id,
+                        existing_as_of_date=str(existing.as_of_date),
+                    )
+                    return SeedStatus(
+                        success=True,
+                        skipped=True,
+                        regime_id=existing.regime_id,
+                    )
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("startup_seeder_idempotency_check_failed", error=str(exc))
+            # Continue — failure to check idempotency should not block seeding
 
     # --- Build snapshot -------------------------------------------------------
     snapshot_id = str(uuid.uuid4())
     observations = _build_synthetic_observations(
         as_of_date=target_date,
         snapshot_id=snapshot_id,
+        indicator_values=indicator_values,
     )
 
     _log.info(
@@ -235,16 +297,30 @@ async def seed_regime_from_synthetic_observations(
     # --- Build and persist regime --------------------------------------------
     try:
         regime = await regime_service.build_and_save_regime(as_of_date=target_date)
-        # Stamp seeder metadata onto the persisted regime
-        regime.metadata.update(SEEDER_METADATA)
-        # Re-derive warnings now that is_seeded=True is known
+        # Stamp seeder metadata onto the persisted regime.
+        # If real DB values were available, mark as real-data so the frontend
+        # does not show the "bootstrap/synthetic" badge (is_seeded = False).
+        if used_real_data:
+            regime.metadata.update({
+                "seeded":       "false",
+                "source":       "real_data_seed",
+                "seed_version": SEEDER_METADATA["seed_version"],
+            })
+        else:
+            # D-01a: no real data available — all indicator states are UNKNOWN
+            regime.metadata.update({
+                **SEEDER_METADATA,
+                "source": "no_data_available",
+            })
+        is_seeded_flag = not used_real_data
+        # Re-derive warnings with the correct is_seeded flag
         from src.domain.macro.regime_mapping import derive_regime_warnings
         regime.warnings = derive_regime_warnings(
             snapshot=snapshot,
             label=regime.regime_label,
             confidence=regime.confidence,
             missing_inputs=list(regime.missing_inputs),
-            is_seeded=True,
+            is_seeded=is_seeded_flag,
         )
     except Exception as exc:  # noqa: BLE001
         _log.error("startup_seeder_regime_failed", error=str(exc))

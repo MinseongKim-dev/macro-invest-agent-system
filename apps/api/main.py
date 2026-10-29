@@ -30,8 +30,9 @@ Environment variables are read from ``.env`` via :mod:`core.config.settings`.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Response
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
@@ -65,10 +66,44 @@ _settings = get_settings()
 # ---------------------------------------------------------------------------
 
 _seed_status: SeedStatus | None = None
+_refresh_task: asyncio.Task[None] | None = None  # G-02: hourly store refresh
 
 # ---------------------------------------------------------------------------
 # Lifespan: seed in-memory stores on startup
 # ---------------------------------------------------------------------------
+
+
+_REFRESH_INTERVAL_SECONDS: int = 3600  # G-02: refresh InMemoryStore every hour
+
+
+async def _hourly_refresh_loop(
+    snapshot_service: MacroSnapshotService,
+    regime_service_ref: object,
+) -> None:
+    """Refresh InMemoryStore from real DB data every hour (G-02).
+
+    Runs as a background task started in the lifespan.  Uses force_refresh=True
+    so the idempotency check does not short-circuit the refresh.
+    """
+    while True:
+        await asyncio.sleep(_REFRESH_INTERVAL_SECONDS)
+        try:
+            status = await seed_regime_from_synthetic_observations(
+                snapshot_service=snapshot_service,
+                regime_service=regime_service_ref,  # type: ignore[arg-type]
+                force_refresh=True,
+            )
+            _log.info(
+                "hourly_store_refresh_complete",
+                success=status.success,
+                regime_id=status.regime_id,
+                error=status.error,
+            )
+        except asyncio.CancelledError:
+            _log.info("hourly_store_refresh_cancelled")
+            return
+        except Exception as exc:  # noqa: BLE001
+            _log.warning("hourly_store_refresh_failed", error=str(exc))
 
 
 @asynccontextmanager
@@ -90,7 +125,7 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:  # noqa: ARG00
     records the failure.  ``GET /readiness`` surfaces this as a warning
     so operators can observe the degraded bootstrap state.
     """
-    global _seed_status  # noqa: PLW0603
+    global _seed_status, _refresh_task  # noqa: PLW0603
     if not _settings.seed_on_startup:
         _log.info("startup_seeder_disabled", reason="SEED_ON_STARTUP=false")
         yield
@@ -110,7 +145,20 @@ async def _lifespan(application: FastAPI) -> AsyncIterator[None]:  # noqa: ARG00
             _log.info("startup_seeder_complete", regime_id=status.regime_id)
     else:
         _log.warning("startup_seeder_failed", error=status.error)
+
+    # G-02: start hourly InMemoryStore refresh so data stays current without restart
+    _refresh_task = asyncio.create_task(
+        _hourly_refresh_loop(snapshot_service, regime_service)
+    )
+    _log.info("hourly_store_refresh_scheduled", interval_seconds=_REFRESH_INTERVAL_SECONDS)
+
     yield
+
+    # Shutdown: cancel the refresh task
+    if _refresh_task is not None and not _refresh_task.done():
+        _refresh_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _refresh_task
 
 
 # ---------------------------------------------------------------------------
